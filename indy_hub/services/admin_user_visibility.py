@@ -21,16 +21,12 @@ def can_access_indy_hub_user_admin_scope(user) -> bool:
     """Return whether the user can access Indy Hub user-admin scope data."""
     if not getattr(user, "is_authenticated", False):
         return False
-    if getattr(user, "is_superuser", False):
-        return True
-    return user.has_perm(INDY_HUB_CORP_ADMIN_PERMISSION)
+    return bool(getattr(user, "is_superuser", False))
 
 
 def get_managed_corporation_ids_for_user_admin_scope(user) -> set[int]:
     """Return corporation IDs managed by a non-superuser Indy Hub admin."""
-    if not getattr(user, "is_authenticated", False):
-        return set()
-    if not user.has_perm(INDY_HUB_CORP_ADMIN_PERMISSION):
+    if not can_access_indy_hub_user_admin_scope(user):
         return set()
 
     return {
@@ -48,25 +44,14 @@ def get_visible_indy_hub_users_for_admin_scope(user, queryset=None):
 
     Rules:
     - Superuser can view all users.
-    - Non-superuser must have the Indy Hub corp admin permission.
-    - Non-superuser visibility is restricted to users who share at least one
-                corporation managed by the requesting admin.
+    - Non-superusers cannot access this scope.
     """
     qs = queryset if queryset is not None else User.objects.all()
 
     if not can_access_indy_hub_user_admin_scope(user):
         return qs.none()
 
-    if getattr(user, "is_superuser", False):
-        return qs.distinct()
-
-    managed_corp_ids = get_managed_corporation_ids_for_user_admin_scope(user)
-    if not managed_corp_ids:
-        return qs.none()
-
-    return qs.filter(
-        character_ownerships__character__corporation_id__in=sorted(managed_corp_ids)
-    ).distinct()
+    return qs.distinct()
 
 
 def get_visible_indy_hub_user_ids_for_admin_scope(user) -> set[int]:

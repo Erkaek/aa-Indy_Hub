@@ -47,7 +47,7 @@ ______________________________________________________________________
 - **Notifications**: Receive in-app updates for key events (offers, deliveries, job updates).
 - **Analytics Hooks**: Emits Alliance Auth analytics events for key Material Exchange lifecycle transitions.
 - **Admin Tools**: Manage corp blueprint workflows and Material Exchange operations with dedicated admin views.
-- **Admin User Oversight**: `Settings > User admin` gives superusers and corp blueprint admins a private read-only view of visible users, including health score, scope coverage, and usage analytics.
+- **Admin User Oversight**: `Settings > User admin` gives superusers a private read-only view of users, including health score, scope coverage, and usage analytics.
 - **Modern UI**: Responsive, theme-friendly interface designed for daily operational use.
 
 ## Requirements
@@ -169,7 +169,6 @@ Assign permissions in Alliance Auth to control access levels:
   - Handle corporation blueprint copy requests (accept/reject corp BP copy sharing)
   - Access corporation industry jobs
   - Configure corporation sharing settings
-  - Access the private `Settings > User admin` page for corpmates in managed corporations
   - This role is **not** meant for everyone — only for people who manage corp BPs (they can handle contracts for corpmates)
   - Requires ESI director roles for the corporation
 
@@ -191,7 +190,7 @@ ______________________________________________________________________
 ### User Admin Page
 
 - `Settings > User admin` is a private read-only page for Indy Hub user administration.
-- Visibility is scope-aware: superusers can review all users, while corp blueprint admins only see corpmates in corporations they manage.
+- Visibility is superuser-only.
 - The page surfaces personal sharing, job-notification state, scope completeness, recent usage, and a health score per visible user.
 
 Customize Indy Hub behavior in `local.py`:

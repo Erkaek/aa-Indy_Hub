@@ -17,7 +17,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Crafting Projects: temporary projects now persist the Corp BP toggle state across page reloads via a dedicated cache endpoint, so the choice survives without saving the project.
 - Structure tab: new **Category Assignments** section lets users apply a structure to all items of the same craft group (e.g. "Construction Components", "Fuel Block") at once.
 - Management command: `populate_location_names --repair-stations` repairs placeholder location names by re-resolving NPC station IDs via the corrected public endpoint and relabelling non-deployed asset-item IDs as `<type name> [asset]`. Supports `--dry-run`.
-- Settings: added a private `Settings > User admin` page for superusers and corp blueprint admins, with visibility-scoped user review, scope or usage filters, health scoring, and usage analytics.
+- Settings: added a private `Settings > User admin` page for superusers only, with visibility-scoped user review, scope or usage filters, health scoring, and usage analytics.
 
 ### Fixed
 

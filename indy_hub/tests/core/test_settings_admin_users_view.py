@@ -235,7 +235,7 @@ class SettingsAdminUsersViewTests(TestCase):
             return content
         return content[users_header:]
 
-    def test_settings_hub_shows_admin_nav_link_for_manager(self) -> None:
+    def test_settings_hub_hides_admin_nav_link_for_manager(self) -> None:
         request = self._prepare_request(
             self.factory.get(reverse("indy_hub:settings_hub")),
             user=self.manager,
@@ -244,7 +244,7 @@ class SettingsAdminUsersViewTests(TestCase):
         response = self._settings_hub_view(request)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, reverse("indy_hub:settings_admin_users"))
+        self.assertNotContains(response, reverse("indy_hub:settings_admin_users"))
 
     def test_settings_hub_hides_admin_nav_link_for_regular_user(self) -> None:
         request = self._prepare_request(
@@ -280,18 +280,15 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertContains(response, self.member_managed.username)
         self.assertContains(response, self.member_other.username)
 
-    def test_manager_sees_only_managed_corporation_users(self) -> None:
+    def test_manager_cannot_access_private_admin_page(self) -> None:
         request = self._prepare_request(
             self.factory.get(reverse("indy_hub:settings_admin_users")),
             user=self.manager,
         )
 
         response = self._settings_admin_view(request)
-        users_html = self._users_section_html(response)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(self.member_managed.username, users_html)
-        self.assertNotIn(self.member_other.username, users_html)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("indy_hub:index"))
 
     def test_usage_detail_button_shows_page_history_modal(self) -> None:
         request = self._prepare_request(

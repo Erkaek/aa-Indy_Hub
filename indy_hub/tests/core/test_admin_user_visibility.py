@@ -132,10 +132,13 @@ class AdminUserVisibilityScopeTests(TestCase):
     def test_regular_user_cannot_access_scope(self) -> None:
         self.assertFalse(can_access_indy_hub_user_admin_scope(self.regular_user))
 
-    def test_manager_managed_corporations_from_linked_characters(self) -> None:
+    def test_manager_cannot_access_scope_even_with_corp_admin_permission(self) -> None:
+        self.assertFalse(can_access_indy_hub_user_admin_scope(self.manager))
+
+    def test_manager_managed_corporations_empty_without_scope_access(self) -> None:
         self.assertEqual(
             get_managed_corporation_ids_for_user_admin_scope(self.manager),
-            {1001},
+            set(),
         )
 
     def test_superuser_sees_all_users(self) -> None:
@@ -147,16 +150,9 @@ class AdminUserVisibilityScopeTests(TestCase):
         all_ids = set(User.objects.values_list("id", flat=True))
         self.assertEqual(visible_ids, all_ids)
 
-    def test_manager_sees_only_users_in_managed_corporations(self) -> None:
+    def test_manager_sees_no_users(self) -> None:
         visible_ids = get_visible_indy_hub_user_ids_for_admin_scope(self.manager)
-
-        self.assertIn(self.manager.id, visible_ids)
-        self.assertIn(self.member_same_corp.id, visible_ids)
-        self.assertIn(self.member_multi_corp.id, visible_ids)
-
-        self.assertNotIn(self.other_manager.id, visible_ids)
-        self.assertNotIn(self.member_other_corp.id, visible_ids)
-        self.assertNotIn(self.regular_user.id, visible_ids)
+        self.assertEqual(visible_ids, set())
 
     def test_admin_without_permission_sees_no_users(self) -> None:
         visible_ids = get_visible_indy_hub_user_ids_for_admin_scope(self.regular_user)
