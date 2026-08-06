@@ -47,6 +47,7 @@ ______________________________________________________________________
 - **Notifications**: Receive in-app updates for key events (offers, deliveries, job updates).
 - **Analytics Hooks**: Emits Alliance Auth analytics events for key Material Exchange lifecycle transitions.
 - **Admin Tools**: Manage corp blueprint workflows and Material Exchange operations with dedicated admin views.
+- **Admin User Oversight**: `Settings > User admin` gives superusers a private read-only view of users, including health score, scope coverage, and usage analytics.
 - **Modern UI**: Responsive, theme-friendly interface designed for daily operational use.
 
 ## Requirements
@@ -185,6 +186,12 @@ Assign permissions in Alliance Auth to control access levels:
 ______________________________________________________________________
 
 ## Settings
+
+### User Admin Page
+
+- `Settings > User admin` is a private read-only page for Indy Hub user administration.
+- Visibility is superuser-only.
+- The page surfaces personal sharing, job-notification state, scope completeness, recent usage, and a health score per visible user.
 
 Customize Indy Hub behavior in `local.py`:
 

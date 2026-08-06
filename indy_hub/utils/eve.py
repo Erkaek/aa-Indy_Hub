@@ -954,6 +954,36 @@ def resolve_location_name(
     remaining_attempts = _MAX_STRUCTURE_LOOKUPS
     structure_forbidden_hit = False
 
+    # Skip ESI for large IDs that appear in the asset cache as non-deployed items
+    # (e.g. items in a station or inside another item).  Only IDs located directly
+    # in a solar system (location_id < 60 000 000) are deployed structures worth
+    # querying ESI for.
+    if structure_id >= 1_000_000_000_000:
+        try:
+            corp_asset_model = apps.get_model("indy_hub", "CachedCorporationAsset")
+            corp_loc = (
+                corp_asset_model.objects.filter(item_id=structure_id)
+                .values_list("location_id", flat=True)
+                .first()
+            )
+            if corp_loc is not None and int(corp_loc) >= _STATION_ID_MIN:
+                allow_authenticated = False
+        except Exception:
+            pass
+
+        if allow_authenticated:
+            try:
+                char_asset_model = apps.get_model("indy_hub", "CachedCharacterAsset")
+                char_loc = (
+                    char_asset_model.objects.filter(item_id=structure_id)
+                    .values_list("location_id", flat=True)
+                    .first()
+                )
+                if char_loc is not None and int(char_loc) >= _STATION_ID_MIN:
+                    allow_authenticated = False
+            except Exception:
+                pass
+
     def try_structure_lookup(
         candidate_character_id: int | None,
         *,
@@ -1040,7 +1070,7 @@ def resolve_location_name(
     if (
         allow_authenticated
         and not is_station
-        and structure_id > 2_147_483_647
+        and structure_id >= 1_000_000_000_000
         and global_rate_limit_pause <= 0
     ):
         name = try_structure_lookup(character_id)
@@ -1072,7 +1102,11 @@ def resolve_location_name(
                     break
 
     if allow_public and not name:
-        if structure_id <= 2_147_483_647:
+        if is_station:
+            # NPC stations (60 000 000–69 999 999): public endpoint, no auth required
+            name = shared_client.fetch_station_name(structure_id)
+        elif structure_id < 1_000_000_000_000:
+            # Misc public IDs (celestials, solar systems, etc.) — not stations, not player structures
             public_names = shared_client.resolve_ids_to_names([structure_id])
             name = public_names.get(structure_id)
 

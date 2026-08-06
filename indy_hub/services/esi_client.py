@@ -1317,6 +1317,73 @@ class ESIClient:
             force_refresh=force_refresh,
         )
 
+    def fetch_station_name(self, station_id: int) -> str | None:
+        """Resolve an NPC station name via the public /universe/stations/ endpoint (no auth)."""
+        if not station_id:
+            return None
+        endpoint = f"/universe/stations/{int(station_id)}/"
+        throttle_key = "public-station"
+        try:
+            operation_fn = self._resolve_operation(
+                "Universe", "get_universe_stations_station_id"
+            )
+        except AttributeError:
+            return None
+        self._enforce_task_scope_budget(None, endpoint, throttle_key=throttle_key)
+        try:
+            payload, response = operation_fn(station_id=int(station_id)).results(
+                return_response=True,
+                use_etag=False,
+            )
+            self._update_rate_limit_state_from_response(
+                response=response,
+                endpoint=endpoint,
+                throttle_key=throttle_key,
+            )
+        except HTTPNotModified:
+            # django-esi cache was stale; retry bypassing ETags entirely
+            try:
+                payload, response = operation_fn(station_id=int(station_id)).results(
+                    return_response=True,
+                    use_etag=False,
+                    force_refresh=True,
+                )
+                self._update_rate_limit_state_from_response(
+                    response=response,
+                    endpoint=endpoint,
+                    throttle_key=throttle_key,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "fetch_station_name retry after 304 failed for %s: %s",
+                    station_id,
+                    exc,
+                )
+                return None
+        except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc:
+            logger.warning(
+                "fetch_station_name rate limited for %s: %s", station_id, exc
+            )
+            return None
+        except _HTTP_ERROR_TYPES as exc:
+            logger.debug("fetch_station_name HTTP error for %s: %s", station_id, exc)
+            return None
+        except Exception as exc:
+            logger.debug("fetch_station_name failed for %s: %s", station_id, exc)
+            return None
+        if isinstance(payload, list):
+            payload = payload[0] if payload else None
+        if isinstance(payload, dict):
+            return str(payload.get("name") or "") or None
+        coerced = self._coerce_mapping(payload) if payload is not None else None
+        if isinstance(coerced, dict):
+            return str(coerced.get("name") or "") or None
+        if payload is not None:
+            name = getattr(payload, "name", None)
+            if name:
+                return str(name)
+        return None
+
     def resolve_ids_to_names(self, ids: list[int]) -> dict[int, str]:
         """Resolve a list of IDs to names via the public /universe/names/ endpoint.
 

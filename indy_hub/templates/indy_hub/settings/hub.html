@@ -62,6 +62,13 @@
                 {% endif %}
             </button>
         </li>
+        {% if can_access_user_admin_scope %}
+        <li class="nav-item" role="presentation">
+            <a class="nav-link" href="{% url 'indy_hub:settings_admin_users' %}">
+                {% trans "User admin" %}
+            </a>
+        </li>
+        {% endif %}
     </ul>
 
     <div class="tab-content" id="settingsTabsContent">

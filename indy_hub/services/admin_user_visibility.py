@@ -1,0 +1,59 @@
+"""Visibility rules for user-level Indy Hub admin features.
+
+This module centralizes access and scope rules so future admin views can reuse
+the same backend logic.
+"""
+
+from __future__ import annotations
+
+# Django
+from django.contrib.auth import get_user_model
+
+# Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
+
+User = get_user_model()
+
+
+def can_access_indy_hub_user_admin_scope(user) -> bool:
+    """Return whether the user can access Indy Hub user-admin scope data."""
+    if not getattr(user, "is_authenticated", False):
+        return False
+    return bool(getattr(user, "is_superuser", False))
+
+
+def get_managed_corporation_ids_for_user_admin_scope(user) -> set[int]:
+    """Return corporation IDs linked to a superuser for scope filtering helpers."""
+    if not can_access_indy_hub_user_admin_scope(user):
+        return set()
+
+    return {
+        int(corporation_id)
+        for corporation_id in CharacterOwnership.objects.filter(user=user)
+        .exclude(character__corporation_id__isnull=True)
+        .values_list("character__corporation_id", flat=True)
+        .distinct()
+        if corporation_id
+    }
+
+
+def get_visible_indy_hub_users_for_admin_scope(user, queryset=None):
+    """Return the queryset of users visible in Indy Hub user-admin scope.
+
+    Rules:
+    - Superuser can view all users.
+    - Non-superusers cannot access this scope.
+    """
+    qs = queryset if queryset is not None else User.objects.all()
+
+    if not can_access_indy_hub_user_admin_scope(user):
+        return qs.none()
+
+    return qs.distinct()
+
+
+def get_visible_indy_hub_user_ids_for_admin_scope(user) -> set[int]:
+    """Return visible user IDs for Indy Hub user-admin scope."""
+    return set(
+        get_visible_indy_hub_users_for_admin_scope(user).values_list("id", flat=True)
+    )
