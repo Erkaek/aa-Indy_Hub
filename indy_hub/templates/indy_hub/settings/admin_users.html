@@ -28,6 +28,52 @@
         border-bottom-width: 1px;
     }
 
+    .admin-users-sort-trigger {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font-size: inherit;
+        letter-spacing: inherit;
+        text-transform: inherit;
+        font-weight: 700;
+        padding: 0;
+    }
+
+    .admin-users-sort-trigger:hover,
+    .admin-users-sort-trigger:focus {
+        color: var(--bs-emphasis-color);
+    }
+
+    .admin-users-sort-indicator {
+        font-size: 0.66rem;
+        letter-spacing: normal;
+        text-transform: none;
+        color: var(--bs-secondary-color);
+        min-width: 2.4rem;
+    }
+
+    .admin-users-filter-row th {
+        background: var(--bs-body-bg);
+        border-bottom-width: 1px;
+        padding-top: 0.45rem;
+        padding-bottom: 0.45rem;
+    }
+
+    .admin-users-filter-row .form-control,
+    .admin-users-filter-row .form-select {
+        min-width: 9rem;
+    }
+
+    .admin-users-table-tools {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
     .admin-users-users-table td,
     .admin-users-usage-table td,
     .admin-users-usage-table th {
@@ -222,96 +268,83 @@
                         <p class="text-muted small mb-0">{% trans "Aggregated usage across all visible users." %}</p>
                     </div>
                 </div>
-
-                <div class="admin-users-usage-summary-grid">
-                    <div class="admin-users-usage-summary-card">
-                        <div class="admin-users-usage-summary-label">{% trans "Visible users" %}</div>
-                        <div class="admin-users-usage-summary-value">{{ global_usage_detail.visible_user_count }}</div>
-                        <div class="admin-users-usage-summary-note">{% trans "Users included in this aggregated view." %}</div>
+                <div id="adminUsersGlobalUsageContainer" data-url="{% url 'indy_hub:settings_admin_users_global_usage_fragment' %}">
+                    <div class="d-flex align-items-center gap-2 text-muted small" role="status" aria-live="polite">
+                        <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+                        <span>{% trans "Loading usage analytics..." %}</span>
                     </div>
-                    <div class="admin-users-usage-summary-card">
-                        <div class="admin-users-usage-summary-label">{% trans "Active users (30d)" %}</div>
-                        <div class="admin-users-usage-summary-value">{{ global_usage_detail.active_user_count_30d }}</div>
-                        <div class="admin-users-usage-summary-note">{% trans "Visible users with at least one hit in the last 30 days." %}</div>
-                    </div>
-                    <div class="admin-users-usage-summary-card">
-                        <div class="admin-users-usage-summary-label">{% trans "Total hits" %}</div>
-                        <div class="admin-users-usage-summary-value">{{ global_usage_detail.total_usage_count }}</div>
-                        <div class="admin-users-usage-summary-note">{% trans "All recorded accesses across visible users." %}</div>
-                    </div>
-                    <div class="admin-users-usage-summary-card">
-                        <div class="admin-users-usage-summary-label">{% trans "Hits in 30d" %}</div>
-                        <div class="admin-users-usage-summary-value">{{ global_usage_detail.activity_30d_count }}</div>
-                        <div class="admin-users-usage-summary-note">
-                            {% if global_usage_detail.timeline_30d_peak_day_label %}
-                            {% trans "Peak" %}: {{ global_usage_detail.timeline_30d_peak_day_label }} · {{ global_usage_detail.timeline_30d_peak_day_count }}
-                            {% else %}
-                            {% trans "No recent usage yet." %}
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="mt-3">
-                    <div class="section-heading mb-2">
-                        <div>
-                            <h6 class="section-title mb-0">{% trans "Pages visited (30d)" %}</h6>
-                            <p class="text-muted small mb-0">{% trans "Page visits over the last 30 days." %}</p>
-                        </div>
-                    </div>
-                    {% if global_usage_detail.page_rings %}
-                    <div class="admin-users-pages-layout">
-                        <div class="admin-users-page-legend">
-                            {% for ring in global_usage_detail.page_rings %}
-                            <span class="admin-users-page-legend-item" title="{{ ring.label }} · {{ ring.recent_30d_count }}">
-                                <span class="d-inline-flex align-items-center gap-2">
-                                    <span class="admin-users-page-legend-swatch" style="background: {{ ring.page_color }};"></span>
-                                    <span>{{ ring.label }}</span>
-                                </span>
-                                <strong class="text-body">{{ ring.recent_30d_count }}</strong>
-                            </span>
-                            {% endfor %}
-                        </div>
-                        <div class="admin-users-page-chart-wrap">
-                            <svg class="admin-users-page-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" role="img" aria-label="{% trans '30-day usage by page across all users' %}" preserveAspectRatio="xMidYMid meet">
-                                <title>{% trans "30-day usage by page across all users" %}</title>
-                                <circle class="admin-users-page-svg-ring-track" cx="{{ global_usage_detail.page_ring_center_x }}" cy="{{ global_usage_detail.page_ring_center_y }}" r="{{ global_usage_detail.page_ring_outer_radius|add:'-13' }}"></circle>
-                                {% for ring in global_usage_detail.page_rings %}
-                                <path d="{{ ring.page_arc_path }}" fill="{{ ring.page_color }}"></path>
-                                {% endfor %}
-                                <circle class="admin-users-page-svg-radar-center" cx="{{ global_usage_detail.page_ring_center_x }}" cy="{{ global_usage_detail.page_ring_center_y }}" r="16"></circle>
-                                <text class="admin-users-page-svg-radar-center-value" x="{{ global_usage_detail.page_ring_center_x }}" y="{{ global_usage_detail.page_ring_center_y|add:'-2' }}">{{ global_usage_detail.page_total_30d }}</text>
-                                <text class="admin-users-page-svg-radar-center-label" x="{{ global_usage_detail.page_ring_center_x }}" y="{{ global_usage_detail.page_ring_center_y|add:'10' }}">{% trans "30d hits" %}</text>
-                                {% for ring in global_usage_detail.page_rings %}
-                                <text class="admin-users-page-svg-ring-label" x="{{ ring.page_label_x }}" y="{{ ring.page_label_y }}" text-anchor="{{ ring.page_label_anchor }}" transform="rotate({{ ring.page_label_rotation }} {{ ring.page_label_x }} {{ ring.page_label_y }})">{{ ring.page_label_short }}</text>
-                                {% endfor %}
-                            </svg>
-                        </div>
-                    </div>
-                    {% else %}
-                    <div class="text-muted small">{% trans "No global page detail has been recorded yet." %}</div>
-                    {% endif %}
                 </div>
             </div>
         </div>
 
         <div class="card focus-card admin-users-panel">
             <div class="card-body p-0">
+                <div class="px-3 pt-3 admin-users-table-tools">
+                    <div id="adminUsersTableResultCount" class="text-muted small" aria-live="polite"></div>
+                    <button id="adminUsersTableReset" type="button" class="btn btn-sm btn-outline-secondary">{% trans "Reset table filters" %}</button>
+                </div>
                 <div class="table-responsive">
-                    <table class="table table-sm table-striped table-hover align-middle mb-0 admin-users-users-table">
+                    <table id="adminUsersUsersTable" class="table table-sm table-striped table-hover align-middle mb-0 admin-users-users-table">
                         <thead class="admin-users-table-head">
                             <tr>
-                                <th>{% trans "User" %}</th>
-                                <th>{% trans "Corporations" %}</th>
-                                <th>{% trans "Health" %}</th>
-                                <th>{% trans "Scopes" %}</th>
-                                <th>{% trans "Usage" %}</th>
+                                <th>
+                                    <button type="button" class="admin-users-sort-trigger" data-sort-key="user" data-sort-type="text">{% trans "User" %} <span class="admin-users-sort-indicator" data-sort-indicator>{% trans "A-Z" %}</span></button>
+                                </th>
+                                <th>
+                                    <button type="button" class="admin-users-sort-trigger" data-sort-key="corporations" data-sort-type="text">{% trans "Corporations" %} <span class="admin-users-sort-indicator" data-sort-indicator>{% trans "A-Z" %}</span></button>
+                                </th>
+                                <th>
+                                    <button type="button" class="admin-users-sort-trigger" data-sort-key="health" data-sort-type="number">{% trans "Health" %} <span class="admin-users-sort-indicator" data-sort-indicator>{% trans "A-Z" %}</span></button>
+                                </th>
+                                <th>
+                                    <button type="button" class="admin-users-sort-trigger" data-sort-key="scopes" data-sort-type="text">{% trans "Scopes" %} <span class="admin-users-sort-indicator" data-sort-indicator>{% trans "A-Z" %}</span></button>
+                                </th>
+                                <th>
+                                    <button type="button" class="admin-users-sort-trigger" data-sort-key="usage" data-sort-type="number">{% trans "Usage" %} <span class="admin-users-sort-indicator" data-sort-indicator>{% trans "A-Z" %}</span></button>
+                                </th>
+                            </tr>
+                            <tr class="admin-users-filter-row">
+                                <th><input type="text" class="form-control form-control-sm" data-filter-key="user" placeholder="{% trans 'Filter user' %}"></th>
+                                <th><input type="text" class="form-control form-control-sm" data-filter-key="corporations" placeholder="{% trans 'Filter corp' %}"></th>
+                                <th>
+                                    <select class="form-select form-select-sm" data-filter-key="health">
+                                        <option value="">{% trans "All health" %}</option>
+                                        <option value="good">{% trans "Good" %}</option>
+                                        <option value="medium">{% trans "Medium" %}</option>
+                                        <option value="critical">{% trans "Critical" %}</option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <select class="form-select form-select-sm" data-filter-key="scopes">
+                                        <option value="">{% trans "All scopes" %}</option>
+                                        <option value="complete">{% trans "Complete" %}</option>
+                                        <option value="incomplete">{% trans "Incomplete" %}</option>
+                                        <option value="active">{% trans "Active" %}</option>
+                                        <option value="inactive">{% trans "Inactive" %}</option>
+                                    </select>
+                                </th>
+                                <th>
+                                    <select class="form-select form-select-sm" data-filter-key="usage">
+                                        <option value="">{% trans "All usage" %}</option>
+                                        <option value="has_usage">{% trans "Has usage" %}</option>
+                                        <option value="no_usage">{% trans "No usage" %}</option>
+                                    </select>
+                                </th>
                             </tr>
                         </thead>
                         <tbody>
                             {% if rows %}
                             {% for row in rows %}
-                            <tr>
+                            <tr
+                                class="admin-users-data-row"
+                                data-user="{{ row.user.username }} ID {{ row.user.id }}"
+                                data-corporations="{% if row.corporations %}{% for corp in row.corporations %}{{ corp.corporation_name }} {% endfor %}{% else %}{% trans 'No linked corporation' %}{% endif %}"
+                                data-health="{{ row.health.level }}"
+                                data-health-score="{{ row.health.score }}"
+                                data-scopes="{% if row.scope_is_complete %}complete{% else %}incomplete{% endif %} {% if row.is_inactive %}inactive{% else %}active{% endif %} {{ row.missing_scopes|join:' ' }}"
+                                data-usage="{% if row.total_usage_count|default:0 > 0 %}has_usage{% else %}no_usage{% endif %}"
+                                data-usage-total="{{ row.total_usage_count|default:0 }}"
+                            >
                                 <td>
                                     <div class="admin-users-user-meta">
                                         <div class="fw-semibold">{{ row.user.username }}</div>
@@ -364,8 +397,9 @@
                                         </svg>
                                         {% trans "Details" %}
                                     </button>
+                                    <div class="text-muted small mt-1">{% trans "30d" %}: {{ row.activity_30d_count|default:0 }} · {% trans "Total" %}: {{ row.total_usage_count|default:0 }}</div>
 
-                                    <div class="modal fade admin-users-usage-modal" id="usageDetailModal{{ row.user.id }}" tabindex="-1" aria-labelledby="usageDetailModalLabel{{ row.user.id }}" aria-hidden="true">
+                                    <div class="modal fade admin-users-usage-modal" id="usageDetailModal{{ row.user.id }}" tabindex="-1" aria-labelledby="usageDetailModalLabel{{ row.user.id }}" aria-hidden="true" data-usage-url="{% url 'indy_hub:settings_admin_users_usage_detail_fragment' row.user.id %}">
                                         <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
                                             <div class="modal-content">
                                                 <div class="modal-header border-0 pb-0">
@@ -379,83 +413,16 @@
                                                             <h5 class="modal-title" id="usageDetailModalLabel{{ row.user.id }}">{% trans "Usage detail" %} · {{ row.user.username }}</h5>
                                                         </div>
                                                         <div class="text-muted small mt-1">
-                                                            {% if row.usage_detail.has_usage %}
-                                                                {% blocktrans with total=row.usage_detail.total_usage_count %}{{ total }} recorded access hit(s){% endblocktrans %}
-                                                            {% else %}
-                                                                {% trans "No Indy Hub usage has been recorded yet." %}
-                                                            {% endif %}
+                                                            {% trans "Detailed analytics load on demand." %}
                                                         </div>
                                                     </div>
                                                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
                                                 </div>
-                                                <div class="modal-body pt-2">
-                                                    {% if row.usage_detail.has_usage %}
-                                                    <div class="admin-users-usage-summary-grid">
-                                                        <div class="admin-users-usage-summary-card">
-                                                            <div class="admin-users-usage-summary-label">{% trans "Total hits" %}</div>
-                                                            <div class="admin-users-usage-summary-value">{{ row.usage_detail.total_usage_count }}</div>
-                                                            <div class="admin-users-usage-summary-note">{% trans "All recorded Indy Hub accesses." %}</div>
-                                                        </div>
-                                                        <div class="admin-users-usage-summary-card">
-                                                            <div class="admin-users-usage-summary-label">{% trans "Active days" %}</div>
-                                                            <div class="admin-users-usage-summary-value">{{ row.usage_detail.active_days_total }}</div>
-                                                            <div class="admin-users-usage-summary-note">{% trans "Distinct days with at least one access." %}</div>
-                                                        </div>
-                                                        <div class="admin-users-usage-summary-card">
-                                                            <div class="admin-users-usage-summary-label">{% trans "First access" %}</div>
-                                                            <div class="admin-users-usage-summary-value">{{ row.usage_detail.first_used_at|date:"Y-m-d H:i" }}</div>
-                                                            <div class="admin-users-usage-summary-note">{% trans "Earliest recorded access." %}</div>
-                                                        </div>
-                                                        <div class="admin-users-usage-summary-card">
-                                                            <div class="admin-users-usage-summary-label">{% trans "Last access" %}</div>
-                                                            <div class="admin-users-usage-summary-value">{{ row.usage_detail.last_used_at|date:"Y-m-d H:i" }}</div>
-                                                            <div class="admin-users-usage-summary-note">{% trans "Most recent recorded access." %}</div>
-                                                        </div>
+                                                <div class="modal-body pt-2 js-usage-detail-target" data-loaded="0">
+                                                    <div class="d-flex align-items-center gap-2 text-muted small" role="status" aria-live="polite">
+                                                        <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+                                                        <span>{% trans "Loading user analytics..." %}</span>
                                                     </div>
-
-                                                    <div class="mt-4">
-                                                        <div class="section-heading mb-2">
-                                                            <div>
-                                                                <h6 class="section-title mb-0">{% trans "Pages visited" %}</h6>
-                                                                <p class="text-muted small mb-0">{% trans "Usage by page over the last 30 days." %}</p>
-                                                            </div>
-                                                        </div>
-                                                        {% if row.usage_detail.page_rings %}
-                                                        <div class="admin-users-pages-layout">
-                                                            <div class="admin-users-page-legend">
-                                                                {% for ring in row.usage_detail.page_rings %}
-                                                                <span class="admin-users-page-legend-item" title="{{ ring.label }} · {{ ring.recent_30d_count }}">
-                                                                    <span class="d-inline-flex align-items-center gap-2">
-                                                                        <span class="admin-users-page-legend-swatch" style="background: {{ ring.page_color }};"></span>
-                                                                        <span>{{ ring.label }}</span>
-                                                                    </span>
-                                                                    <strong class="text-body">{{ ring.recent_30d_count }}</strong>
-                                                                </span>
-                                                                {% endfor %}
-                                                            </div>
-                                                            <div class="admin-users-page-chart-wrap">
-                                                                <svg class="admin-users-page-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" role="img" aria-label="{% trans '30-day usage by page' %} · {{ row.user.username }}" preserveAspectRatio="xMidYMid meet">
-                                                                    <title>{% trans "30-day usage by page" %} · {{ row.user.username }}</title>
-                                                                    <circle class="admin-users-page-svg-ring-track" cx="{{ row.usage_detail.page_ring_center_x }}" cy="{{ row.usage_detail.page_ring_center_y }}" r="{{ row.usage_detail.page_ring_outer_radius|add:'-13' }}"></circle>
-                                                                    {% for ring in row.usage_detail.page_rings %}
-                                                                    <path d="{{ ring.page_arc_path }}" fill="{{ ring.page_color }}"></path>
-                                                                    {% endfor %}
-                                                                    <circle class="admin-users-page-svg-radar-center" cx="{{ row.usage_detail.page_ring_center_x }}" cy="{{ row.usage_detail.page_ring_center_y }}" r="16"></circle>
-                                                                    <text class="admin-users-page-svg-radar-center-value" x="{{ row.usage_detail.page_ring_center_x }}" y="{{ row.usage_detail.page_ring_center_y|add:'-2' }}">{{ row.usage_detail.page_total_30d }}</text>
-                                                                    <text class="admin-users-page-svg-radar-center-label" x="{{ row.usage_detail.page_ring_center_x }}" y="{{ row.usage_detail.page_ring_center_y|add:'10' }}">{% trans "30d hits" %}</text>
-                                                                    {% for ring in row.usage_detail.page_rings %}
-                                                                    <text class="admin-users-page-svg-ring-label" x="{{ ring.page_label_x }}" y="{{ ring.page_label_y }}" text-anchor="{{ ring.page_label_anchor }}" transform="rotate({{ ring.page_label_rotation }} {{ ring.page_label_x }} {{ ring.page_label_y }})">{{ ring.page_label_short }}</text>
-                                                                    {% endfor %}
-                                                                </svg>
-                                                            </div>
-                                                        </div>
-                                                        {% else %}
-                                                        <div class="text-muted small">{% trans "No page detail has been recorded yet." %}</div>
-                                                        {% endif %}
-                                                    </div>
-                                                    {% else %}
-                                                    <div class="alert alert-secondary mb-0">{% trans "Usage detail will appear after the user opens an Indy Hub page." %}</div>
-                                                    {% endif %}
                                                 </div>
                                             </div>
                                         </div>
@@ -491,3 +458,240 @@
     </section>
 </div>
 {% endblock content %}
+
+{% block extra_javascript %}
+{{ block.super }}
+<script>
+    (function () {
+        function appendQuery(url, query) {
+            if (!query) {
+                return url;
+            }
+            return url + (url.indexOf('?') >= 0 ? '&' : '?') + query;
+        }
+
+        function fetchFragment(url) {
+            return fetch(url, {
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
+                }
+            }).then(function (response) {
+                if (!response.ok) {
+                    throw new Error('http_' + response.status);
+                }
+                return response.json();
+            });
+        }
+
+        function loadGlobalUsageFragment() {
+            var container = document.getElementById('adminUsersGlobalUsageContainer');
+            if (!container) {
+                return;
+            }
+            var url = appendQuery(container.dataset.url || '', window.location.search.replace(/^\?/, ''));
+            if (!url) {
+                return;
+            }
+            fetchFragment(url)
+                .then(function (payload) {
+                    container.innerHTML = payload && payload.html ? payload.html : '<div class="text-muted small">{% trans "No global page detail has been recorded yet." %}</div>';
+                })
+                .catch(function () {
+                    container.innerHTML = '<div class="alert alert-warning mb-0">{% trans "Unable to load usage analytics right now." %}</div>';
+                });
+        }
+
+        function onUsageModalShow(event) {
+            var modal = event.target;
+            if (!modal || !modal.classList.contains('admin-users-usage-modal')) {
+                return;
+            }
+            var target = modal.querySelector('.js-usage-detail-target');
+            if (!target || target.dataset.loaded === '1') {
+                return;
+            }
+            var url = modal.dataset.usageUrl || '';
+            if (!url) {
+                return;
+            }
+
+            fetchFragment(url)
+                .then(function (payload) {
+                    target.innerHTML = payload && payload.html ? payload.html : '<div class="text-muted small">{% trans "No page detail has been recorded yet." %}</div>';
+                    target.dataset.loaded = '1';
+                })
+                .catch(function () {
+                    target.innerHTML = '<div class="alert alert-warning mb-0">{% trans "Unable to load user analytics right now." %}</div>';
+                });
+        }
+
+        function setupAdminUsersTableTools() {
+            var table = document.getElementById('adminUsersUsersTable');
+            if (!table) {
+                return;
+            }
+            var tbody = table.querySelector('tbody');
+            if (!tbody) {
+                return;
+            }
+            var rows = Array.from(tbody.querySelectorAll('tr.admin-users-data-row'));
+            if (!rows.length) {
+                return;
+            }
+
+            var resultCounter = document.getElementById('adminUsersTableResultCount');
+            var resetButton = document.getElementById('adminUsersTableReset');
+            var filterInputs = Array.from(table.querySelectorAll('[data-filter-key]'));
+            var sortButtons = Array.from(table.querySelectorAll('.admin-users-sort-trigger'));
+            var sortState = {
+                key: 'user',
+                direction: 'asc',
+                type: 'text'
+            };
+
+            function normalizeText(value) {
+                return String(value || '').toLowerCase().trim();
+            }
+
+            function getRowValue(row, key) {
+                if (key === 'health') {
+                    return Number(row.dataset.healthScore || 0);
+                }
+                if (key === 'usage') {
+                    return Number(row.dataset.usageTotal || 0);
+                }
+                if (key === 'corporations') {
+                    return row.dataset.corporations || '';
+                }
+                if (key === 'scopes') {
+                    return row.dataset.scopes || '';
+                }
+                return row.dataset.user || '';
+            }
+
+            function rowMatchesFilters(row) {
+                var userFilter = normalizeText((table.querySelector('[data-filter-key="user"]') || {}).value);
+                var corpFilter = normalizeText((table.querySelector('[data-filter-key="corporations"]') || {}).value);
+                var healthFilter = normalizeText((table.querySelector('[data-filter-key="health"]') || {}).value);
+                var scopesFilter = normalizeText((table.querySelector('[data-filter-key="scopes"]') || {}).value);
+                var usageFilter = normalizeText((table.querySelector('[data-filter-key="usage"]') || {}).value);
+
+                var userData = normalizeText(row.dataset.user);
+                var corpData = normalizeText(row.dataset.corporations);
+                var healthData = normalizeText(row.dataset.health);
+                var scopesData = normalizeText(row.dataset.scopes);
+                var usageData = normalizeText(row.dataset.usage);
+
+                if (userFilter && userData.indexOf(userFilter) === -1) {
+                    return false;
+                }
+                if (corpFilter && corpData.indexOf(corpFilter) === -1) {
+                    return false;
+                }
+                if (healthFilter && healthData !== healthFilter) {
+                    return false;
+                }
+                if (scopesFilter && scopesData.indexOf(scopesFilter) === -1) {
+                    return false;
+                }
+                if (usageFilter && usageData !== usageFilter) {
+                    return false;
+                }
+                return true;
+            }
+
+            function updateSortIndicators() {
+                sortButtons.forEach(function (button) {
+                    var indicator = button.querySelector('[data-sort-indicator]');
+                    if (!indicator) {
+                        return;
+                    }
+                    var isActive = button.dataset.sortKey === sortState.key;
+                    if (!isActive) {
+                        indicator.textContent = '{% trans "A-Z" %}';
+                        return;
+                    }
+                    indicator.textContent = sortState.direction === 'asc'
+                        ? '{% trans "A-Z" %}'
+                        : '{% trans "Z-A" %}';
+                });
+            }
+
+            function applyTableTools() {
+                rows.sort(function (a, b) {
+                    var left = getRowValue(a, sortState.key);
+                    var right = getRowValue(b, sortState.key);
+
+                    if (sortState.type === 'number') {
+                        var delta = Number(left) - Number(right);
+                        return sortState.direction === 'asc' ? delta : -delta;
+                    }
+
+                    var textDelta = String(left).localeCompare(String(right), undefined, {
+                        sensitivity: 'base',
+                        numeric: true
+                    });
+                    return sortState.direction === 'asc' ? textDelta : -textDelta;
+                });
+
+                rows.forEach(function (row) {
+                    tbody.appendChild(row);
+                });
+
+                var visibleCount = 0;
+                rows.forEach(function (row) {
+                    var isVisible = rowMatchesFilters(row);
+                    row.style.display = isVisible ? '' : 'none';
+                    if (isVisible) {
+                        visibleCount += 1;
+                    }
+                });
+
+                if (resultCounter) {
+                    resultCounter.textContent = visibleCount + ' / ' + rows.length + ' {% trans "users shown" %}';
+                }
+                updateSortIndicators();
+            }
+
+            sortButtons.forEach(function (button) {
+                button.addEventListener('click', function () {
+                    var clickedKey = button.dataset.sortKey || 'user';
+                    var clickedType = button.dataset.sortType || 'text';
+                    if (sortState.key === clickedKey) {
+                        sortState.direction = sortState.direction === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        sortState.key = clickedKey;
+                        sortState.type = clickedType;
+                        sortState.direction = 'asc';
+                    }
+                    applyTableTools();
+                });
+            });
+
+            filterInputs.forEach(function (input) {
+                input.addEventListener('input', applyTableTools);
+                input.addEventListener('change', applyTableTools);
+            });
+
+            if (resetButton) {
+                resetButton.addEventListener('click', function () {
+                    filterInputs.forEach(function (input) {
+                        input.value = '';
+                    });
+                    sortState.key = 'user';
+                    sortState.type = 'text';
+                    sortState.direction = 'asc';
+                    applyTableTools();
+                });
+            }
+
+            applyTableTools();
+        }
+
+        document.addEventListener('DOMContentLoaded', loadGlobalUsageFragment);
+        document.addEventListener('show.bs.modal', onUsageModalShow);
+        document.addEventListener('DOMContentLoaded', setupAdminUsersTableTools);
+    })();
+</script>
+{% endblock extra_javascript %}

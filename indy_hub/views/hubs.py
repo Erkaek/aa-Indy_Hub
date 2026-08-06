@@ -11,12 +11,14 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Max
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
+from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
-from allianceauth.authentication.models import CharacterOwnership
+from allianceauth.authentication.models import UserProfile
 from allianceauth.services.hooks import get_extension_logger
 
 # Local
@@ -40,6 +42,7 @@ from ..services.user_health import build_user_health_score
 from ..services.user_usage import (
     build_indy_hub_global_usage_detail,
     build_indy_hub_usage_detail,
+    calculate_recent_activity_counts,
 )
 from ..utils.analytics import emit_view_analytics_event
 from .navigation import build_nav_context
@@ -59,24 +62,24 @@ def _build_user_corporation_data(
     visible_user_ids: list[int],
 ) -> tuple[dict[int, list[dict[str, object]]], dict[int, str]]:
     corp_rows = (
-        CharacterOwnership.objects.filter(user_id__in=visible_user_ids)
-        .exclude(character__corporation_id__isnull=True)
-        .values("user_id", "character__corporation_id")
-        .annotate(corporation_name=Max("character__corporation_name"))
-        .order_by("user_id", "character__corporation_id")
+        UserProfile.objects.filter(user_id__in=visible_user_ids)
+        .exclude(main_character__corporation_id__isnull=True)
+        .values("user_id", "main_character__corporation_id")
+        .annotate(corporation_name=Max("main_character__corporation_name"))
+        .order_by("user_id")
     )
 
     corp_by_user_id: dict[int, list[dict[str, object]]] = {}
     corp_name_by_id: dict[int, str] = {}
     for row in corp_rows:
-        corp_id = int(row["character__corporation_id"])
+        corp_id = int(row["main_character__corporation_id"])
         corp_name = (row.get("corporation_name") or str(corp_id)).strip() or str(
             corp_id
         )
         corp_name_by_id[corp_id] = corp_name
-        corp_by_user_id.setdefault(int(row["user_id"]), []).append(
+        corp_by_user_id[int(row["user_id"])] = [
             {"corporation_id": corp_id, "corporation_name": corp_name}
-        )
+        ]
 
     return corp_by_user_id, corp_name_by_id
 
@@ -89,12 +92,19 @@ def _parse_optional_int(value: str | None) -> int | None:
     return parsed
 
 
-def _build_settings_admin_users_state(user, params) -> dict[str, object]:
-    visible_users = list(
+def _build_settings_admin_users_state(
+    user,
+    params,
+    *,
+    include_page_usage_details: bool = True,
+    include_global_usage_detail: bool = True,
+) -> dict[str, object]:
+    visible_users_qs = (
         get_visible_indy_hub_users_for_admin_scope(user)
         .order_by("username", "id")
         .distinct()
     )
+    visible_users = list(visible_users_qs)
     visible_user_ids = [int(row.id) for row in visible_users]
 
     settings_by_user_id = {
@@ -104,9 +114,14 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
             character_id=0,
         )
     }
-    usage_by_user_id = {
+    usage_summary_by_user_id = {
         int(obj.user_id): obj
-        for obj in IndyHubUserUsage.objects.filter(user_id__in=visible_user_ids)
+        for obj in IndyHubUserUsage.objects.filter(user_id__in=visible_user_ids).only(
+            "user_id",
+            "last_used_at",
+            "total_usage_count",
+            "daily_usage",
+        )
     }
     corp_by_user_id, corp_name_by_id = _build_user_corporation_data(visible_user_ids)
     scope_status_by_user_id = collect_user_scope_status_map(visible_user_ids)
@@ -137,12 +152,14 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
         filter_max_health_score = max(0, min(100, filter_max_health_score))
     inactive_cutoff = timezone.now() - timedelta(days=_INACTIVITY_WINDOW_DAYS)
 
-    rows: list[dict[str, object]] = []
-    rows_usage_objects: list[IndyHubUserUsage] = []
+    filtered_user_ids: list[int] = []
+    filtered_usage_user_ids: list[int] = []
+    active_user_count_30d = 0
+
     for user_obj in visible_users:
         user_id = int(user_obj.id)
         user_settings = settings_by_user_id.get(user_id)
-        user_usage = usage_by_user_id.get(user_id)
+        user_usage = usage_summary_by_user_id.get(user_id)
         corp_entries = list(corp_by_user_id.get(user_id, []))
         if not user.is_superuser:
             allowed_corp_ids = set(managed_corp_ids_for_scope)
@@ -170,16 +187,22 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
             ):
                 notify_frequency = user_settings.jobs_notify_frequency
 
-        scope_status = scope_status_by_user_id.get(
-            user_id, collect_user_scope_status(user_obj)
-        )
+        scope_status = scope_status_by_user_id.get(user_id)
+        if scope_status is None:
+            scope_status = collect_user_scope_status(user_obj)
         scope_flags = dict(scope_status.get("flags") or {})
         scope_is_complete = bool(scope_status.get("is_complete"))
-        missing_scopes = list(scope_status.get("missing_labels") or [])
         is_inactive = bool(
             not user_usage
             or not user_usage.last_used_at
             or user_usage.last_used_at < inactive_cutoff
+        )
+        activity_30d_count = (
+            calculate_recent_activity_counts(
+                getattr(user_usage, "daily_usage", {}),
+            )[1]
+            if user_usage
+            else 0
         )
 
         if filter_incomplete and scope_is_complete:
@@ -187,13 +210,90 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
         if filter_inactive and not is_inactive:
             continue
 
+        if filter_health_level or filter_max_health_score is not None:
+            health = build_user_health_score(
+                scope_flags=scope_flags,
+                settings_obj=user_settings,
+                is_inactive=is_inactive,
+                activity_30d_count=activity_30d_count,
+            )
+            if filter_health_level and health.get("level") != filter_health_level:
+                continue
+            if (
+                filter_max_health_score is not None
+                and int(health.get("score", 0)) > filter_max_health_score
+            ):
+                continue
+
+        filtered_user_ids.append(user_id)
+        if user_usage:
+            filtered_usage_user_ids.append(user_id)
+        if activity_30d_count > 0:
+            active_user_count_30d += 1
+
+    filtered_users_qs = visible_users_qs.filter(id__in=filtered_user_ids)
+    paginator = Paginator(filtered_users_qs, _ADMIN_USERS_PAGE_SIZE)
+    page_obj = paginator.get_page(_parse_optional_int(params.get("page")) or 1)
+    page_users = list(page_obj.object_list)
+
+    usage_by_user_id: dict[int, IndyHubUserUsage] = {}
+    if include_page_usage_details and page_users:
+        page_user_ids = [int(page_user.id) for page_user in page_users]
+        usage_by_user_id = {
+            int(obj.user_id): obj
+            for obj in IndyHubUserUsage.objects.filter(user_id__in=page_user_ids)
+        }
+
+    page_rows: list[dict[str, object]] = []
+    for user_obj in page_users:
+        user_id = int(user_obj.id)
+        user_settings = settings_by_user_id.get(user_id)
+        user_usage = usage_by_user_id.get(user_id) or usage_summary_by_user_id.get(
+            user_id
+        )
+        corp_entries = list(corp_by_user_id.get(user_id, []))
+        if not user.is_superuser:
+            allowed_corp_ids = set(managed_corp_ids_for_scope)
+            corp_entries = [
+                entry
+                for entry in corp_entries
+                if int(entry["corporation_id"]) in allowed_corp_ids
+            ]
+
+        sharing_scope = CharacterSettings.SCOPE_NONE
+        notify_frequency = CharacterSettings.NOTIFY_DISABLED
+        if user_settings:
+            if user_settings.copy_sharing_scope in dict(
+                CharacterSettings.COPY_SHARING_SCOPE_CHOICES
+            ):
+                sharing_scope = user_settings.copy_sharing_scope
+            if user_settings.jobs_notify_frequency in dict(
+                CharacterSettings.JOB_NOTIFICATION_FREQUENCY_CHOICES
+            ):
+                notify_frequency = user_settings.jobs_notify_frequency
+
+        scope_status = scope_status_by_user_id.get(user_id)
+        if scope_status is None:
+            scope_status = collect_user_scope_status(user_obj)
+        scope_flags = dict(scope_status.get("flags") or {})
+        missing_scopes = list(scope_status.get("missing_labels") or [])
+        is_inactive = bool(
+            not user_usage
+            or not user_usage.last_used_at
+            or user_usage.last_used_at < inactive_cutoff
+        )
+        activity_30d_count = (
+            calculate_recent_activity_counts(
+                getattr(user_usage, "daily_usage", {}),
+            )[1]
+            if user_usage
+            else 0
+        )
         health = build_user_health_score(
             scope_flags=scope_flags,
             settings_obj=user_settings,
             is_inactive=is_inactive,
-            activity_30d_count=(
-                int(user_usage.activity_30d_count) if user_usage else 0
-            ),
+            activity_30d_count=activity_30d_count,
         )
         problems = detect_admin_user_reminder_problems(
             missing_scopes=missing_scopes,
@@ -202,28 +302,18 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
             health_level=str(health.get("level") or "critical"),
         )
 
-        if filter_health_level and health.get("level") != filter_health_level:
-            continue
-        if (
-            filter_max_health_score is not None
-            and int(health.get("score", 0)) > filter_max_health_score
-        ):
-            continue
-
-        rows.append(
+        page_rows.append(
             {
                 "user": user_obj,
                 "sharing_scope": sharing_scope,
                 "notify_frequency": notify_frequency,
-                "scope_is_complete": scope_is_complete,
+                "scope_is_complete": bool(scope_status.get("is_complete")),
                 "scope_flags": scope_flags,
                 "missing_scopes": missing_scopes,
                 "corporations": corp_entries,
                 "is_inactive": is_inactive,
                 "last_used_at": user_usage.last_used_at if user_usage else None,
-                "activity_30d_count": (
-                    int(user_usage.activity_30d_count) if user_usage else 0
-                ),
+                "activity_30d_count": activity_30d_count,
                 "total_usage_count": (
                     int(user_usage.total_usage_count) if user_usage else 0
                 ),
@@ -243,15 +333,14 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
                 },
             }
         )
-        if user_usage:
-            rows_usage_objects.append(user_usage)
 
-    paginator = Paginator(rows, _ADMIN_USERS_PAGE_SIZE)
-    page_obj = paginator.get_page(_parse_optional_int(params.get("page")) or 1)
-    page_rows = list(page_obj.object_list)
-    for row in page_rows:
-        row["usage_detail"] = build_indy_hub_usage_detail(row.get("_usage_obj"))
-        row.pop("_usage_obj", None)
+    if include_page_usage_details:
+        for row in page_rows:
+            row["usage_detail"] = build_indy_hub_usage_detail(row.get("_usage_obj"))
+            row.pop("_usage_obj", None)
+    else:
+        for row in page_rows:
+            row.pop("_usage_obj", None)
 
     current_query = _build_admin_user_filters_query(
         {
@@ -262,16 +351,27 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
             "filter_max_health_score": filter_max_health_score,
         }
     )
-    global_usage_detail = build_indy_hub_global_usage_detail(rows_usage_objects)
-    global_usage_detail["visible_user_count"] = len(rows)
-    global_usage_detail["active_user_count_30d"] = sum(
-        1 for row in rows if int(row.get("activity_30d_count") or 0) > 0
-    )
+    global_usage_detail: dict[str, object] | None = None
+    if include_global_usage_detail:
+        full_usage_by_user_id = {
+            int(obj.user_id): obj
+            for obj in IndyHubUserUsage.objects.filter(
+                user_id__in=filtered_usage_user_ids
+            )
+        }
+        rows_usage_objects = [
+            full_usage_by_user_id[user_id]
+            for user_id in filtered_user_ids
+            if user_id in full_usage_by_user_id
+        ]
+        global_usage_detail = build_indy_hub_global_usage_detail(rows_usage_objects)
+        global_usage_detail["visible_user_count"] = len(filtered_user_ids)
+        global_usage_detail["active_user_count_30d"] = active_user_count_30d
 
     return {
-        "all_rows": rows,
+        "all_rows": page_rows,
         "rows": page_rows,
-        "all_rows_count": len(rows),
+        "all_rows_count": len(filtered_user_ids),
         "global_usage_detail": global_usage_detail,
         "page_obj": page_obj,
         "is_paginated": page_obj.paginator.num_pages > 1,
@@ -306,6 +406,10 @@ def _build_admin_user_filters_query(state: dict[str, object]) -> str:
     if state.get("filter_max_health_score") is not None:
         query["max_health_score"] = str(state["filter_max_health_score"])
     return urlencode(query)
+
+
+def _settings_admin_users_scope_allowed(user) -> bool:
+    return bool(can_access_indy_hub_user_admin_scope(user))
 
 
 @indy_hub_permission_required("can_access_indy_hub")
@@ -363,7 +467,7 @@ def settings_hub(request):
 def settings_admin_users(request):
     emit_view_analytics_event(view_name="settings_admin_users", request=request)
 
-    if not can_access_indy_hub_user_admin_scope(request.user):
+    if not _settings_admin_users_scope_allowed(request.user):
         messages.error(
             request,
             _("You do not have permission to access Indy Hub user administration."),
@@ -375,7 +479,12 @@ def settings_admin_users(request):
     can_view_corporation_bp = can_view_corporation_blueprints(request.user)
     can_view_corporation_jobs_flag = can_view_corporation_jobs(request.user)
 
-    state = _build_settings_admin_users_state(request.user, request.GET)
+    state = _build_settings_admin_users_state(
+        request.user,
+        request.GET,
+        include_page_usage_details=False,
+        include_global_usage_detail=False,
+    )
 
     context = {
         **base_context,
@@ -395,6 +504,64 @@ def settings_admin_users(request):
     }
 
     return render(request, "indy_hub/settings/admin_users.html", context)
+
+
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+def settings_admin_users_global_usage_fragment(request):
+    emit_view_analytics_event(
+        view_name="settings_admin_users_global_usage_fragment", request=request
+    )
+
+    if not _settings_admin_users_scope_allowed(request.user):
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    state = _build_settings_admin_users_state(
+        request.user,
+        request.GET,
+        include_page_usage_details=False,
+        include_global_usage_detail=True,
+    )
+    html = render_to_string(
+        "indy_hub/settings/partials/admin_users_global_usage_content.html",
+        {
+            "global_usage_detail": state["global_usage_detail"],
+        },
+        request=request,
+    )
+    return JsonResponse({"html": html})
+
+
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+def settings_admin_users_usage_detail_fragment(request, user_id: int):
+    emit_view_analytics_event(
+        view_name="settings_admin_users_usage_detail_fragment", request=request
+    )
+
+    if not _settings_admin_users_scope_allowed(request.user):
+        return JsonResponse({"error": "forbidden"}, status=403)
+
+    visible_user = (
+        get_visible_indy_hub_users_for_admin_scope(request.user)
+        .filter(id=user_id)
+        .order_by("id")
+        .first()
+    )
+    if visible_user is None:
+        return JsonResponse({"error": "not_found"}, status=404)
+
+    usage_obj = IndyHubUserUsage.objects.filter(user_id=int(visible_user.id)).first()
+    usage_detail = build_indy_hub_usage_detail(usage_obj)
+    html = render_to_string(
+        "indy_hub/settings/partials/admin_user_usage_modal_body.html",
+        {
+            "usage_detail": usage_detail,
+            "usage_user": visible_user,
+        },
+        request=request,
+    )
+    return JsonResponse({"html": html})
 
 
 @indy_hub_permission_required("can_access_indy_hub")

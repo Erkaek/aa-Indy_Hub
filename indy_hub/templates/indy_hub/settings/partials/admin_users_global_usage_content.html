@@ -1,0 +1,70 @@
+{% load i18n %}
+<div class="admin-users-usage-summary-grid">
+    <div class="admin-users-usage-summary-card">
+        <div class="admin-users-usage-summary-label">{% trans "Visible users" %}</div>
+        <div class="admin-users-usage-summary-value">{{ global_usage_detail.visible_user_count }}</div>
+        <div class="admin-users-usage-summary-note">{% trans "Users included in this aggregated view." %}</div>
+    </div>
+    <div class="admin-users-usage-summary-card">
+        <div class="admin-users-usage-summary-label">{% trans "Active users (30d)" %}</div>
+        <div class="admin-users-usage-summary-value">{{ global_usage_detail.active_user_count_30d }}</div>
+        <div class="admin-users-usage-summary-note">{% trans "Visible users with at least one hit in the last 30 days." %}</div>
+    </div>
+    <div class="admin-users-usage-summary-card">
+        <div class="admin-users-usage-summary-label">{% trans "Total hits" %}</div>
+        <div class="admin-users-usage-summary-value">{{ global_usage_detail.total_usage_count }}</div>
+        <div class="admin-users-usage-summary-note">{% trans "All recorded accesses across visible users." %}</div>
+    </div>
+    <div class="admin-users-usage-summary-card">
+        <div class="admin-users-usage-summary-label">{% trans "Hits in 30d" %}</div>
+        <div class="admin-users-usage-summary-value">{{ global_usage_detail.activity_30d_count }}</div>
+        <div class="admin-users-usage-summary-note">
+            {% if global_usage_detail.timeline_30d_peak_day_label %}
+            {% trans "Peak" %}: {{ global_usage_detail.timeline_30d_peak_day_label }} · {{ global_usage_detail.timeline_30d_peak_day_count }}
+            {% else %}
+            {% trans "No recent usage yet." %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="mt-3">
+    <div class="section-heading mb-2">
+        <div>
+            <h6 class="section-title mb-0">{% trans "Pages visited (30d)" %}</h6>
+            <p class="text-muted small mb-0">{% trans "Page visits over the last 30 days." %}</p>
+        </div>
+    </div>
+    {% if global_usage_detail.page_rings %}
+    <div class="admin-users-pages-layout">
+        <div class="admin-users-page-legend">
+            {% for ring in global_usage_detail.page_rings %}
+            <span class="admin-users-page-legend-item" title="{{ ring.label }} · {{ ring.recent_30d_count }}">
+                <span class="d-inline-flex align-items-center gap-2">
+                    <span class="admin-users-page-legend-swatch" style="background: {{ ring.page_color }};"></span>
+                    <span>{{ ring.label }}</span>
+                </span>
+                <strong class="text-body">{{ ring.recent_30d_count }}</strong>
+            </span>
+            {% endfor %}
+        </div>
+        <div class="admin-users-page-chart-wrap">
+            <svg class="admin-users-page-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" role="img" aria-label="{% trans '30-day usage by page across all users' %}" preserveAspectRatio="xMidYMid meet">
+                <title>{% trans "30-day usage by page across all users" %}</title>
+                <circle class="admin-users-page-svg-ring-track" cx="{{ global_usage_detail.page_ring_center_x }}" cy="{{ global_usage_detail.page_ring_center_y }}" r="{{ global_usage_detail.page_ring_outer_radius|add:'-13' }}"></circle>
+                {% for ring in global_usage_detail.page_rings %}
+                <path d="{{ ring.page_arc_path }}" fill="{{ ring.page_color }}"></path>
+                {% endfor %}
+                <circle class="admin-users-page-svg-radar-center" cx="{{ global_usage_detail.page_ring_center_x }}" cy="{{ global_usage_detail.page_ring_center_y }}" r="16"></circle>
+                <text class="admin-users-page-svg-radar-center-value" x="{{ global_usage_detail.page_ring_center_x }}" y="{{ global_usage_detail.page_ring_center_y|add:'-2' }}">{{ global_usage_detail.page_total_30d }}</text>
+                <text class="admin-users-page-svg-radar-center-label" x="{{ global_usage_detail.page_ring_center_x }}" y="{{ global_usage_detail.page_ring_center_y|add:'10' }}">{% trans "30d hits" %}</text>
+                {% for ring in global_usage_detail.page_rings %}
+                <text class="admin-users-page-svg-ring-label" x="{{ ring.page_label_x }}" y="{{ ring.page_label_y }}" text-anchor="{{ ring.page_label_anchor }}" transform="rotate({{ ring.page_label_rotation }} {{ ring.page_label_x }} {{ ring.page_label_y }})">{{ ring.page_label_short }}</text>
+                {% endfor %}
+            </svg>
+        </div>
+    </div>
+    {% else %}
+    <div class="text-muted small">{% trans "No global page detail has been recorded yet." %}</div>
+    {% endif %}
+</div>

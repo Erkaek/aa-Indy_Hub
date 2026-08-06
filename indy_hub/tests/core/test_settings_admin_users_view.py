@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # Standard Library
+import json
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -17,13 +18,15 @@ from django.urls import reverse
 from django.utils import timezone
 
 # Alliance Auth
-from allianceauth.authentication.models import CharacterOwnership
+from allianceauth.authentication.models import CharacterOwnership, UserProfile
 from allianceauth.eveonline.models import EveCharacter
 
 # AA Example App
 from indy_hub.models import CharacterSettings, IndyHubUserUsage
 from indy_hub.views.hubs import (
     settings_admin_users,
+    settings_admin_users_global_usage_fragment,
+    settings_admin_users_usage_detail_fragment,
     settings_hub,
 )
 
@@ -44,7 +47,7 @@ def _link_character(
     character_id: int,
     corporation_id: int,
     corporation_name: str,
-) -> None:
+) -> EveCharacter:
     character, _ = EveCharacter.objects.get_or_create(
         character_id=character_id,
         defaults={
@@ -59,6 +62,11 @@ def _link_character(
         character=character,
         defaults={"owner_hash": f"hash-{user.id}-{character_id}"},
     )
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    if not profile.main_character_id:
+        profile.main_character = character
+        profile.save(update_fields=["main_character"])
+    return character
 
 
 class SettingsAdminUsersViewTests(TestCase):
@@ -220,6 +228,14 @@ class SettingsAdminUsersViewTests(TestCase):
     def _settings_admin_view(self):
         return settings_admin_users.__wrapped__.__wrapped__
 
+    @property
+    def _settings_admin_global_usage_fragment_view(self):
+        return settings_admin_users_global_usage_fragment.__wrapped__.__wrapped__
+
+    @property
+    def _settings_admin_usage_detail_fragment_view(self):
+        return settings_admin_users_usage_detail_fragment.__wrapped__.__wrapped__
+
     def _prepare_request(self, request: HttpRequest, *, user: User) -> HttpRequest:
         request.user = user
         middleware = SessionMiddleware(lambda req: None)
@@ -302,8 +318,58 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Details", users_html)
         self.assertIn("Usage detail", users_html)
-        self.assertIn("Pages visited", users_html)
-        self.assertIn("Overview", users_html)
+        self.assertIn("Loading user analytics", users_html)
+
+    def test_global_usage_fragment_loads_for_superuser(self) -> None:
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:settings_admin_users_global_usage_fragment")
+            ),
+            user=self.superuser,
+        )
+        response = self._settings_admin_global_usage_fragment_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode())
+        self.assertIn("html", payload)
+        self.assertIn("Visible users", payload["html"])
+
+    def test_usage_detail_fragment_loads_for_superuser(self) -> None:
+        request = self._prepare_request(
+            self.factory.get(
+                reverse(
+                    "indy_hub:settings_admin_users_usage_detail_fragment",
+                    args=[self.manager.id],
+                )
+            ),
+            user=self.superuser,
+        )
+        response = self._settings_admin_usage_detail_fragment_view(
+            request,
+            user_id=self.manager.id,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content.decode())
+        self.assertIn("html", payload)
+        self.assertIn("Pages visited", payload["html"])
+
+    def test_usage_detail_fragment_forbidden_without_admin_scope(self) -> None:
+        request = self._prepare_request(
+            self.factory.get(
+                reverse(
+                    "indy_hub:settings_admin_users_usage_detail_fragment",
+                    args=[self.superuser.id],
+                )
+            ),
+            user=self.manager,
+        )
+        response = self._settings_admin_usage_detail_fragment_view(
+            request,
+            user_id=self.superuser.id,
+        )
+
+        self.assertEqual(response.status_code, 403)
 
     def test_managed_corporation_filter(self) -> None:
         request = self._prepare_request(
@@ -320,6 +386,33 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(self.member_other.username, users_html)
         self.assertNotIn(self.member_managed.username, users_html)
+
+    def test_user_table_displays_main_character_corporation_only(self) -> None:
+        secondary_character = _link_character(
+            self.member_managed,
+            character_id=9100099,
+            corporation_id=4444,
+            corporation_name="Secondary Corp",
+        )
+        profile = UserProfile.objects.get(user=self.member_managed)
+        profile.main_character = secondary_character
+        profile.save(update_fields=["main_character"])
+
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:settings_admin_users"),
+                {"managed_corporation_id": "4444"},
+            ),
+            user=self.superuser,
+        )
+
+        response = self._settings_admin_view(request)
+        users_html = self._users_section_html(response)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(self.member_managed.username, users_html)
+        self.assertIn("Secondary Corp", users_html)
+        self.assertNotIn("Managed Corp", users_html)
 
     def test_incomplete_filter(self) -> None:
         fake_status_map = {
@@ -398,6 +491,61 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(self.member_other.username, users_html)
         self.assertNotIn(self.member_managed.username, users_html)
+
+    def test_scope_status_fallback_is_not_eagerly_evaluated(self) -> None:
+        complete_flags = {
+            "blueprints": True,
+            "jobs": True,
+            "assets": True,
+            "skills": True,
+            "online": True,
+        }
+        fake_status_map = {
+            self.superuser.id: {
+                "flags": complete_flags,
+                "is_complete": True,
+                "missing_labels": [],
+            },
+            self.manager.id: {
+                "flags": complete_flags,
+                "is_complete": True,
+                "missing_labels": [],
+            },
+            self.member_managed.id: {
+                "flags": complete_flags,
+                "is_complete": True,
+                "missing_labels": [],
+            },
+            self.member_other.id: {
+                "flags": complete_flags,
+                "is_complete": True,
+                "missing_labels": [],
+            },
+            self.regular.id: {
+                "flags": complete_flags,
+                "is_complete": True,
+                "missing_labels": [],
+            },
+        }
+
+        request = self._prepare_request(
+            self.factory.get(reverse("indy_hub:settings_admin_users")),
+            user=self.superuser,
+        )
+
+        with (
+            patch(
+                "indy_hub.views.hubs.collect_user_scope_status_map",
+                return_value=fake_status_map,
+            ),
+            patch(
+                "indy_hub.views.hubs.collect_user_scope_status",
+                side_effect=AssertionError("Fallback should not be called"),
+            ),
+        ):
+            response = self._settings_admin_view(request)
+
+        self.assertEqual(response.status_code, 200)
 
     def test_admin_page_paginates_visible_rows(self) -> None:
         for index in range(30):
