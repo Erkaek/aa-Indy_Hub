@@ -195,7 +195,6 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
                 int(user_usage.activity_30d_count) if user_usage else 0
             ),
         )
-        usage_detail = build_indy_hub_usage_detail(user_usage)
         problems = detect_admin_user_reminder_problems(
             missing_scopes=missing_scopes,
             notifications_off=(notify_frequency == CharacterSettings.NOTIFY_DISABLED),
@@ -228,7 +227,7 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
                 "total_usage_count": (
                     int(user_usage.total_usage_count) if user_usage else 0
                 ),
-                "usage_detail": usage_detail,
+                "_usage_obj": user_usage,
                 "health": health,
                 "problem_counts": {
                     "blocking": len(
@@ -249,6 +248,11 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
 
     paginator = Paginator(rows, _ADMIN_USERS_PAGE_SIZE)
     page_obj = paginator.get_page(_parse_optional_int(params.get("page")) or 1)
+    page_rows = list(page_obj.object_list)
+    for row in page_rows:
+        row["usage_detail"] = build_indy_hub_usage_detail(row.get("_usage_obj"))
+        row.pop("_usage_obj", None)
+
     current_query = _build_admin_user_filters_query(
         {
             "selected_corporation_id": selected_corporation_id,
@@ -266,7 +270,7 @@ def _build_settings_admin_users_state(user, params) -> dict[str, object]:
 
     return {
         "all_rows": rows,
-        "rows": list(page_obj.object_list),
+        "rows": page_rows,
         "all_rows_count": len(rows),
         "global_usage_detail": global_usage_detail,
         "page_obj": page_obj,
