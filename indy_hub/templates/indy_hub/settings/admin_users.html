@@ -2,6 +2,14 @@
 {% load i18n %}
 {% load static %}
 
+{% blocktrans asvar adminUsersNoGlobalPageDetailText %}No global page detail has been recorded yet.{% endblocktrans %}
+{% blocktrans asvar adminUsersGlobalUsageErrorText %}Unable to load usage analytics right now.{% endblocktrans %}
+{% blocktrans asvar adminUsersNoPageDetailText %}No page detail has been recorded yet.{% endblocktrans %}
+{% blocktrans asvar adminUsersUserUsageErrorText %}Unable to load user analytics right now.{% endblocktrans %}
+{% blocktrans asvar adminUsersSortAscendingText %}A-Z{% endblocktrans %}
+{% blocktrans asvar adminUsersSortDescendingText %}Z-A{% endblocktrans %}
+{% blocktrans asvar adminUsersShownText %}users shown{% endblocktrans %}
+
 {% block page_title %}{% trans "Settings - User admin" %}{% endblock page_title %}
 
 {% block extra_css %}
@@ -495,10 +503,10 @@
             }
             fetchFragment(url)
                 .then(function (payload) {
-                    container.innerHTML = payload && payload.html ? payload.html : '<div class="text-muted small">{% trans "No global page detail has been recorded yet." %}</div>';
+                    container.innerHTML = payload && payload.html ? payload.html : '<div class="text-muted small">{{ adminUsersNoGlobalPageDetailText|escapejs }}</div>';
                 })
                 .catch(function () {
-                    container.innerHTML = '<div class="alert alert-warning mb-0">{% trans "Unable to load usage analytics right now." %}</div>';
+                    container.innerHTML = '<div class="alert alert-warning mb-0">{{ adminUsersGlobalUsageErrorText|escapejs }}</div>';
                 });
         }
 
@@ -518,11 +526,11 @@
 
             fetchFragment(url)
                 .then(function (payload) {
-                    target.innerHTML = payload && payload.html ? payload.html : '<div class="text-muted small">{% trans "No page detail has been recorded yet." %}</div>';
+                    target.innerHTML = payload && payload.html ? payload.html : '<div class="text-muted small">{{ adminUsersNoPageDetailText|escapejs }}</div>';
                     target.dataset.loaded = '1';
                 })
                 .catch(function () {
-                    target.innerHTML = '<div class="alert alert-warning mb-0">{% trans "Unable to load user analytics right now." %}</div>';
+                    target.innerHTML = '<div class="alert alert-warning mb-0">{{ adminUsersUserUsageErrorText|escapejs }}</div>';
                 });
         }
 
@@ -609,12 +617,12 @@
                     }
                     var isActive = button.dataset.sortKey === sortState.key;
                     if (!isActive) {
-                        indicator.textContent = '{% trans "A-Z" %}';
+                        indicator.textContent = '{{ adminUsersSortAscendingText|escapejs }}';
                         return;
                     }
                     indicator.textContent = sortState.direction === 'asc'
-                        ? '{% trans "A-Z" %}'
-                        : '{% trans "Z-A" %}';
+                        ? '{{ adminUsersSortAscendingText|escapejs }}'
+                        : '{{ adminUsersSortDescendingText|escapejs }}';
                 });
             }
 
@@ -649,7 +657,7 @@
                 });
 
                 if (resultCounter) {
-                    resultCounter.textContent = visibleCount + ' / ' + rows.length + ' {% trans "users shown" %}';
+                    resultCounter.textContent = visibleCount + ' / ' + rows.length + ' {{ adminUsersShownText|escapejs }}';
                 }
                 updateSortIndicators();
             }
