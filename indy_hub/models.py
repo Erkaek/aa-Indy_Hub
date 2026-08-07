@@ -1,7 +1,8 @@
 # Standard Library
 import random
 import secrets
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from datetime import timezone as datetime_timezone
 from decimal import ROUND_CEILING, Decimal
 
 # Django
@@ -996,6 +997,9 @@ class UserOnboardingProgress(models.Model):
 
 
 class IndyHubUserUsage(models.Model):
+    PAGE_USAGE_RETENTION_DAYS = 90
+    PAGE_USAGE_MAX_KEYS = 64
+
     """Simple usage history and rolling activity counters per user."""
 
     user = models.OneToOneField(
@@ -1095,7 +1099,55 @@ class IndyHubUserUsage(models.Model):
                 "last_used_at": moment.isoformat(),
                 "daily_usage": page_daily_usage,
             }
-            self.page_usage = normalized_page_usage
+
+            retention_cutoff = moment - timedelta(days=self.PAGE_USAGE_RETENTION_DAYS)
+
+            def _parse_entry_last_used(raw_value):
+                if not raw_value:
+                    return None
+                if hasattr(raw_value, "tzinfo"):
+                    return raw_value
+                try:
+                    return datetime.fromisoformat(str(raw_value))
+                except (TypeError, ValueError):
+                    return None
+
+            def _normalize_entry_last_used(raw_value):
+                parsed = _parse_entry_last_used(raw_value)
+                if not parsed:
+                    return None
+                if parsed.tzinfo is None:
+                    return parsed.replace(tzinfo=datetime_timezone.utc)
+                return parsed
+
+            retained_page_usage: dict[str, dict[str, object]] = {}
+            for key, entry in normalized_page_usage.items():
+                if not isinstance(entry, dict):
+                    continue
+                last_used_at = _normalize_entry_last_used(entry.get("last_used_at"))
+                if last_used_at and last_used_at < retention_cutoff:
+                    continue
+                retained_page_usage[str(key)] = entry
+
+            if len(retained_page_usage) > self.PAGE_USAGE_MAX_KEYS:
+
+                def _entry_last_used_sort_value(entry) -> float:
+                    parsed = _normalize_entry_last_used(entry.get("last_used_at"))
+                    if not parsed:
+                        return float("-inf")
+                    return parsed.timestamp()
+
+                sorted_entries = sorted(
+                    retained_page_usage.items(),
+                    key=lambda item: (
+                        _entry_last_used_sort_value(item[1]),
+                        int(item[1].get("total_usage_count") or 0),
+                    ),
+                    reverse=True,
+                )
+                retained_page_usage = dict(sorted_entries[: self.PAGE_USAGE_MAX_KEYS])
+
+            self.page_usage = retained_page_usage
 
 
 class UserFavoriteStructure(models.Model):

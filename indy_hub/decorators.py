@@ -3,7 +3,7 @@
 from functools import wraps
 
 # Django
-from django.contrib import messages
+from django.http import HttpResponseForbidden
 from django.shortcuts import redirect
 
 # AA Example App
@@ -17,8 +17,9 @@ def indy_hub_access_required(view_func):
         if not request.user.is_authenticated:
             return redirect("auth_login_user")
         if not request.user.has_perm("indy_hub.can_access_indy_hub"):
-            messages.error(request, "You do not have permission to access Indy Hub.")
-            return redirect("indy_hub:index")
+            return HttpResponseForbidden(
+                "You do not have permission to access Indy Hub."
+            )
         track_indy_hub_usage_once_per_request(request)
         return view_func(request, *args, **kwargs)
 
@@ -35,10 +36,9 @@ def indy_hub_permission_required(permission_codename):
                 return redirect("auth_login_user")
             full_codename = f"indy_hub.{permission_codename}"
             if not request.user.has_perm(full_codename):
-                messages.error(
-                    request, "You do not have the required Indy Hub permission."
+                return HttpResponseForbidden(
+                    "You do not have the required Indy Hub permission."
                 )
-                return redirect("indy_hub:index")
             track_indy_hub_usage_once_per_request(request)
             return view_func(request, *args, **kwargs)
 

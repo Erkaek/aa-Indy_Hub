@@ -5,16 +5,23 @@ from __future__ import annotations
 # Standard Library
 import math
 from datetime import date, datetime, timedelta
+from hashlib import sha1
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 # Django
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
+
+# Alliance Auth
+from allianceauth.services.hooks import get_extension_logger
 
 # AA Example App
 # Local
 from indy_hub.models import IndyHubUserUsage
+
+logger = get_extension_logger(__name__)
 
 USAGE_HISTORY_WINDOW_DAYS = 30
 _PAGE_RING_PALETTE = (
@@ -31,6 +38,17 @@ _PAGE_RING_PALETTE = (
 _USAGE_EXCLUDED_PATHS = {
     "/user_notifications_count/",
 }
+_USAGE_EXCLUDED_PATH_PREFIXES = {
+    "/indy_hub/settings/admin-users/global-usage-fragment",
+    "/indy_hub/settings/admin-users/usage-detail-fragment",
+}
+_USAGE_EXCLUDED_ROUTE_NAMES = {
+    "indy_hub:settings_admin_users_global_usage_fragment",
+    "indy_hub:settings_admin_users_usage_detail_fragment",
+    "settings_admin_users_global_usage_fragment",
+    "settings_admin_users_usage_detail_fragment",
+}
+_USAGE_REQUEST_DEBOUNCE_SECONDS = 60
 
 
 def is_usage_tracking_path_excluded(path: str | None) -> bool:
@@ -38,6 +56,9 @@ def is_usage_tracking_path_excluded(path: str | None) -> bool:
     normalized_path = str(path or "").strip()
     if not normalized_path:
         return True
+    if normalized_path.startswith("route:"):
+        route_name = normalized_path.split("route:", 1)[1].strip()
+        return route_name in _USAGE_EXCLUDED_ROUTE_NAMES
     # Ignore query string/fragments and normalize trailing slash variants.
     split_path = urlsplit(normalized_path).path.strip()
     if split_path and split_path != "/":
@@ -45,9 +66,29 @@ def is_usage_tracking_path_excluded(path: str | None) -> bool:
     normalized_path = split_path or "/"
     if not normalized_path.startswith("/"):
         normalized_path = f"/{normalized_path}"
+    if any(
+        normalized_path == prefix or normalized_path.startswith(f"{prefix}/")
+        for prefix in _USAGE_EXCLUDED_PATH_PREFIXES
+    ):
+        return True
     return (
         normalized_path in _USAGE_EXCLUDED_PATHS
         or f"{normalized_path}/" in _USAGE_EXCLUDED_PATHS
+    )
+
+
+def is_usage_tracking_route_excluded(resolver_match) -> bool:
+    """Return True when a resolved route should not be counted in usage metrics."""
+    if not resolver_match:
+        return False
+
+    route_candidates = {
+        str(getattr(resolver_match, "view_name", "") or "").strip(),
+        str(getattr(resolver_match, "url_name", "") or "").strip(),
+    }
+    route_candidates.discard("")
+    return any(
+        candidate in _USAGE_EXCLUDED_ROUTE_NAMES for candidate in route_candidates
     )
 
 
@@ -78,6 +119,48 @@ def _parse_iso_datetime(raw_value):
         return datetime.fromisoformat(str(raw_value))
     except (TypeError, ValueError):
         return None
+
+
+def calculate_recent_activity_counts(
+    raw_counts,
+    *,
+    reference_day: date | None = None,
+) -> tuple[int, int]:
+    normalized_counts = _normalize_daily_counts(raw_counts)
+    day_ref = reference_day or timezone.localdate()
+    start_30d = day_ref - timedelta(days=29)
+    start_7d = day_ref - timedelta(days=6)
+
+    activity_30d_count = sum(
+        count
+        for day_key, count in normalized_counts.items()
+        if date.fromisoformat(day_key) >= start_30d
+    )
+    activity_7d_count = sum(
+        count
+        for day_key, count in normalized_counts.items()
+        if date.fromisoformat(day_key) >= start_7d
+    )
+    return activity_7d_count, activity_30d_count
+
+
+def _build_usage_route_key(resolver_match) -> str | None:
+    if not resolver_match:
+        return None
+
+    view_name = str(
+        getattr(resolver_match, "view_name", None)
+        or getattr(resolver_match, "url_name", None)
+        or ""
+    ).strip()
+    if not view_name:
+        return None
+    return f"route:{view_name}"
+
+
+def _usage_request_debounce_cache_key(*, user_id: int, page_key: str) -> str:
+    digest = sha1(page_key.encode("utf-8")).hexdigest()[:20]
+    return f"indy_hub:usage:debounce:{int(user_id)}:{digest}"
 
 
 def build_usage_timeline(
@@ -183,7 +266,11 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
         }
 
     overall_daily_usage = _normalize_daily_counts(getattr(usage, "daily_usage", {}))
-    reference_day = timezone.localdate(usage.last_used_at or timezone.now())
+    reference_day = timezone.localdate()
+    activity_7d_count, activity_30d_count = calculate_recent_activity_counts(
+        overall_daily_usage,
+        reference_day=reference_day,
+    )
     overall_timeline_data = build_usage_timeline(
         overall_daily_usage,
         end_day=reference_day,
@@ -357,8 +444,8 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
         "first_used_at": _parse_iso_datetime(usage.first_used_at),
         "last_used_at": _parse_iso_datetime(usage.last_used_at),
         "total_usage_count": int(usage.total_usage_count or 0),
-        "activity_7d_count": int(usage.activity_7d_count or 0),
-        "activity_30d_count": int(usage.activity_30d_count or 0),
+        "activity_7d_count": int(activity_7d_count or 0),
+        "activity_30d_count": int(activity_30d_count or 0),
         "overall_timeline": overall_timeline,
         "active_days_30d": active_days_30d,
         "active_days_total": active_days_total,
@@ -473,19 +560,10 @@ def build_indy_hub_global_usage_detail(usages) -> dict[str, object]:
 
             aggregated_page_usage[page_key] = page_entry
 
-    reference_day = timezone.localdate(last_used_at or timezone.now())
-    start_30d = reference_day - timedelta(days=29)
-    start_7d = reference_day - timedelta(days=6)
-
-    activity_30d_count = sum(
-        count
-        for day_key, count in aggregated_daily_usage.items()
-        if date.fromisoformat(day_key) >= start_30d
-    )
-    activity_7d_count = sum(
-        count
-        for day_key, count in aggregated_daily_usage.items()
-        if date.fromisoformat(day_key) >= start_7d
+    reference_day = timezone.localdate()
+    activity_7d_count, activity_30d_count = calculate_recent_activity_counts(
+        aggregated_daily_usage,
+        reference_day=reference_day,
     )
 
     synthetic_usage = SimpleNamespace(
@@ -512,7 +590,11 @@ def build_indy_hub_global_usage_detail(usages) -> dict[str, object]:
                 [
                     usage
                     for usage in usage_list
-                    if int(getattr(usage, "activity_30d_count", 0) or 0) > 0
+                    if calculate_recent_activity_counts(
+                        getattr(usage, "daily_usage", {}),
+                        reference_day=reference_day,
+                    )[1]
+                    > 0
                 ]
             ),
             "timeline_30d": timeline_30d_data["timeline"],
@@ -536,14 +618,18 @@ def track_indy_hub_usage_for_user(
 
     normalized_page_path = None
     if page_path is not None:
-        normalized_page_path = urlsplit(str(page_path).strip()).path.strip()
-        if normalized_page_path and normalized_page_path != "/":
-            normalized_page_path = normalized_page_path.rstrip("/")
-        normalized_page_path = normalized_page_path or "/"
-        if not normalized_page_path.startswith("/"):
-            normalized_page_path = f"/{normalized_page_path}"
-        if is_usage_tracking_path_excluded(normalized_page_path):
-            return
+        raw_page_path = str(page_path).strip()
+        if raw_page_path.startswith("route:"):
+            normalized_page_path = raw_page_path
+        else:
+            normalized_page_path = urlsplit(raw_page_path).path.strip()
+            if normalized_page_path and normalized_page_path != "/":
+                normalized_page_path = normalized_page_path.rstrip("/")
+            normalized_page_path = normalized_page_path or "/"
+            if not normalized_page_path.startswith("/"):
+                normalized_page_path = f"/{normalized_page_path}"
+            if is_usage_tracking_path_excluded(normalized_page_path):
+                return
 
     with transaction.atomic():
         usage, _created = IndyHubUserUsage.objects.select_for_update().get_or_create(
@@ -585,6 +671,9 @@ def track_indy_hub_usage_once_per_request(request) -> None:
         return
 
     resolver_match = getattr(request, "resolver_match", None)
+    if is_usage_tracking_route_excluded(resolver_match):
+        return
+
     page_label = (
         getattr(resolver_match, "url_name", None)
         or getattr(resolver_match, "view_name", None)
@@ -595,9 +684,28 @@ def track_indy_hub_usage_once_per_request(request) -> None:
         getattr(request, "path", "")
     )
 
-    track_indy_hub_usage_for_user(
-        user,
-        page_path=request_path,
-        page_label=page_label,
-    )
+    usage_page_key = _build_usage_route_key(resolver_match) or request_path
     request._indy_hub_usage_tracked = True
+    try:
+        cache_key = _usage_request_debounce_cache_key(
+            user_id=int(user.id),
+            page_key=usage_page_key,
+        )
+        if cache.get(cache_key):
+            if IndyHubUserUsage.objects.filter(user=user).exists():
+                return
+
+        track_indy_hub_usage_for_user(
+            user,
+            page_path=usage_page_key,
+            page_label=page_label,
+        )
+        cache.set(cache_key, 1, timeout=_USAGE_REQUEST_DEBOUNCE_SECONDS)
+    except Exception:
+        # Tracking must never block page rendering.
+        logger.warning(
+            "Unable to record Indy Hub usage (user_id=%s, path=%s)",
+            getattr(user, "id", None),
+            request_path,
+            exc_info=True,
+        )

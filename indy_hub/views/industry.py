@@ -28,7 +28,7 @@ from django.utils import timezone
 from django.utils.html import escape, mark_safe
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_POST
 
 # Alliance Auth
 from allianceauth.authentication.models import CharacterOwnership
@@ -257,6 +257,9 @@ from .navigation import build_nav_context
 
 # ESI skills scope + industry slot calculations
 SKILL_CACHE_TTL = timedelta(hours=1)
+INDUSTRY_JOBS_PER_PAGE_DEFAULT = 50
+INDUSTRY_JOBS_PER_PAGE_MAX_CHARACTER = 100
+INDUSTRY_JOBS_PER_PAGE_MAX_CORPORATION = 200
 MANUFACTURING_ACTIVITY_IDS = {1}
 RESEARCH_ACTIVITY_IDS = {3, 4, 5, 8}
 REACTION_ACTIVITY_IDS = {9, 11}
@@ -416,6 +419,25 @@ def _has_required_scopes(user, scopes: list[str]) -> bool:
         )
     except Exception:
         return False
+
+
+def _parse_bounded_int(
+    raw_value,
+    *,
+    default: int,
+    minimum: int = 1,
+    maximum: int | None = None,
+) -> int:
+    try:
+        parsed_value = int(str(raw_value).strip())
+    except (TypeError, ValueError):
+        parsed_value = default
+
+    if parsed_value < minimum:
+        parsed_value = minimum
+    if maximum is not None and parsed_value > maximum:
+        parsed_value = maximum
+    return parsed_value
 
 
 def _resolve_user_identity(user: User | None) -> UserIdentity:
@@ -1582,32 +1604,23 @@ def personnal_job_list(request, scope="character"):
     activity_filter = request.GET.get("activity", "")
     sort_by = request.GET.get("sort", "start_date")
     sort_order = request.GET.get("order", "desc")
-    page = int(request.GET.get("page", 1))
-    per_page = request.GET.get("per_page")
+    page = _parse_bounded_int(request.GET.get("page", 1), default=1)
+    max_per_page = (
+        INDUSTRY_JOBS_PER_PAGE_MAX_CORPORATION
+        if is_corporation_scope
+        else INDUSTRY_JOBS_PER_PAGE_MAX_CHARACTER
+    )
+    per_page = _parse_bounded_int(
+        request.GET.get("per_page", INDUSTRY_JOBS_PER_PAGE_DEFAULT),
+        default=INDUSTRY_JOBS_PER_PAGE_DEFAULT,
+        maximum=max_per_page,
+    )
 
     owner_kind_filter = (
         Blueprint.OwnerKind.CORPORATION
         if is_corporation_scope
         else Blueprint.OwnerKind.CHARACTER
     )
-
-    if per_page:
-        per_page = int(per_page)
-        if per_page < 1:
-            per_page = 1
-    else:
-        if is_corporation_scope:
-            per_page = IndustryJob.objects.filter(
-                owner_kind=owner_kind_filter,
-                corporation_id__in=accessible_corporation_ids,
-            ).count()
-        else:
-            per_page = IndustryJob.objects.filter(
-                owner_user=request.user,
-                owner_kind=owner_kind_filter,
-            ).count()
-        if per_page < 1:
-            per_page = 1
 
     if is_corporation_scope:
         base_jobs_qs = IndustryJob.objects.filter(
@@ -1643,6 +1656,10 @@ def personnal_job_list(request, scope="character"):
                 continue
             display_name = get_character_name(cid) or str(cid)
             owner_options.append((cid, display_name))
+
+    per_page_options = [10, 25, 50, 100]
+    if is_corporation_scope:
+        per_page_options.append(200)
 
     jobs_qs = base_jobs_qs
     now = timezone.now()
@@ -1965,7 +1982,7 @@ def personnal_job_list(request, scope="character"):
                 "order": sort_order,
                 "per_page": per_page,
             },
-            "per_page_options": [10, 25, 50, 100, 200],
+            "per_page_options": per_page_options,
             "jobs_page": jobs_page,
             "job_groups": job_groups,
             "has_job_results": bool(job_groups),
@@ -4546,6 +4563,7 @@ def bp_discord_action(request):
 @indy_hub_access_required
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
+@require_POST
 def bp_buyer_accept_offer(request, offer_id):
     """Allow buyer to accept a conditional offer."""
     offer = get_object_or_404(BlueprintCopyOffer, id=offer_id, status="conditional")
@@ -4708,6 +4726,7 @@ def bp_reject_copy_request(request, request_id):
 @indy_hub_access_required
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
+@require_POST
 def bp_cancel_copy_request(request, request_id):
     """Allow user to cancel their own copy request before delivery."""
     req = get_object_or_404(
@@ -4753,6 +4772,7 @@ def bp_cancel_copy_request(request, request_id):
 @indy_hub_access_required
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
+@require_POST
 def bp_mark_copy_delivered(request, request_id):
     """Mark a fulfilled blueprint copy request as delivered (provider action)."""
     req = get_object_or_404(

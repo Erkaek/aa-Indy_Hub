@@ -42,9 +42,33 @@ def _build_scope_status_from_scope_names(scope_names: set[str]) -> dict[str, obj
     }
 
 
+def _merge_scope_statuses(
+    statuses: list[dict[str, object]],
+) -> dict[str, object]:
+    if not statuses:
+        return _build_scope_status_from_scope_names(set())
+
+    merged_flags: dict[str, bool] = {
+        label: False for label, _required_scopes in _SCOPE_REQUIREMENTS
+    }
+    for status in statuses:
+        status_flags = status.get("flags") or {}
+        for label in merged_flags:
+            merged_flags[label] = merged_flags[label] or bool(status_flags.get(label))
+
+    missing_labels = [
+        label for label, has_scope in merged_flags.items() if not has_scope
+    ]
+    return {
+        "flags": merged_flags,
+        "is_complete": all(merged_flags.values()),
+        "missing_labels": missing_labels,
+    }
+
+
 def collect_user_scope_status_map(user_ids: list[int]) -> dict[int, dict[str, object]]:
     normalized_user_ids = [int(user_id) for user_id in user_ids if user_id]
-    scope_names_by_user_id: dict[int, set[str]] = defaultdict(set)
+    scope_statuses_by_user_id: dict[int, list[dict[str, object]]] = defaultdict(list)
 
     if normalized_user_ids:
         tokens = (
@@ -53,15 +77,18 @@ def collect_user_scope_status_map(user_ids: list[int]) -> dict[int, dict[str, ob
             .prefetch_related("scopes")
         )
         for token in tokens:
-            scope_names_by_user_id[int(token.user_id)].update(
-                str(scope_name)
-                for scope_name in token.scopes.values_list("name", flat=True)
-                if scope_name
+            scope_names = {
+                str(scope.name)
+                for scope in token.scopes.all()
+                if getattr(scope, "name", None)
+            }
+            scope_statuses_by_user_id[int(token.user_id)].append(
+                _build_scope_status_from_scope_names(scope_names)
             )
 
     return {
-        int(user_id): _build_scope_status_from_scope_names(
-            scope_names_by_user_id.get(int(user_id), set())
+        int(user_id): _merge_scope_statuses(
+            scope_statuses_by_user_id.get(int(user_id), [])
         )
         for user_id in normalized_user_ids
     }

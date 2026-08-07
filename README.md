@@ -217,7 +217,36 @@ INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES = 0  # Default: 0
 INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS = 24  # Default: 24
 INDY_HUB_ROLE_SNAPSHOT_STALE_HOURS = 24  # Default: 24
 INDY_HUB_STRUCTURE_NAME_STALE_HOURS = 24  # Default: 24
+
+# Optional: global usage tracking middleware (explicit opt-in)
+INDY_HUB_USAGE_MIDDLEWARE_ENABLED = False  # Default: False
+INDY_HUB_USAGE_MIDDLEWARE_ALLOWED_APP_NAMES = ("indy_hub",)  # Default scope
 ```
+
+### Optional Global Usage Tracking Middleware
+
+- By default, Indy Hub usage tracking is performed by Indy Hub view decorators.
+- To track Indy Hub requests globally, explicitly enable the middleware below.
+- The middleware records only allowlisted app routes and stores normalized route keys (`route:app:view`) instead of raw URL paths.
+
+Add to `MIDDLEWARE` in `local.py` (after authentication/session middleware):
+
+```python
+MIDDLEWARE = [
+    # ... existing middleware ...
+    "indy_hub.middleware.IndyHubUsageTrackingMiddleware",
+]
+```
+
+Recommended scope configuration:
+
+```python
+# Keep scope explicit; default tracks Indy Hub routes only.
+INDY_HUB_USAGE_MIDDLEWARE_ENABLED = True
+INDY_HUB_USAGE_MIDDLEWARE_ALLOWED_APP_NAMES = ("indy_hub",)
+```
+
+If you broaden `INDY_HUB_USAGE_MIDDLEWARE_ALLOWED_APP_NAMES`, only include app names you intentionally want in usage analytics.
 
 Notification dispatch modes:
 

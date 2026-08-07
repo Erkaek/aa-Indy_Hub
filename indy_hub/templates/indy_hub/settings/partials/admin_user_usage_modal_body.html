@@ -1,0 +1,68 @@
+{% load i18n %}
+{% if usage_detail.has_usage %}
+<div class="admin-users-usage-summary-grid">
+    <div class="admin-users-usage-summary-card">
+        <div class="admin-users-usage-summary-label">{% trans "Total hits" %}</div>
+        <div class="admin-users-usage-summary-value">{{ usage_detail.total_usage_count }}</div>
+        <div class="admin-users-usage-summary-note">{% trans "All recorded Indy Hub accesses." %}</div>
+    </div>
+    <div class="admin-users-usage-summary-card">
+        <div class="admin-users-usage-summary-label">{% trans "Active days" %}</div>
+        <div class="admin-users-usage-summary-value">{{ usage_detail.active_days_total }}</div>
+        <div class="admin-users-usage-summary-note">{% trans "Distinct days with at least one access." %}</div>
+    </div>
+    <div class="admin-users-usage-summary-card">
+        <div class="admin-users-usage-summary-label">{% trans "First access" %}</div>
+        <div class="admin-users-usage-summary-value">{{ usage_detail.first_used_at|date:"Y-m-d H:i" }}</div>
+        <div class="admin-users-usage-summary-note">{% trans "Earliest recorded access." %}</div>
+    </div>
+    <div class="admin-users-usage-summary-card">
+        <div class="admin-users-usage-summary-label">{% trans "Last access" %}</div>
+        <div class="admin-users-usage-summary-value">{{ usage_detail.last_used_at|date:"Y-m-d H:i" }}</div>
+        <div class="admin-users-usage-summary-note">{% trans "Most recent recorded access." %}</div>
+    </div>
+</div>
+
+<div class="mt-4">
+    <div class="section-heading mb-2">
+        <div>
+            <h6 class="section-title mb-0">{% trans "Pages visited" %}</h6>
+            <p class="text-muted small mb-0">{% trans "Usage by page over the last 30 days." %}</p>
+        </div>
+    </div>
+    {% if usage_detail.page_rings %}
+    <div class="admin-users-pages-layout">
+        <div class="admin-users-page-legend">
+            {% for ring in usage_detail.page_rings %}
+            <span class="admin-users-page-legend-item" title="{{ ring.label }} · {{ ring.recent_30d_count }}">
+                <span class="d-inline-flex align-items-center gap-2">
+                    <span class="admin-users-page-legend-swatch" style="background: {{ ring.page_color }};"></span>
+                    <span>{{ ring.label }}</span>
+                </span>
+                <strong class="text-body">{{ ring.recent_30d_count }}</strong>
+            </span>
+            {% endfor %}
+        </div>
+        <div class="admin-users-page-chart-wrap">
+            <svg class="admin-users-page-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" role="img" aria-label="{% trans '30-day usage by page' %} · {{ usage_user.username }}" preserveAspectRatio="xMidYMid meet">
+                <title>{% trans "30-day usage by page" %} · {{ usage_user.username }}</title>
+                <circle class="admin-users-page-svg-ring-track" cx="{{ usage_detail.page_ring_center_x }}" cy="{{ usage_detail.page_ring_center_y }}" r="{{ usage_detail.page_ring_outer_radius|add:'-13' }}"></circle>
+                {% for ring in usage_detail.page_rings %}
+                <path d="{{ ring.page_arc_path }}" fill="{{ ring.page_color }}"></path>
+                {% endfor %}
+                <circle class="admin-users-page-svg-radar-center" cx="{{ usage_detail.page_ring_center_x }}" cy="{{ usage_detail.page_ring_center_y }}" r="16"></circle>
+                <text class="admin-users-page-svg-radar-center-value" x="{{ usage_detail.page_ring_center_x }}" y="{{ usage_detail.page_ring_center_y|add:'-2' }}">{{ usage_detail.page_total_30d }}</text>
+                <text class="admin-users-page-svg-radar-center-label" x="{{ usage_detail.page_ring_center_x }}" y="{{ usage_detail.page_ring_center_y|add:'10' }}">{% trans "30d hits" %}</text>
+                {% for ring in usage_detail.page_rings %}
+                <text class="admin-users-page-svg-ring-label" x="{{ ring.page_label_x }}" y="{{ ring.page_label_y }}" text-anchor="{{ ring.page_label_anchor }}" transform="rotate({{ ring.page_label_rotation }} {{ ring.page_label_x }} {{ ring.page_label_y }})">{{ ring.page_label_short }}</text>
+                {% endfor %}
+            </svg>
+        </div>
+    </div>
+    {% else %}
+    <div class="text-muted small">{% trans "No page detail has been recorded yet." %}</div>
+    {% endif %}
+</div>
+{% else %}
+<div class="alert alert-secondary mb-0">{% trans "Usage detail will appear after the user opens an Indy Hub page." %}</div>
+{% endif %}

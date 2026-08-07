@@ -22,6 +22,8 @@ from .views.api import (
 )
 from .views.hubs import (
     settings_admin_users,
+    settings_admin_users_global_usage_fragment,
+    settings_admin_users_usage_detail_fragment,
     settings_hub,
     test_darkly_theme,
 )
@@ -153,6 +155,16 @@ urlpatterns = [
     path("esi/", token_management, name="esi_hub"),
     path("settings/", settings_hub, name="settings_hub"),
     path("settings/admin-users/", settings_admin_users, name="settings_admin_users"),
+    path(
+        "settings/admin-users/global-usage-fragment/",
+        settings_admin_users_global_usage_fragment,
+        name="settings_admin_users_global_usage_fragment",
+    ),
+    path(
+        "settings/admin-users/usage-detail-fragment/<int:user_id>/",
+        settings_admin_users_usage_detail_fragment,
+        name="settings_admin_users_usage_detail_fragment",
+    ),
     path("personnal-bp/", personnal_bp_list, name="personnal_bp_list"),
     path(
         "corporation-bp/",

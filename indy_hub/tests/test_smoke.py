@@ -520,7 +520,7 @@ class BlueprintCopyHistoryAccessTests(TestCase):
     def test_history_requires_manage_permission(self) -> None:
         self.client.force_login(self.base_user)
         response = self.client.get(reverse("indy_hub:bp_copy_history"))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
 
     def test_history_page_renders_for_authorized_user(self) -> None:
         self.client.force_login(self.viewer)
@@ -629,6 +629,51 @@ class NavbarIndustryJobsTests(TestCase):
         response = self.client.get(reverse("indy_hub:personnal_job_list"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, reverse("indy_hub:corporation_job_list"))
+
+    def test_personal_jobs_page_uses_fixed_safe_pagination_defaults(self) -> None:
+        now = timezone.now()
+        for index in range(2):
+            IndustryJob.objects.create(
+                owner_user=self.user,
+                owner_kind=Blueprint.OwnerKind.CHARACTER,
+                character_id=7011001,
+                job_id=9910000 + index,
+                installer_id=self.user.id,
+                station_id=PUBLIC_STATION_ID,
+                location_name="Test Station",
+                activity_id=1,
+                blueprint_id=6010000 + index,
+                blueprint_type_id=6011000 + index,
+                runs=1,
+                status="active",
+                duration=3600,
+                start_date=now,
+                end_date=now + timedelta(hours=1),
+                activity_name="Manufacturing",
+                blueprint_type_name=f"Blueprint {index}",
+                product_type_name=f"Product {index}",
+                character_name="Jobs User",
+            )
+
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("indy_hub:personnal_job_list"),
+            {"page": "abc", "per_page": "abc"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["jobs"].paginator.per_page, 50)
+        self.assertEqual(response.context["jobs"].number, 1)
+
+    def test_personal_jobs_page_clamps_per_page_to_100(self) -> None:
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("indy_hub:personnal_job_list"),
+            {"per_page": "999"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["jobs"].paginator.per_page, 100)
 
     def test_my_orders_lists_in_progress_before_completed(self) -> None:
         config = MaterialExchangeConfig.objects.create(
@@ -3555,6 +3600,48 @@ class BlueprintCopyMyRequestsTests(TestCase):
             BlueprintCopyRequest.objects.filter(id=request_obj.id).exists()
         )
 
+    def test_cancel_requires_post(self) -> None:
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=700001,
+            material_efficiency=8,
+            time_efficiency=10,
+            requested_by=self.user,
+            runs_requested=2,
+            copies_requested=1,
+        )
+
+        response = self.client.get(
+            reverse("indy_hub:bp_cancel_copy_request", args=[request_obj.id])
+        )
+
+        self.assertEqual(response.status_code, 405)
+        self.assertTrue(BlueprintCopyRequest.objects.filter(id=request_obj.id).exists())
+
+    def test_buyer_accept_offer_requires_post(self) -> None:
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=700001,
+            material_efficiency=8,
+            time_efficiency=10,
+            requested_by=self.user,
+            runs_requested=2,
+            copies_requested=1,
+        )
+        offer = BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=self.provider,
+            status="conditional",
+            accepted_by_buyer=False,
+            accepted_by_seller=False,
+        )
+
+        response = self.client.get(
+            reverse("indy_hub:bp_buyer_accept_offer", args=[offer.id])
+        )
+
+        self.assertEqual(response.status_code, 405)
+        offer.refresh_from_db()
+        self.assertFalse(offer.accepted_by_buyer)
+
 
 class StructureLookupForbiddenCacheTests(TestCase):
     def tearDown(self) -> None:
@@ -5087,6 +5174,51 @@ class CorporationJobListViewTests(TestCase):
         visible_job_ids = {job.job_id for job in page_obj}
         self.assertIn(9900001, visible_job_ids)
 
+    def test_corporation_jobs_page_clamps_per_page_to_200(self) -> None:
+        provider = User.objects.create_user(
+            "corpjob_provider_limit", password="secret123"
+        )
+        assign_main_character(provider, character_id=103201)
+        grant_indy_permissions(provider, "can_manage_corp_bp_requests")
+
+        viewer = User.objects.create_user("corpjob_viewer_limit", password="secret123")
+        assign_main_character(viewer, character_id=103202)
+        grant_indy_permissions(viewer, "can_manage_corp_bp_requests")
+
+        start = timezone.now()
+        IndustryJob.objects.create(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2_000_000,
+            corporation_name="Test Corp",
+            character_id=103201,
+            job_id=9900101,
+            installer_id=provider.id,
+            station_id=PUBLIC_STATION_ID,
+            location_name="Corp Factory",
+            activity_id=1,
+            blueprint_id=6009101,
+            blueprint_type_id=6009102,
+            runs=1,
+            status="active",
+            duration=3600,
+            start_date=start,
+            end_date=start + timedelta(hours=1),
+            activity_name="Manufacturing",
+            blueprint_type_name="Corporate Job Blueprint",
+            product_type_name="Corporate Job Product",
+            character_name="Corp Job Provider",
+        )
+
+        self.client.force_login(viewer)
+        response = self.client.get(
+            reverse("indy_hub:corporation_job_list"),
+            {"per_page": "999"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["jobs"].paginator.per_page, 200)
+
     def test_corporation_jobs_visible_to_shared_catalog_viewer(self) -> None:
         provider = User.objects.create_user(
             "corpjob_provider_shared", password="secret123"
@@ -5611,6 +5743,42 @@ class BlueprintCopyDeliveryChatTests(TestCase):
         chat.refresh_from_db()
         self.assertTrue(request_obj.delivered)
         self.assertFalse(chat.is_open)
+
+    def test_mark_delivered_requires_post(self) -> None:
+        request_obj = BlueprintCopyRequest.objects.create(
+            type_id=16,
+            material_efficiency=6,
+            time_efficiency=10,
+            requested_by=self.buyer,
+            runs_requested=1,
+            copies_requested=1,
+            fulfilled=True,
+            fulfilled_by=self.seller,
+        )
+        offer = BlueprintCopyOffer.objects.create(
+            request=request_obj,
+            owner=self.seller,
+            status="accepted",
+            accepted_by_buyer=True,
+            accepted_by_seller=True,
+        )
+        chat = BlueprintCopyChat.objects.create(
+            request=request_obj,
+            offer=offer,
+            buyer=self.buyer,
+            seller=self.seller,
+            is_open=True,
+        )
+
+        response = self.client.get(
+            reverse("indy_hub:bp_mark_copy_delivered", args=[request_obj.id])
+        )
+
+        self.assertEqual(response.status_code, 405)
+        request_obj.refresh_from_db()
+        chat.refresh_from_db()
+        self.assertFalse(request_obj.delivered)
+        self.assertTrue(chat.is_open)
 
 
 class OnboardingViewsTests(TestCase):

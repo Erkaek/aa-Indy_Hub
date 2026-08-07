@@ -11,31 +11,38 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Added
 
-- Structure Registry: users can now **star (★) production structures** as favorites directly on the `/indy_hub/industry/structures/` page.
-- Structure tab: favorite structures appear first in all assignment dropdowns with a ★ prefix and are pre-selected as the default recommendation when no explicit structure has been chosen.
-- Crafting Projects: new **Corp BP toggle** in the Blueprint tab lets users switch between personal and corporation blueprints. When enabled, corp BPs with better ME/TE than personal are used automatically in material calculations, with a blue "CORP BP" badge on affected blueprint cards.
-- Crafting Projects: temporary projects now persist the Corp BP toggle state across page reloads via a dedicated cache endpoint, so the choice survives without saving the project.
-- Structure tab: new **Category Assignments** section lets users apply a structure to all items of the same craft group (e.g. "Construction Components", "Fuel Block") at once.
-- Management command: `populate_location_names --repair-stations` repairs placeholder location names by re-resolving NPC station IDs via the corrected public endpoint and relabelling non-deployed asset-item IDs as `<type name> [asset]`. Supports `--dry-run`.
-- Settings: added a private `Settings > User admin` page for superusers only, with scope/usage filters, health scoring, and detailed usage analytics.
-- Settings / User admin: added per-user usage detail modal plus a global all-users section with 30-day page-consultation analytics (`Pages visited (30d)`).
-- Usage analytics: added persistent Indy Hub usage tracking (`IndyHubUserUsage`) with rolling daily counters and per-page usage snapshots.
+- Structure Registry: users can now star (★) production structures directly on `/indy_hub/industry/structures/`.
+- Crafting Projects / Structure tab: favorite structures are prioritized in assignment dropdowns and used as default recommendations when no explicit structure is selected.
+- Crafting Projects / Structure tab: added Category Assignments to apply a structure to all items in the same craft group in one action.
+- Crafting Projects / Blueprint tab: added a Corp BP toggle to switch personal/corporation blueprint sourcing; corp BPs with better ME/TE are used automatically and marked with a `CORP BP` badge.
+- Crafting Projects (temporary projects): Corp BP toggle state now persists across reloads through the temporary workspace cache flow.
+- Settings: added private `Settings > User admin` page (superuser-only) with scope/usage filters, health scoring, per-user usage detail, and global 30-day page-usage analytics (`Pages visited (30d)`).
+- Usage analytics: added rolling daily counters and per-page usage snapshots.
+- Management command: `populate_location_names --repair-stations` repairs placeholder location names by re-resolving NPC station IDs and relabelling non-deployed asset-item IDs as `<type name> [asset]` (supports `--dry-run`).
+
+### Changed
+
+- Location-name repair/sync flows now resolve station names more reliably and avoid misclassifying large non-deployed asset-item IDs.
+- Location-name background refresh now avoids duplicate bursts, resulting in more stable updates under load.
 
 ### Fixed
 
-- Structure tab: favorite structure was not pre-selected when the user had no explicit prior assignment for a given item.
-- Crafting Projects: corp BPs were excluded from temporary project inventory; they are now included when the toggle is enabled and the user has access to the relevant corporation.
-- Crafting Projects: corp BPs with better ME than the user's personal BP were not used in calculations (they only acted as fallback when no personal BP existed at all).
-- Crafting Projects: `workspace_state` was missing from the temporary project template context, so the Corp BP toggle always rendered unchecked after reload regardless of saved state.
-- Structure tab: Category Assignments rows were grouped by broad service category (`manufacturing`, `composite_reactions`) instead of the more useful craft group name (`Construction Components`, `Fuel Block`, etc.).
-- Locations: NPC station names (IDs 60 000 000–69 999 999) were stored as `Structure <id>` placeholders instead of their real names. Indy Hub now uses the dedicated public `GET /universe/stations/{station_id}/` endpoint for this range, bypasses stale ETag-driven `304 Not Modified` failures during repair runs, and reuses local ESI cooldown state to avoid hammering the station endpoint when rate-limit headers indicate low remaining budget.
-- Locations: large IDs (`>= 1 000 000 000 000`) that are only non-deployed asset item IDs are no longer sent to the authenticated structure endpoint. Repair flows now relabel them locally as asset items instead of wasting ESI calls on lookups that can never resolve.
-- Settings: private user-admin scope checks now batch token-scope coverage lookups instead of repeating per-user scope queries during page render.
+- Structure tab: favorite structure defaulting now behaves correctly when no prior per-item assignment exists.
+- Structure tab: category assignment rows are grouped by craft group name (for example `Construction Components`, `Fuel Block`) instead of broad service category.
+- Crafting Projects / Blueprint tab: fixed multiple corp-BP toggle persistence and reload edge cases, including missing temporary `workspace_state` context and stale/default toggle behavior.
+- Crafting Projects / Blueprint sourcing: corp BPs are now included in temporary project inventory and correctly selected when they outperform personal BPs on ME.
+- Locations: NPC station placeholders (`Structure <id>`) are now repaired more reliably, including when upstream responses are cached or delayed.
+- Locations: very large non-deployed asset-item IDs are no longer looked up as structures, preventing wrong labels and noisy retries.
+- CharLink / scope-health display: users are no longer incorrectly shown as fully `OK` when required scopes are split across multiple tokens; scope completeness is now evaluated per token before user-level aggregation.
+- Settings / User admin: 7-day and 30-day usage metrics now stay accurate over time.
+- Settings / User admin: unauthorized users now receive explicit `403` responses instead of redirect loops.
+- Industry Jobs pages: invalid `page` / `per_page` values are now handled safely, preventing crashes and oversized result pages.
 
 ### Internal
 
-- Migrations: added `0112_indyhubuserusage` for user usage tracking and merged the former follow-up `0113` field addition into the same migration for a cleaner upgrade path.
-- Tests: added focused coverage for user-admin visibility rules, user-admin view behavior, health scoring, and usage tracking/regression paths.
+- Service-layer refactor: consolidated industry-related logic into dedicated helper modules (eligibility, chat/offer actions, estimated values, task helpers, temporary workspace helpers) to reduce coupling in large view/task paths.
+- Migrations: added `0111_add_user_favorite_structure` and `0112_indyhubuserusage` (with the former `0113` field addition merged into `0112` for a cleaner upgrade path).
+- Tests: added/extended focused coverage for favorites toggles, user-admin visibility/view behavior, health scoring, usage tracking, craft payload API behavior, and industry chat services.
 
 ## [1.18.2] - 2026-08-01
 
