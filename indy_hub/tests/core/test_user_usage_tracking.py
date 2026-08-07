@@ -185,6 +185,56 @@ class IndyHubUserUsageModelTests(TestCase):
         self.assertIn("/recent", usage.page_usage)
         self.assertLessEqual(len(usage.page_usage), usage.PAGE_USAGE_MAX_KEYS)
 
+    def test_register_usage_pruning_handles_mixed_naive_and_aware_timestamps(
+        self,
+    ) -> None:
+        now = timezone.now()
+        max_keys = IndyHubUserUsage.PAGE_USAGE_MAX_KEYS
+        usage = IndyHubUserUsage.objects.create(
+            user=self.user,
+            first_used_at=now - timedelta(days=2),
+            last_used_at=now - timedelta(days=1),
+            total_usage_count=1,
+            activity_7d_count=1,
+            activity_30d_count=1,
+            daily_usage={
+                (now - timedelta(days=1)).date().isoformat(): 1,
+            },
+            page_usage={
+                "/naive": {
+                    "label": "naive",
+                    "path": "/naive",
+                    "total_usage_count": 1,
+                    "first_used_at": "2026-08-01T10:00:00",
+                    "last_used_at": "2026-08-01T10:00:00",
+                    "daily_usage": {now.date().isoformat(): 1},
+                },
+                "/aware": {
+                    "label": "aware",
+                    "path": "/aware",
+                    "total_usage_count": 1,
+                    "first_used_at": now.isoformat(),
+                    "last_used_at": now.isoformat(),
+                    "daily_usage": {now.date().isoformat(): 1},
+                },
+                **{
+                    f"/k/{idx}": {
+                        "label": f"k{idx}",
+                        "path": f"/k/{idx}",
+                        "total_usage_count": 1,
+                        "first_used_at": now.isoformat(),
+                        "last_used_at": now.isoformat(),
+                        "daily_usage": {now.date().isoformat(): 1},
+                    }
+                    for idx in range(max_keys + 5)
+                },
+            },
+        )
+
+        usage.register_usage(at=now, page_path="/recent", page_label="recent")
+
+        self.assertLessEqual(len(usage.page_usage), usage.PAGE_USAGE_MAX_KEYS)
+
     def test_usage_detail_recomputes_rolling_windows_from_today(self) -> None:
         now = timezone.now()
         usage = IndyHubUserUsage.objects.create(
