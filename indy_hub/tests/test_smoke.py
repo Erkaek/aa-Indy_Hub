@@ -520,7 +520,7 @@ class BlueprintCopyHistoryAccessTests(TestCase):
     def test_history_requires_manage_permission(self) -> None:
         self.client.force_login(self.base_user)
         response = self.client.get(reverse("indy_hub:bp_copy_history"))
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 403)
 
     def test_history_page_renders_for_authorized_user(self) -> None:
         self.client.force_login(self.viewer)

@@ -26,7 +26,6 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Async location-name population now uses stronger dedupe/rate-limit protections to reduce duplicate background fan-out.
 - Settings / User admin access policy is explicitly superuser-only, and UI/docs/tests were aligned to that rule.
 
-
 ### Fixed
 
 - Structure tab: favorite structure defaulting now behaves correctly when no prior per-item assignment exists.
@@ -37,13 +36,11 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Locations: large IDs (`>= 1 000 000 000 000`) that are non-deployed asset-item IDs are no longer sent to authenticated structure lookups; repair flows relabel them locally as asset items.
 - Settings / User admin: token-scope coverage and usage/health aggregation paths were hardened for consistency and edge cases.
 
-
 ### Internal
 
 - Service-layer refactor: consolidated industry-related logic into dedicated helper modules (eligibility, chat/offer actions, estimated values, task helpers, temporary workspace helpers) to reduce coupling in large view/task paths.
 - Migrations: added `0111_add_user_favorite_structure` and `0112_indyhubuserusage` (with the former `0113` field addition merged into `0112` for a cleaner upgrade path).
 - Tests: added/extended focused coverage for favorites toggles, user-admin visibility/view behavior, health scoring, usage tracking, craft payload API behavior, and industry chat services.
-
 
 ## [1.18.2] - 2026-08-01
 
