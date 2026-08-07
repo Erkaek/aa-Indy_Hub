@@ -38,6 +38,10 @@ _PAGE_RING_PALETTE = (
 _USAGE_EXCLUDED_PATHS = {
     "/user_notifications_count/",
 }
+_USAGE_EXCLUDED_PATH_PREFIXES = {
+    "/indy_hub/settings/admin-users/global-usage-fragment",
+    "/indy_hub/settings/admin-users/usage-detail-fragment",
+}
 _USAGE_EXCLUDED_ROUTE_NAMES = {
     "indy_hub:settings_admin_users_global_usage_fragment",
     "indy_hub:settings_admin_users_usage_detail_fragment",
@@ -62,6 +66,11 @@ def is_usage_tracking_path_excluded(path: str | None) -> bool:
     normalized_path = split_path or "/"
     if not normalized_path.startswith("/"):
         normalized_path = f"/{normalized_path}"
+    if any(
+        normalized_path == prefix or normalized_path.startswith(f"{prefix}/")
+        for prefix in _USAGE_EXCLUDED_PATH_PREFIXES
+    ):
+        return True
     return (
         normalized_path in _USAGE_EXCLUDED_PATHS
         or f"{normalized_path}/" in _USAGE_EXCLUDED_PATHS

@@ -448,6 +448,16 @@ class IndyHubUsageServiceHookTests(TestCase):
 
         self.assertFalse(IndyHubUserUsage.objects.filter(user=self.user).exists())
 
+    def test_once_per_request_skips_settings_admin_users_fragment_paths(self) -> None:
+        request = self.factory.get(
+            "/indy_hub/settings/admin-users/usage-detail-fragment/5"
+        )
+        request.user = self.user
+
+        track_indy_hub_usage_once_per_request(request)
+
+        self.assertFalse(IndyHubUserUsage.objects.filter(user=self.user).exists())
+
     def test_once_per_request_uses_route_key_for_indy_hub_pages(self) -> None:
         request = self.factory.get("/indy_hub/settings/")
         request.user = self.user
