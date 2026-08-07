@@ -3832,6 +3832,32 @@ class StructureLookupDbCacheTests(TestCase):
         self.assertEqual(result, placeholder)
         self.assertEqual(mock_fetch.call_count, 0)
 
+    def test_station_lookup_ignores_structure_forbidden_cooldown(self) -> None:
+        station_id = 60_000_085
+        placeholder = f"Structure {station_id}"
+        CachedStructureName.objects.create(
+            structure_id=station_id,
+            name=placeholder,
+            last_resolved=timezone.now(),
+        )
+        cache.set(
+            eve_utils.build_structure_forbidden_cooldown_cache_key(station_id),
+            True,
+            timeout=60,
+        )
+
+        with patch(
+            "indy_hub.utils.eve.shared_client.fetch_station_name",
+            return_value="Egbinger XI - Moon 3 - CBD Corporation Storage",
+        ) as mock_fetch_station:
+            result = eve_utils.resolve_location_name(
+                station_id,
+                force_refresh=True,
+            )
+
+        self.assertEqual(result, "Egbinger XI - Moon 3 - CBD Corporation Storage")
+        self.assertEqual(mock_fetch_station.call_count, 1)
+
     def test_resolve_location_name_prefers_cached_structure_name(self) -> None:
         structure_id = 1_042_090_993_674
         CachedStructureName.objects.create(

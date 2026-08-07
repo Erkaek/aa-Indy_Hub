@@ -818,6 +818,8 @@ def build_structure_forbidden_cooldown_cache_key(structure_id: int) -> str:
 def has_structure_forbidden_cooldown(structure_id: int | None) -> bool:
     if not structure_id:
         return False
+    if is_station_id(structure_id):
+        return False
 
     alias_ids = _normalized_location_aliases(structure_id) or (int(structure_id),)
     for alias_id in alias_ids:
@@ -834,6 +836,8 @@ def set_structure_forbidden_cooldown(
     duration: timedelta = STRUCTURE_FORBIDDEN_RETRY_DELAY,
 ) -> None:
     if not structure_id:
+        return
+    if is_station_id(structure_id):
         return
 
     timeout = max(int(duration.total_seconds()), 1)
