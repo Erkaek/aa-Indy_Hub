@@ -37,7 +37,12 @@ _PAGE_RING_PALETTE = (
 
 _USAGE_EXCLUDED_PATHS = {
     "/user_notifications_count/",
-    "/indy_hub/settings/admin-users/",
+}
+_USAGE_EXCLUDED_ROUTE_NAMES = {
+    "indy_hub:settings_admin_users_global_usage_fragment",
+    "indy_hub:settings_admin_users_usage_detail_fragment",
+    "settings_admin_users_global_usage_fragment",
+    "settings_admin_users_usage_detail_fragment",
 }
 _USAGE_REQUEST_DEBOUNCE_SECONDS = 60
 
@@ -47,6 +52,9 @@ def is_usage_tracking_path_excluded(path: str | None) -> bool:
     normalized_path = str(path or "").strip()
     if not normalized_path:
         return True
+    if normalized_path.startswith("route:"):
+        route_name = normalized_path.split("route:", 1)[1].strip()
+        return route_name in _USAGE_EXCLUDED_ROUTE_NAMES
     # Ignore query string/fragments and normalize trailing slash variants.
     split_path = urlsplit(normalized_path).path.strip()
     if split_path and split_path != "/":
@@ -57,6 +65,21 @@ def is_usage_tracking_path_excluded(path: str | None) -> bool:
     return (
         normalized_path in _USAGE_EXCLUDED_PATHS
         or f"{normalized_path}/" in _USAGE_EXCLUDED_PATHS
+    )
+
+
+def is_usage_tracking_route_excluded(resolver_match) -> bool:
+    """Return True when a resolved route should not be counted in usage metrics."""
+    if not resolver_match:
+        return False
+
+    route_candidates = {
+        str(getattr(resolver_match, "view_name", "") or "").strip(),
+        str(getattr(resolver_match, "url_name", "") or "").strip(),
+    }
+    route_candidates.discard("")
+    return any(
+        candidate in _USAGE_EXCLUDED_ROUTE_NAMES for candidate in route_candidates
     )
 
 
@@ -639,6 +662,9 @@ def track_indy_hub_usage_once_per_request(request) -> None:
         return
 
     resolver_match = getattr(request, "resolver_match", None)
+    if is_usage_tracking_route_excluded(resolver_match):
+        return
+
     page_label = (
         getattr(resolver_match, "url_name", None)
         or getattr(resolver_match, "view_name", None)

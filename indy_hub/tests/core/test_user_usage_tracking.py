@@ -83,10 +83,14 @@ class IndyHubUserUsageModelTests(TestCase):
         usage = IndyHubUserUsage.objects.get(user=self.user)
 
         self.assertIn("/indy_hub/index", usage.page_usage)
-        self.assertNotIn("/indy_hub/settings/admin-users", usage.page_usage)
+        self.assertIn("/indy_hub/settings/admin-users", usage.page_usage)
         self.assertEqual(
             usage.page_usage["/indy_hub/index"]["total_usage_count"],
             1,
+        )
+        self.assertEqual(
+            usage.page_usage["/indy_hub/settings/admin-users"]["total_usage_count"],
+            2,
         )
 
     def test_usage_detail_hides_excluded_notification_endpoint(self) -> None:
@@ -420,9 +424,25 @@ class IndyHubUsageServiceHookTests(TestCase):
 
         self.assertFalse(IndyHubUserUsage.objects.filter(user=self.user).exists())
 
-    def test_once_per_request_skips_settings_admin_users_endpoint(self) -> None:
+    def test_once_per_request_tracks_settings_admin_users_endpoint(self) -> None:
         request = self.factory.get("/indy_hub/settings/admin-users/")
         request.user = self.user
+
+        track_indy_hub_usage_once_per_request(request)
+
+        usage = IndyHubUserUsage.objects.get(user=self.user)
+        self.assertIn("/indy_hub/settings/admin-users", usage.page_usage)
+
+    def test_once_per_request_skips_settings_admin_users_fragment_routes(self) -> None:
+        request = self.factory.get(
+            "/indy_hub/settings/admin-users/global-usage-fragment/"
+        )
+        request.user = self.user
+        request.resolver_match = SimpleNamespace(
+            app_names=("indy_hub",),
+            view_name="indy_hub:settings_admin_users_global_usage_fragment",
+            url_name="settings_admin_users_global_usage_fragment",
+        )
 
         track_indy_hub_usage_once_per_request(request)
 
