@@ -571,3 +571,65 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Page 2 of")
         self.assertContains(response, "Previous")
+
+    def test_initial_admin_page_fetches_scope_status_for_current_page_only(
+        self,
+    ) -> None:
+        for index in range(80):
+            extra_user = User.objects.create_user(
+                f"scope_page_user_{index}",
+                password="secret123",
+            )
+            _grant_permission(extra_user, "can_access_indy_hub")
+            _link_character(
+                extra_user,
+                character_id=9301000 + index,
+                corporation_id=1001,
+                corporation_name="Managed Corp",
+            )
+
+        captured_batches: list[list[int]] = []
+
+        def _fake_scope_status_map(user_ids):
+            normalized_ids = [int(user_id) for user_id in user_ids]
+            captured_batches.append(normalized_ids)
+            return {
+                int(user_id): {
+                    "flags": {
+                        "blueprints": True,
+                        "jobs": True,
+                        "assets": True,
+                        "skills": True,
+                        "online": True,
+                    },
+                    "is_complete": True,
+                    "missing_labels": [],
+                }
+                for user_id in normalized_ids
+            }
+
+        request = self._prepare_request(
+            self.factory.get(reverse("indy_hub:settings_admin_users")),
+            user=self.superuser,
+        )
+
+        with patch(
+            "indy_hub.views.hubs.collect_user_scope_status_map",
+            side_effect=_fake_scope_status_map,
+        ):
+            response = self._settings_admin_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(captured_batches)
+        self.assertTrue(all(len(batch) <= 25 for batch in captured_batches))
+
+    def test_initial_admin_page_shows_manual_global_usage_trigger(self) -> None:
+        request = self._prepare_request(
+            self.factory.get(reverse("indy_hub:settings_admin_users")),
+            user=self.superuser,
+        )
+
+        response = self._settings_admin_view(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Load usage analytics")
