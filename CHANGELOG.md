@@ -17,17 +17,13 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Crafting Projects / Blueprint tab: added a Corp BP toggle to switch personal/corporation blueprint sourcing; corp BPs with better ME/TE are used automatically and marked with a `CORP BP` badge.
 - Crafting Projects (temporary projects): Corp BP toggle state now persists across reloads through the temporary workspace cache flow.
 - Settings: added private `Settings > User admin` page (superuser-only) with scope/usage filters, health scoring, per-user usage detail, and global 30-day page-usage analytics (`Pages visited (30d)`).
-- Usage analytics: added persistent `IndyHubUserUsage` tracking with rolling daily counters and per-page usage snapshots.
+- Usage analytics: added rolling daily counters and per-page usage snapshots.
 - Management command: `populate_location_names --repair-stations` repairs placeholder location names by re-resolving NPC station IDs and relabelling non-deployed asset-item IDs as `<type name> [asset]` (supports `--dry-run`).
 
 ### Changed
 
-- Location-name repair/sync flows now use stricter station/public-endpoint semantics and safer handling for large non-deployed asset-item IDs.
-- Async location-name population now uses stronger dedupe/rate-limit protections to reduce duplicate background fan-out.
-- Settings / User admin access policy is explicitly superuser-only, and UI/docs/tests were aligned to that rule.
-- Settings / User admin: usage tracking excludes the admin-users page itself from counted page hits to keep the analytics scope aligned with end-user activity.
-- Usage tracking middleware: global tracking is now explicit opt-in and allowlisted by app name, reducing accidental capture outside intended Indy Hub routes.
-- Settings / User admin: sensitive actions that mutate state are now enforced as POST-only flows.
+- Location-name repair/sync flows now resolve station names more reliably and avoid misclassifying large non-deployed asset-item IDs.
+- Location-name background refresh now avoids duplicate bursts, resulting in more stable updates under load.
 
 ### Fixed
 
@@ -35,13 +31,12 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Structure tab: category assignment rows are grouped by craft group name (for example `Construction Components`, `Fuel Block`) instead of broad service category.
 - Crafting Projects / Blueprint tab: fixed multiple corp-BP toggle persistence and reload edge cases, including missing temporary `workspace_state` context and stale/default toggle behavior.
 - Crafting Projects / Blueprint sourcing: corp BPs are now included in temporary project inventory and correctly selected when they outperform personal BPs on ME.
-- Locations: NPC station placeholders (`Structure <id>`) are repaired through the dedicated public station endpoint, including ETag/304 fallback handling and local cooldown-aware retry behavior.
-- Locations: large IDs (`>= 1 000 000 000 000`) that are non-deployed asset-item IDs are no longer sent to authenticated structure lookups; repair flows relabel them locally as asset items.
-- Settings / User admin: token-scope coverage and usage/health aggregation paths were hardened for consistency and edge cases.
+- Locations: NPC station placeholders (`Structure <id>`) are now repaired more reliably, including when upstream responses are cached or delayed.
+- Locations: very large non-deployed asset-item IDs are no longer looked up as structures, preventing wrong labels and noisy retries.
 - CharLink / scope-health display: users are no longer incorrectly shown as fully `OK` when required scopes are split across multiple tokens; scope completeness is now evaluated per token before user-level aggregation.
-- Settings / User admin: 7-day and 30-day usage metrics now remain accurate over time by using rolling-window read-time aggregation.
-- Settings / User admin: unauthorized users now receive explicit `403` responses instead of redirect loops toward protected Indy Hub pages.
-- Industry Jobs pages: `page` / `per_page` parsing is now bounded and fault-tolerant, preventing invalid query values from crashing or forcing oversized result pages.
+- Settings / User admin: 7-day and 30-day usage metrics now stay accurate over time.
+- Settings / User admin: unauthorized users now receive explicit `403` responses instead of redirect loops.
+- Industry Jobs pages: invalid `page` / `per_page` values are now handled safely, preventing crashes and oversized result pages.
 
 ### Internal
 
