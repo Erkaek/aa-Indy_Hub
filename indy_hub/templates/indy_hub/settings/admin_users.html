@@ -277,9 +277,17 @@
                     </div>
                 </div>
                 <div id="adminUsersGlobalUsageContainer" data-url="{% url 'indy_hub:settings_admin_users_global_usage_fragment' %}">
-                    <div class="d-flex align-items-center gap-2 text-muted small" role="status" aria-live="polite">
-                        <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
-                        <span>{% trans "Loading usage analytics..." %}</span>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button
+                            type="button"
+                            class="btn btn-sm btn-outline-primary"
+                            id="adminUsersLoadGlobalUsageBtn"
+                        >
+                            {% trans "Load usage analytics" %}
+                        </button>
+                        <span class="text-muted small">
+                            {% trans "Loads aggregated stats on demand for large datasets." %}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -497,6 +505,16 @@
             if (!container) {
                 return;
             }
+            var trigger = document.getElementById('adminUsersLoadGlobalUsageBtn');
+            if (trigger) {
+                trigger.disabled = true;
+            }
+            container.innerHTML = [
+                '<div class="d-flex align-items-center gap-2 text-muted small" role="status" aria-live="polite">',
+                '<div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>',
+                '<span>{% trans "Loading usage analytics..." %}</span>',
+                '</div>'
+            ].join('');
             var url = appendQuery(container.dataset.url || '', window.location.search.replace(/^\?/, ''));
             if (!url) {
                 return;
@@ -508,6 +526,14 @@
                 .catch(function () {
                     container.innerHTML = '<div class="alert alert-warning mb-0">{{ adminUsersGlobalUsageErrorText|escapejs }}</div>';
                 });
+        }
+
+        function setupGlobalUsageTrigger() {
+            var trigger = document.getElementById('adminUsersLoadGlobalUsageBtn');
+            if (!trigger) {
+                return;
+            }
+            trigger.addEventListener('click', loadGlobalUsageFragment);
         }
 
         function onUsageModalShow(event) {
@@ -697,7 +723,7 @@
             applyTableTools();
         }
 
-        document.addEventListener('DOMContentLoaded', loadGlobalUsageFragment);
+        document.addEventListener('DOMContentLoaded', setupGlobalUsageTrigger);
         document.addEventListener('show.bs.modal', onUsageModalShow);
         document.addEventListener('DOMContentLoaded', setupAdminUsersTableTools);
     })();
