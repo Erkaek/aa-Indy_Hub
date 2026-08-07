@@ -35,6 +35,13 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 - Locations: NPC station placeholders (`Structure <id>`) are repaired through the dedicated public station endpoint, including ETag/304 fallback handling and local cooldown-aware retry behavior.
 - Locations: large IDs (`>= 1 000 000 000 000`) that are non-deployed asset-item IDs are no longer sent to authenticated structure lookups; repair flows relabel them locally as asset items.
 - Settings / User admin: token-scope coverage and usage/health aggregation paths were hardened for consistency and edge cases.
+- CharLink / scope-health display: users are no longer incorrectly shown as fully `OK` when required scopes are split across multiple tokens; scope completeness is now evaluated per token before user-level aggregation.
+- Settings / User admin: sensitive actions that mutate state are now enforced as POST-only flows.
+- Settings / User admin: 7-day and 30-day usage metrics now remain accurate over time by using rolling-window read-time aggregation.
+- Settings / User admin: usage tracking now excludes the admin-users page itself from counted page hits to avoid analytics self-inflation.
+- Settings / User admin: unauthorized users now receive explicit `403` responses instead of redirect loops toward protected Indy Hub pages.
+- Industry Jobs pages: `page` / `per_page` parsing is now bounded and fault-tolerant, preventing invalid query values from crashing or forcing oversized result pages.
+- Usage tracking middleware: global tracking is now explicit opt-in and allowlisted by app name, reducing accidental capture outside intended Indy Hub routes.
 
 ### Internal
 
