@@ -120,17 +120,19 @@ def rebuild_admin_user_statuses(user_ids: list[int]) -> int:
         status.scope_jobs = bool(scope_flags.get("jobs"))
         status.scope_assets = bool(scope_flags.get("assets"))
         status.scope_skills = bool(scope_flags.get("skills"))
-        status.scope_online = bool(scope_flags.get("online"))
+        # Retained for schema compatibility; online status is no longer an
+        # Indy Hub authorization requirement.
+        status.scope_online = False
         status.scope_complete = bool(scope_status.get("is_complete"))
-        status.scope_score = 10 * sum(
+        current_scope_count = sum(
             [
                 status.scope_blueprints,
                 status.scope_jobs,
                 status.scope_assets,
                 status.scope_skills,
-                status.scope_online,
             ]
         )
+        status.scope_score = {0: 0, 1: 12, 2: 25, 3: 38, 4: 50}[current_scope_count]
         status.settings_score = int(settings_status["score"])
         status.notifications_enabled = bool(settings_status["notifications_enabled"])
         status.last_used_at = usage.last_used_at if usage else None

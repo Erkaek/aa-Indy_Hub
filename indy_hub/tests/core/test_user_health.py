@@ -45,7 +45,6 @@ class UserHealthScoreTests(SimpleTestCase):
                 "jobs": True,
                 "assets": True,
                 "skills": True,
-                "online": True,
             },
             settings_obj=self._settings(),
             is_inactive=False,
@@ -72,16 +71,15 @@ class UserHealthScoreTests(SimpleTestCase):
                 "jobs": True,
                 "assets": False,
                 "skills": False,
-                "online": True,
             },
             settings_obj=self._settings(),
             is_inactive=False,
             activity_30d_count=1,
         )
 
-        self.assertEqual(result["score"], 65)
+        self.assertEqual(result["score"], 60)
         self.assertEqual(result["level"], HEALTH_LEVEL_MEDIUM)
-        self.assertEqual(result["breakdown"]["scope_coverage"], 30)
+        self.assertEqual(result["breakdown"]["scope_coverage"], 25)
         self.assertEqual(result["breakdown"]["parameter_coherence"], 20)
         self.assertEqual(result["breakdown"]["recent_activity"], 15)
 
@@ -94,7 +92,6 @@ class UserHealthScoreTests(SimpleTestCase):
                 "jobs": False,
                 "assets": False,
                 "skills": False,
-                "online": False,
             },
             settings_obj=self._settings(
                 copy_sharing_scope=CharacterSettings.SCOPE_CORPORATION,
@@ -118,15 +115,14 @@ class UserHealthScoreTests(SimpleTestCase):
                 "jobs": False,
                 "assets": False,
                 "skills": False,
-                "online": False,
             },
             settings_obj=None,
             is_inactive=False,
             activity_30d_count=8,
         )
 
-        self.assertEqual(result["score"], 40)
+        self.assertEqual(result["score"], 42)
         self.assertEqual(result["level"], HEALTH_LEVEL_CRITICAL)
-        self.assertEqual(result["breakdown"]["scope_coverage"], 10)
+        self.assertEqual(result["breakdown"]["scope_coverage"], 12)
         self.assertEqual(result["breakdown"]["parameter_coherence"], 0)
         self.assertEqual(result["breakdown"]["recent_activity"], 30)

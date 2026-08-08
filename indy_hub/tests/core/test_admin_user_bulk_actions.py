@@ -22,7 +22,6 @@ class CollectUserScopeStatusMapTests(SimpleTestCase):
             "esi-industry.read_character_jobs.v1",
             "esi-assets.read_assets.v1",
             "esi-skills.read_skills.v1",
-            "esi-location.read_online.v1",
         ]
         scope_manager = MagicMock()
         scope_manager.all.return_value = [
@@ -46,6 +45,7 @@ class CollectUserScopeStatusMapTests(SimpleTestCase):
         self.assertIn(77, result)
         self.assertTrue(bool(result[77]["is_complete"]))
         self.assertEqual(list(result[77]["missing_labels"]), [])
+        self.assertNotIn("online", result[77]["flags"])
 
     @patch("indy_hub.services.admin_user_bulk_actions.Token")
     def test_does_not_count_split_scopes_across_tokens_as_complete(

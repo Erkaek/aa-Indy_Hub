@@ -200,11 +200,12 @@ class IndyHubUsageRollupTests(TestCase):
         )
 
         self.assertEqual(detail["page_total_30d"], sum(range(1, 15)))
-        self.assertLessEqual(len(detail["page_rings"]), 13)
+        self.assertLessEqual(len(detail["page_bars"]), 11)
         self.assertIn(
             "Other pages",
-            {ring["label"] for ring in detail["page_rings"]},
+            {page["label"] for page in detail["page_bars"]},
         )
+        self.assertTrue(detail["page_breakdown_matches_activity_30d"])
 
     def test_management_command_rebuilds_requested_user(self):
         self._create_historical_usage()

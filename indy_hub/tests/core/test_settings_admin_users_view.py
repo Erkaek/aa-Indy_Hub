@@ -5,6 +5,7 @@ from __future__ import annotations
 # Standard Library
 import json
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
 # Django
@@ -337,6 +338,11 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(
             response,
+            "Scope coverage uses locally recorded scopes; token validity is managed from ESI.",
+            count=1,
+        )
+        self.assertNotContains(
+            response,
             "Recorded scopes; token validity is not refreshed on this page.",
         )
 
@@ -360,9 +366,24 @@ class SettingsAdminUsersViewTests(TestCase):
         users_html = self._users_section_html(response)
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Details", users_html)
+        self.assertIn("data-usage-url", users_html)
         self.assertIn("Usage detail", users_html)
-        self.assertIn("Loading user analytics", users_html)
+        self.assertIn("Select a user to load usage", users_html)
+        self.assertEqual(users_html.count('id="adminUsersUsageModal"'), 1)
+
+    def test_user_rows_omit_redundant_technical_details(self) -> None:
+        request = self._prepare_request(
+            self.factory.get(reverse("indy_hub:settings_admin_users")),
+            user=self.superuser,
+        )
+
+        response = self._settings_admin_view(request)
+        row_html = self._user_row_html(response, self.member_other)
+
+        self.assertNotIn(f"ID {self.member_other.id}", row_html)
+        self.assertNotIn("Blocking:", row_html)
+        self.assertNotIn("Comfort:", row_html)
+        self.assertNotIn("Recorded scopes; token validity", row_html)
 
     def test_global_usage_fragment_loads_for_superuser(self) -> None:
         request = self._prepare_request(
@@ -376,7 +397,8 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = json.loads(response.content.decode())
         self.assertIn("html", payload)
-        self.assertIn("Visible users", payload["html"])
+        self.assertIn("Users in results", payload["html"])
+        self.assertIn("The page breakdown contains", payload["html"])
 
     def test_global_usage_fragment_never_selects_source_json(self) -> None:
         request = self._prepare_request(
@@ -412,7 +434,26 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = json.loads(response.content.decode())
         self.assertIn("html", payload)
-        self.assertIn("Pages visited", payload["html"])
+        self.assertIn("Top pages", payload["html"])
+        self.assertIn("Treat the breakdown as approximate", payload["html"])
+
+    def test_pending_status_is_not_presented_as_a_critical_score(self) -> None:
+        AdminUserStatus.objects.filter(user=self.member_other).delete()
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:settings_admin_users"),
+                {"q": self.member_other.username},
+            ),
+            user=self.superuser,
+        )
+
+        response = self._settings_admin_view(request)
+        row_html = self._user_row_html(response, self.member_other)
+
+        self.assertIn("Account data is being prepared", row_html)
+        self.assertIn("Preparing", row_html)
+        self.assertNotIn("Critical", row_html)
+        self.assertNotIn("0/100", row_html)
 
     def test_usage_detail_fragment_forbidden_without_admin_scope(self) -> None:
         request = self._prepare_request(
@@ -571,6 +612,32 @@ class SettingsAdminUsersViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn(self.member_other.username, users_html)
         self.assertNotIn(self.member_managed.username, users_html)
+
+    def test_current_scope_coverage_ignores_retired_online_scope(self) -> None:
+        AdminUserStatus.objects.filter(user=self.member_other).update(
+            scope_blueprints=True,
+            scope_jobs=True,
+            scope_assets=True,
+            scope_skills=True,
+            scope_online=False,
+            scope_complete=False,
+            scope_score=40,
+            settings_score=20,
+            activity_30d_count=5,
+            last_used_at=timezone.now(),
+        )
+
+        state = _build_settings_admin_users_state(
+            self.superuser,
+            {"q": self.member_other.username},
+            include_page_usage_details=False,
+            include_global_usage_detail=False,
+        )
+
+        self.assertEqual(len(state["rows"]), 1)
+        self.assertTrue(state["rows"][0]["scope_is_complete"])
+        self.assertEqual(state["rows"][0]["missing_scopes"], [])
+        self.assertEqual(state["rows"][0]["health"]["score"], 100)
 
     def test_listing_reads_scope_status_without_rebuilding_it(self) -> None:
         request = self._prepare_request(
@@ -889,7 +956,7 @@ class SettingsAdminUsersViewTests(TestCase):
         ):
             self.assertContains(response, query_part)
 
-    def test_initial_admin_page_shows_manual_global_usage_trigger(self) -> None:
+    def test_initial_admin_page_loads_resilient_usage_script(self) -> None:
         request = self._prepare_request(
             self.factory.get(reverse("indy_hub:settings_admin_users")),
             user=self.superuser,
@@ -898,8 +965,18 @@ class SettingsAdminUsersViewTests(TestCase):
         response = self._settings_admin_view(request)
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Load usage analytics")
-        self.assertContains(response, "AbortController")
-        self.assertContains(response, "fragmentTimeoutMs = 12000")
-        self.assertContains(response, "js-analytics-retry")
-        self.assertContains(response, "hide.bs.modal")
+        self.assertContains(response, "Load usage overview")
+        self.assertContains(response, "/static/indy_hub/js/admin_users.js")
+        self.assertNotContains(response, "AbortController")
+
+        script_source = (
+            Path(__file__).resolve().parents[2]
+            / "static"
+            / "indy_hub"
+            / "js"
+            / "admin_users.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("AbortController", script_source)
+        self.assertIn("fragmentTimeoutMs = 12000", script_source)
+        self.assertIn("js-analytics-retry", script_source)
+        self.assertIn("hide.bs.modal", script_source)

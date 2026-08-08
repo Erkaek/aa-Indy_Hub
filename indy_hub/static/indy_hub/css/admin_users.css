@@ -1,0 +1,180 @@
+.admin-users-layout {
+    display: grid;
+    gap: 1rem;
+}
+
+.admin-users-toolbar .form-label {
+    margin-bottom: 0.25rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.admin-users-filter-toggle .fa-chevron-down {
+    transition: transform 0.15s ease-in-out;
+}
+
+.admin-users-filter-toggle[aria-expanded="true"] .fa-chevron-down {
+    transform: rotate(180deg);
+}
+
+.admin-users-table-head th {
+    border-bottom-width: 1px;
+    background: var(--bs-tertiary-bg);
+    color: var(--bs-secondary-color);
+    font-size: 0.75rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.admin-users-sort-trigger {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+    font-weight: 700;
+    letter-spacing: inherit;
+    text-decoration: none;
+    text-transform: inherit;
+}
+
+.admin-users-sort-trigger:hover,
+.admin-users-sort-trigger:focus-visible {
+    color: var(--bs-emphasis-color);
+}
+
+.admin-users-users-table td {
+    padding-top: 0.8rem;
+    padding-bottom: 0.8rem;
+    vertical-align: middle;
+}
+
+.admin-users-user-cell {
+    min-width: 12rem;
+}
+
+.admin-users-health-cell,
+.admin-users-scopes-cell {
+    min-width: 9.5rem;
+}
+
+.admin-users-usage-cell {
+    min-width: 9rem;
+}
+
+.admin-users-actions-cell {
+    width: 1%;
+    white-space: nowrap;
+}
+
+.admin-users-status-line {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    font-weight: 600;
+}
+
+.admin-users-scope-list {
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-users-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid var(--bs-border-color);
+    border-radius: var(--bs-border-radius);
+}
+
+.admin-users-metric {
+    padding: 0.85rem 1rem;
+}
+
+.admin-users-metric + .admin-users-metric {
+    border-left: 1px solid var(--bs-border-color);
+}
+
+.admin-users-metric-label {
+    color: var(--bs-secondary-color);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.admin-users-metric-value {
+    margin-top: 0.15rem;
+    color: var(--bs-emphasis-color);
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.admin-users-metric-note {
+    margin-top: 0.15rem;
+    color: var(--bs-secondary-color);
+    font-size: 0.78rem;
+}
+
+.admin-users-page-list {
+    display: grid;
+    gap: 0.7rem;
+}
+
+.admin-users-page-row {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.admin-users-page-row-header {
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    min-width: 0;
+    font-size: 0.82rem;
+}
+
+.admin-users-page-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.admin-users-page-progress {
+    height: 0.4rem;
+    background-color: var(--bs-tertiary-bg);
+}
+
+@media (min-width: 992px) {
+    .admin-users-filter-collapse.collapse:not(.show) {
+        display: block;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .admin-users-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-users-metric + .admin-users-metric {
+        border-top: 1px solid var(--bs-border-color);
+        border-left: 0;
+    }
+
+    .admin-users-users-table {
+        font-size: 0.9rem;
+    }
+
+    .admin-users-user-cell {
+        min-width: 10rem;
+    }
+
+    .admin-users-usage-cell {
+        min-width: 8rem;
+    }
+}

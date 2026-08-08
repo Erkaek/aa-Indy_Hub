@@ -2,676 +2,330 @@
 {% load i18n %}
 {% load static %}
 
-{% blocktrans asvar adminUsersNoGlobalPageDetailText %}No global page detail has been recorded yet.{% endblocktrans %}
+{% blocktrans asvar adminUsersNoGlobalPageDetailText %}No page usage has been recorded yet.{% endblocktrans %}
 {% blocktrans asvar adminUsersGlobalUsageErrorText %}Unable to load usage analytics right now.{% endblocktrans %}
-{% blocktrans asvar adminUsersNoPageDetailText %}No page detail has been recorded yet.{% endblocktrans %}
+{% blocktrans asvar adminUsersNoPageDetailText %}No page usage has been recorded yet.{% endblocktrans %}
 {% blocktrans asvar adminUsersUserUsageErrorText %}Unable to load user analytics right now.{% endblocktrans %}
 {% blocktrans asvar adminUsersUsageTimeoutText %}The analytics request timed out.{% endblocktrans %}
 {% blocktrans asvar adminUsersRetryText %}Retry{% endblocktrans %}
+{% blocktrans asvar adminUsersLoadingGlobalText %}Loading usage overview…{% endblocktrans %}
+{% blocktrans asvar adminUsersLoadingUserText %}Loading user usage…{% endblocktrans %}
+{% blocktrans asvar adminUsersUsageDetailText %}Usage detail{% endblocktrans %}
 
-{% block page_title %}{% trans "Settings - User admin" %}{% endblock page_title %}
+{% block page_title %}{% trans "User administration" %}{% endblock page_title %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/components.css' %}">
-<style>
-    .admin-users-layout {
-        display: flex;
-        flex-direction: column;
-        gap: 2rem;
-    }
-
-    .admin-users-panel .card-body {
-        padding: 1.25rem;
-    }
-
-    .admin-users-table-head th {
-        font-size: 0.76rem;
-        letter-spacing: 0.06em;
-        text-transform: uppercase;
-        color: var(--bs-secondary-color);
-        background: var(--bs-tertiary-bg);
-        white-space: nowrap;
-        border-bottom-width: 1px;
-    }
-
-    .admin-users-sort-trigger {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        text-decoration: none;
-        color: inherit;
-        font-size: inherit;
-        letter-spacing: inherit;
-        text-transform: inherit;
-        font-weight: 700;
-        padding: 0;
-    }
-
-    .admin-users-sort-trigger:hover,
-    .admin-users-sort-trigger:focus {
-        color: var(--bs-emphasis-color);
-    }
-
-    .admin-users-users-table td,
-    .admin-users-usage-table td,
-    .admin-users-usage-table th {
-        vertical-align: top;
-    }
-
-    .admin-users-chip-stack {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.35rem;
-    }
-
-    .admin-users-user-meta {
-        display: flex;
-        flex-direction: column;
-        gap: 0.45rem;
-    }
-
-    .admin-users-usage-button {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.45rem;
-        white-space: nowrap;
-    }
-
-    .admin-users-usage-modal .modal-content {
-        border: 0;
-        border-radius: 1rem;
-    }
-
-    .admin-users-usage-summary-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
-        gap: 0.75rem;
-    }
-
-    .admin-users-usage-summary-card {
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.9rem;
-        background: var(--bs-body-bg);
-        padding: 0.85rem;
-        min-height: 6rem;
-    }
-
-    .admin-users-usage-summary-label {
-        font-size: 0.72rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--bs-secondary-color);
-    }
-
-    .admin-users-usage-summary-value {
-        font-size: 1.08rem;
-        font-weight: 700;
-        color: var(--bs-emphasis-color);
-        line-height: 1.15;
-        margin-top: 0.2rem;
-    }
-
-    .admin-users-usage-summary-note {
-        font-size: 0.78rem;
-        color: var(--bs-secondary-color);
-        margin-top: 0.2rem;
-    }
-
-    .admin-users-global-panel {
-        margin-bottom: 1rem;
-    }
-
-    .admin-users-pages-layout {
-        display: grid;
-        grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr);
-        gap: 0.9rem;
-        align-items: start;
-    }
-
-    .admin-users-page-chart-wrap {
-        width: min(100%, 28rem);
-        justify-self: center;
-    }
-
-    .admin-users-page-svg {
-        width: 100%;
-        aspect-ratio: 1 / 1;
-        height: auto;
-        display: block;
-        overflow: visible;
-    }
-
-    .admin-users-page-svg-radar-center {
-        fill: var(--bs-body-bg);
-        stroke: rgba(var(--bs-primary-rgb), 0.45);
-        stroke-width: 1.5;
-    }
-
-    .admin-users-page-svg-ring-track {
-        fill: none;
-        stroke: rgba(var(--bs-secondary-rgb), 0.14);
-        stroke-width: 26;
-    }
-
-    .admin-users-page-svg-radar-center-value {
-        font-size: 12px;
-        font-weight: 700;
-        fill: var(--bs-emphasis-color);
-        text-anchor: middle;
-    }
-
-    .admin-users-page-svg-radar-center-label {
-        font-size: 5.8px;
-        font-weight: 600;
-        fill: var(--bs-secondary-color);
-        text-anchor: middle;
-    }
-
-    .admin-users-page-svg-ring-label {
-        font-size: 5.2px;
-        font-weight: 600;
-        fill: var(--bs-secondary-color);
-        letter-spacing: 0.02em;
-        dominant-baseline: central;
-    }
-
-    .admin-users-page-legend {
-        display: flex;
-        flex-direction: column;
-        gap: 0.45rem;
-        margin-top: 0;
-    }
-
-    .admin-users-page-legend-item {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.35rem;
-        padding: 0.28rem 0.55rem;
-        border: 1px solid var(--bs-border-color);
-        border-radius: 0.65rem;
-        font-size: 0.75rem;
-        background: var(--bs-tertiary-bg);
-        color: var(--bs-secondary-color);
-        width: 100%;
-        justify-content: space-between;
-    }
-
-    .admin-users-page-legend-swatch {
-        width: 0.7rem;
-        height: 0.7rem;
-        border-radius: 50%;
-        flex: 0 0 auto;
-    }
-
-    @media (max-width: 991.98px) {
-        .admin-users-pages-layout {
-            grid-template-columns: 1fr;
-        }
-
-        .admin-users-page-legend {
-            order: 2;
-        }
-
-        .admin-users-page-chart-wrap {
-            order: 1;
-        }
-
-        .admin-users-page-legend-item {
-            width: auto;
-            justify-content: flex-start;
-        }
-    }
-</style>
+<link rel="stylesheet" href="{% static 'indy_hub/css/admin_users.css' %}">
 {% endblock extra_css %}
 
 {% block content %}
-<div class="container-fluid py-4 admin-users-layout">
+<div
+    class="container-fluid py-4 admin-users-layout"
+    id="adminUsersPage"
+    data-global-error-text="{{ adminUsersGlobalUsageErrorText }}"
+    data-user-error-text="{{ adminUsersUserUsageErrorText }}"
+    data-timeout-text="{{ adminUsersUsageTimeoutText }}"
+    data-retry-text="{{ adminUsersRetryText }}"
+    data-no-global-text="{{ adminUsersNoGlobalPageDetailText }}"
+    data-no-user-text="{{ adminUsersNoPageDetailText }}"
+    data-loading-global-text="{{ adminUsersLoadingGlobalText }}"
+    data-loading-user-text="{{ adminUsersLoadingUserText }}"
+    data-usage-detail-text="{{ adminUsersUsageDetailText }}"
+>
     {% url 'indy_hub:settings_hub' as settings_hub_url %}
-    {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-user-shield" title=_("Settings / User admin") subtitle=_("Visibility-scoped oversight for Indy Hub users, setup quality, and access checks.") back_url=settings_hub_url back_label=_("Back to Settings") %}
+    <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 border-bottom pb-3">
+        <div>
+            <h1 class="h3 mb-1"><i class="fas fa-user-shield text-primary me-2" aria-hidden="true"></i>{% trans "User administration" %}</h1>
+            <p class="text-body-secondary mb-0">{% trans "Review account setup and recent Indy Hub use." %}</p>
+        </div>
+        <a href="{{ settings_hub_url }}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-arrow-left me-1" aria-hidden="true"></i>{% trans "Back to Settings" %}
+        </a>
+    </header>
 
-    <section class="dashboard-section">
-        <header class="section-heading">
-            <div>
-                <h3 class="section-title">{% trans "Users" %}</h3>
-                <p class="text-muted small mb-0">
-                    {% blocktrans count counter=all_rows_count with start=result_start end=result_end %}{{ counter }} result · showing {{ start }}–{{ end }}{% plural %}{{ counter }} results · showing {{ start }}–{{ end }}{% endblocktrans %}
-                </p>
+    <form method="get" class="card admin-users-toolbar" aria-label="{% trans 'User administration filters' %}">
+        <div class="card-body p-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-lg-5">
+                    <label for="adminUsersSearch" class="form-label">{% trans "Search" %}</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text" aria-hidden="true"><i class="fas fa-magnifying-glass"></i></span>
+                        <input id="adminUsersSearch" name="q" type="search" class="form-control" value="{{ filters.search_query }}" placeholder="{% trans 'Username or main character' %}">
+                    </div>
+                </div>
+                <div class="col-12 col-md-7 col-lg-4">
+                    <label for="adminUsersCorporation" class="form-label">{% trans "Corporation" %}</label>
+                    <input id="adminUsersCorporation" name="corporation" type="search" class="form-control form-control-sm" value="{{ corporation_filter_value }}" placeholder="{% trans 'Main corporation name or ID' %}">
+                </div>
+                <div class="col-12 col-md-5 col-lg-3">
+                    <div class="d-flex gap-2 justify-content-md-end">
+                        <button type="submit" class="btn btn-sm btn-primary flex-grow-1 flex-md-grow-0">
+                            <i class="fas fa-filter me-1" aria-hidden="true"></i>{% trans "Apply" %}
+                        </button>
+                        <button
+                            class="btn btn-sm btn-outline-secondary admin-users-filter-toggle d-lg-none"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#adminUsersAdvancedFilters"
+                            aria-expanded="{% if has_active_filters %}true{% else %}false{% endif %}"
+                            aria-controls="adminUsersAdvancedFilters"
+                        >
+                            {% trans "Filters" %}<i class="fas fa-chevron-down ms-1" aria-hidden="true"></i>
+                        </button>
+                        {% if has_active_filters %}
+                        <a href="{% url 'indy_hub:settings_admin_users' %}" class="btn btn-sm btn-outline-secondary" aria-label="{% trans 'Reset all filters' %}">
+                            <i class="fas fa-rotate-left me-1" aria-hidden="true"></i>{% trans "Reset" %}
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
-        </header>
 
-        <form method="get" class="card focus-card admin-users-panel" aria-label="{% trans 'User administration filters' %}">
-            <div class="card-body">
-                <div class="row g-3 align-items-end">
-                    <div class="col-12 col-lg-4">
-                        <label for="adminUsersSearch" class="form-label">{% trans "Search" %}</label>
-                        <input id="adminUsersSearch" name="q" type="search" class="form-control" value="{{ filters.search_query }}" placeholder="{% trans 'Username, main character, or ID' %}">
-                    </div>
-                    <div class="col-12 col-md-6 col-lg-2">
-                        <label for="adminUsersCorporation" class="form-label">{% trans "Corporation" %}</label>
-                        <input id="adminUsersCorporation" name="corporation" type="search" class="form-control" value="{{ corporation_filter_value }}" placeholder="{% trans 'Name or ID' %}">
-                    </div>
-                    <div class="col-12 col-md-6 col-lg-2">
+            <div id="adminUsersAdvancedFilters" class="admin-users-filter-collapse collapse {% if has_active_filters %}show{% endif %}">
+                <div class="row g-2 align-items-end mt-1 pt-2 border-top">
+                    <div class="col-6 col-md-4 col-lg-2">
                         <label for="adminUsersActivity" class="form-label">{% trans "Activity" %}</label>
-                        <select id="adminUsersActivity" name="activity" class="form-select">
-                            <option value="">{% trans "All activity" %}</option>
-                            <option value="active"{% if filters.activity_filter == 'active' %} selected{% endif %}>{% trans "Active" %}</option>
-                            <option value="inactive"{% if filters.activity_filter == 'inactive' %} selected{% endif %}>{% trans "Inactive" %}</option>
+                        <select id="adminUsersActivity" name="activity" class="form-select form-select-sm">
+                            <option value="">{% trans "Any activity" %}</option>
+                            <option value="active"{% if filters.activity_filter == 'active' %} selected{% endif %}>{% trans "Active in 30d" %}</option>
+                            <option value="inactive"{% if filters.activity_filter == 'inactive' %} selected{% endif %}>{% trans "Inactive in 30d" %}</option>
                         </select>
                     </div>
-                    <div class="col-12 col-md-6 col-lg-2">
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <label for="adminUsersHealth" class="form-label">{% trans "Health" %}</label>
+                        <select id="adminUsersHealth" name="health_level" class="form-select form-select-sm">
+                            <option value="">{% trans "Any health" %}</option>
+                            <option value="good"{% if filters.health_filter == 'good' %} selected{% endif %}>{% trans "Good" %}</option>
+                            <option value="medium"{% if filters.health_filter == 'medium' %} selected{% endif %}>{% trans "Needs attention" %}</option>
+                            <option value="critical"{% if filters.health_filter == 'critical' %} selected{% endif %}>{% trans "Critical" %}</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-4 col-lg-2">
                         <label for="adminUsersScopes" class="form-label">{% trans "Scopes" %}</label>
-                        <select id="adminUsersScopes" name="scopes" class="form-select">
-                            <option value="">{% trans "All scopes" %}</option>
+                        <select id="adminUsersScopes" name="scopes" class="form-select form-select-sm">
+                            <option value="">{% trans "Any coverage" %}</option>
                             <option value="complete"{% if filters.scope_filter == 'complete' %} selected{% endif %}>{% trans "Complete" %}</option>
                             <option value="incomplete"{% if filters.scope_filter == 'incomplete' %} selected{% endif %}>{% trans "Incomplete" %}</option>
                         </select>
                     </div>
-                    <div class="col-12 col-md-6 col-lg-2">
-                        <label for="adminUsersHealth" class="form-label">{% trans "Health" %}</label>
-                        <select id="adminUsersHealth" name="health_level" class="form-select">
-                            <option value="">{% trans "All health" %}</option>
-                            <option value="good"{% if filters.health_filter == 'good' %} selected{% endif %}>{% trans "Good" %}</option>
-                            <option value="medium"{% if filters.health_filter == 'medium' %} selected{% endif %}>{% trans "Medium" %}</option>
-                            <option value="critical"{% if filters.health_filter == 'critical' %} selected{% endif %}>{% trans "Critical" %}</option>
-                        </select>
-                    </div>
-                    <div class="col-12 col-md-6 col-lg-2">
+                    <div class="col-6 col-md-4 col-lg-2">
                         <label for="adminUsersUsage" class="form-label">{% trans "Usage" %}</label>
-                        <select id="adminUsersUsage" name="usage" class="form-select">
-                            <option value="">{% trans "All usage" %}</option>
-                            <option value="has_usage"{% if filters.usage_filter == 'has_usage' %} selected{% endif %}>{% trans "Has usage" %}</option>
-                            <option value="no_usage"{% if filters.usage_filter == 'no_usage' %} selected{% endif %}>{% trans "No usage" %}</option>
+                        <select id="adminUsersUsage" name="usage" class="form-select form-select-sm">
+                            <option value="">{% trans "Any usage" %}</option>
+                            <option value="has_usage"{% if filters.usage_filter == 'has_usage' %} selected{% endif %}>{% trans "Recorded" %}</option>
+                            <option value="no_usage"{% if filters.usage_filter == 'no_usage' %} selected{% endif %}>{% trans "Never recorded" %}</option>
                         </select>
                     </div>
-                    <div class="col-12 col-md-6 col-lg-2">
-                        <label for="adminUsersSort" class="form-label">{% trans "Sort by" %}</label>
-                        <select id="adminUsersSort" name="sort" class="form-select">
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <label for="adminUsersSort" class="form-label">{% trans "Sort" %}</label>
+                        <select id="adminUsersSort" name="sort" class="form-select form-select-sm">
                             <option value="username"{% if filters.sort_key == 'username' %} selected{% endif %}>{% trans "Username" %}</option>
                             <option value="corporation"{% if filters.sort_key == 'corporation' %} selected{% endif %}>{% trans "Corporation" %}</option>
                             <option value="health"{% if filters.sort_key == 'health' %} selected{% endif %}>{% trans "Health" %}</option>
                             <option value="scopes"{% if filters.sort_key == 'scopes' %} selected{% endif %}>{% trans "Scopes" %}</option>
-                            <option value="activity"{% if filters.sort_key == 'activity' %} selected{% endif %}>{% trans "Activity" %}</option>
-                            <option value="usage"{% if filters.sort_key == 'usage' %} selected{% endif %}>{% trans "Usage" %}</option>
+                            <option value="activity"{% if filters.sort_key == 'activity' %} selected{% endif %}>{% trans "Last activity" %}</option>
+                            <option value="usage"{% if filters.sort_key == 'usage' %} selected{% endif %}>{% trans "Total usage" %}</option>
                         </select>
                     </div>
-                    <div class="col-12 col-md-6 col-lg-2">
+                    <div class="col-6 col-md-4 col-lg-2">
                         <label for="adminUsersDirection" class="form-label">{% trans "Direction" %}</label>
-                        <select id="adminUsersDirection" name="direction" class="form-select">
+                        <select id="adminUsersDirection" name="direction" class="form-select form-select-sm">
                             <option value="asc"{% if filters.sort_direction == 'asc' %} selected{% endif %}>{% trans "Ascending" %}</option>
                             <option value="desc"{% if filters.sort_direction == 'desc' %} selected{% endif %}>{% trans "Descending" %}</option>
                         </select>
                     </div>
-                    <div class="col-12 col-lg-auto d-flex gap-2">
-                        <button type="submit" class="btn btn-primary">{% trans "Apply" %}</button>
-                        <a href="{% url 'indy_hub:settings_admin_users' %}" class="btn btn-outline-secondary">{% trans "Clear filters" %}</a>
-                    </div>
-                </div>
-            </div>
-        </form>
-
-        <div class="card focus-card admin-users-panel admin-users-global-panel">
-            <div class="card-body">
-                <div class="section-heading mb-2">
-                    <div>
-                        <h6 class="section-title mb-0">{% trans "Global usage" %}</h6>
-                        <p class="text-muted small mb-0">{% trans "Aggregated usage across all visible users." %}</p>
-                    </div>
-                </div>
-                <div id="adminUsersGlobalUsageContainer" data-url="{% url 'indy_hub:settings_admin_users_global_usage_fragment' %}">
-                    <div class="d-flex flex-wrap align-items-center gap-2">
-                        <button
-                            type="button"
-                            class="btn btn-sm btn-outline-primary"
-                            id="adminUsersLoadGlobalUsageBtn"
-                        >
-                            {% trans "Load usage analytics" %}
-                        </button>
-                        <span class="text-muted small">
-                            {% trans "Loads aggregated stats on demand for large datasets." %}
-                        </span>
-                    </div>
                 </div>
             </div>
         </div>
+    </form>
 
-        <div class="card focus-card admin-users-panel">
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table id="adminUsersUsersTable" class="table table-sm table-striped table-hover align-middle mb-0 admin-users-users-table">
-                        <thead class="admin-users-table-head">
-                            <tr>
-                                <th>
-                                    <a class="admin-users-sort-trigger" href="?{{ sort_queries.username }}">{% trans "User" %}{% if filters.sort_key == 'username' %} <span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                                </th>
-                                <th>
-                                    <a class="admin-users-sort-trigger" href="?{{ sort_queries.corporation }}">{% trans "Corporations" %}{% if filters.sort_key == 'corporation' %} <span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                                </th>
-                                <th>
-                                    <a class="admin-users-sort-trigger" href="?{{ sort_queries.health }}">{% trans "Health" %}{% if filters.sort_key == 'health' %} <span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                                </th>
-                                <th>
-                                    <a class="admin-users-sort-trigger" href="?{{ sort_queries.scopes }}">{% trans "Scopes" %}{% if filters.sort_key == 'scopes' %} <span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                                </th>
-                                <th>
-                                    <a class="admin-users-sort-trigger" href="?{{ sort_queries.usage }}">{% trans "Usage" %}{% if filters.sort_key == 'usage' %} <span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% if rows %}
-                            {% for row in rows %}
-                            <tr class="admin-users-data-row" data-user-id="{{ row.user.id }}">
-                                <td>
-                                    <div class="admin-users-user-meta">
-                                        <div class="fw-semibold">{{ row.user.username }}</div>
-                                        <div class="text-muted small">ID {{ row.user.id }}</div>
-                                        {% if row.main_character_name %}
-                                            <div class="text-muted small">{{ row.main_character_name }}</div>
-                                        {% endif %}
-                                        {% if row.status_is_pending %}
-                                            <span class="badge bg-info-subtle text-info-emphasis">{% trans "Status rebuild pending" %}</span>
-                                        {% endif %}
-                                    </div>
-                                </td>
-                                <td>
-                                    {% if row.corporations %}
-                                    <div class="admin-users-chip-stack">
-                                        {% for corp in row.corporations %}
-                                        <span class="badge rounded-pill bg-body-tertiary text-secondary border">{{ corp.corporation_name }}</span>
-                                        {% endfor %}
-                                    </div>
-                                    {% else %}
-                                    <span class="text-muted small">{% trans "No linked corporation" %}</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    <div class="admin-users-user-meta">
-                                        <div class="fw-semibold">{{ row.health.score }}/100</div>
-                                        {% if row.health.level == 'good' %}
-                                            <span class="badge bg-success-subtle text-success">{% trans "Good" %}</span>
-                                        {% elif row.health.level == 'medium' %}
-                                            <span class="badge bg-warning-subtle text-warning-emphasis">{% trans "Medium" %}</span>
-                                        {% else %}
-                                            <span class="badge bg-danger-subtle text-danger">{% trans "Critical" %}</span>
-                                        {% endif %}
-                                        <div class="text-muted small">{% trans "Blocking" %}: {{ row.problem_counts.blocking }} · {% trans "Comfort" %}: {{ row.problem_counts.comfort }}</div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="admin-users-user-meta">
-                                        {% if row.scope_is_complete %}
-                                            <span class="badge bg-success-subtle text-success">{% trans "Complete" %}</span>
-                                        {% else %}
-                                            <span class="badge bg-warning-subtle text-warning-emphasis">{% trans "Incomplete" %}</span>
-                                            <div class="text-muted small">{{ row.missing_scopes|join:", " }}</div>
-                                        {% endif %}
-                                        {% if not row.scope_token_validity_confirmed %}
-                                            <div class="text-muted small">{% trans "Recorded scopes; token validity is not refreshed on this page." %}</div>
-                                        {% endif %}
-                                        {% if row.is_inactive %}
-                                            <span class="badge bg-secondary-subtle text-secondary-emphasis">{% trans "Inactive" %}</span>
-                                        {% else %}
-                                            <span class="badge bg-success-subtle text-success">{% trans "Active" %}</span>
-                                        {% endif %}
-                                    </div>
-                                </td>
-                                <td>
-                                    <button type="button" class="btn btn-sm btn-outline-primary admin-users-usage-button" data-bs-toggle="modal" data-bs-target="#usageDetailModal{{ row.user.id }}">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
-                                            <path fill="currentColor" d="M4 20h16v1H4zm2-3h2V8H6zm5 0h2V5h-2zm5 0h2v8h-2z"/>
-                                        </svg>
-                                        {% trans "Details" %}
-                                    </button>
-                                    <div class="text-muted small mt-1">{% trans "30d" %}: {{ row.activity_30d_count|default:0 }} · {% trans "Total" %}: {{ row.total_usage_count|default:0 }}</div>
-
-                                    <div class="modal fade admin-users-usage-modal" id="usageDetailModal{{ row.user.id }}" tabindex="-1" aria-labelledby="usageDetailModalLabel{{ row.user.id }}" aria-hidden="true" data-usage-url="{% url 'indy_hub:settings_admin_users_usage_detail_fragment' row.user.id %}">
-                                        <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
-                                            <div class="modal-content">
-                                                <div class="modal-header border-0 pb-0">
-                                                    <div>
-                                                        <div class="d-flex align-items-center gap-2">
-                                                            <span class="text-primary" aria-hidden="true">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" role="img" focusable="false">
-                                                                    <path fill="currentColor" d="M4 20h16v1H4zm2-3h2V8H6zm5 0h2V5h-2zm5 0h2v8h-2z"/>
-                                                                </svg>
-                                                            </span>
-                                                            <h5 class="modal-title" id="usageDetailModalLabel{{ row.user.id }}">{% trans "Usage detail" %} · {{ row.user.username }}</h5>
-                                                        </div>
-                                                        <div class="text-muted small mt-1">
-                                                            {% trans "Detailed analytics load on demand." %}
-                                                        </div>
-                                                    </div>
-                                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
-                                                </div>
-                                                <div class="modal-body pt-2 js-usage-detail-target" data-loaded="0">
-                                                    <div class="d-flex align-items-center gap-2 text-muted small" role="status" aria-live="polite">
-                                                        <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
-                                                        <span>{% trans "Loading user analytics..." %}</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                            {% else %}
-                            <tr>
-                                <td colspan="5" class="text-center py-4 text-muted">{% trans "No users match the current filters." %}</td>
-                            </tr>
-                            {% endif %}
-                        </tbody>
-                    </table>
+    <section class="card" aria-labelledby="adminUsersUsageOverviewTitle">
+        <div class="card-body p-3">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                <div>
+                    <h2 class="h6 mb-1" id="adminUsersUsageOverviewTitle">{% trans "Usage overview" %}</h2>
+                    <p class="text-body-secondary small mb-0">{% trans "Current search and filters · last 30 days" %}</p>
                 </div>
-                {% if is_paginated %}
-                <div class="d-flex justify-content-between align-items-center p-3 border-top flex-wrap gap-2">
-                    <div class="text-muted small">
-                        {% blocktrans with page=page_obj.number pages=page_obj.paginator.num_pages %}Page {{ page }} of {{ pages }}{% endblocktrans %}
-                    </div>
-                    <nav aria-label="{% trans 'User results pages' %}">
-                    <div class="d-flex gap-1 flex-wrap">
-                        {% if page_obj.has_previous %}
-                        <a class="btn btn-sm btn-outline-secondary" href="?{{ current_query }}&page=1">{% trans "First" %}</a>
-                        <a class="btn btn-sm btn-outline-secondary" href="?{{ current_query }}&page={{ page_obj.previous_page_number }}">{% trans "Previous" %}</a>
-                        {% endif %}
-                        {% for page_link in page_links %}
-                            {% if page_link.is_ellipsis %}
-                                <span class="btn btn-sm disabled" aria-hidden="true">…</span>
-                            {% elif page_link.is_current %}
-                                <span class="btn btn-sm btn-primary" aria-current="page">{{ page_link.number }}</span>
-                            {% else %}
-                                <a class="btn btn-sm btn-outline-secondary" href="?{{ current_query }}&page={{ page_link.number }}">{{ page_link.number }}</a>
-                            {% endif %}
-                        {% endfor %}
-                        {% if page_obj.has_next %}
-                        <a class="btn btn-sm btn-outline-secondary" href="?{{ current_query }}&page={{ page_obj.next_page_number }}">{% trans "Next" %}</a>
-                        <a class="btn btn-sm btn-outline-secondary" href="?{{ current_query }}&page={{ page_obj.paginator.num_pages }}">{% trans "Last" %}</a>
-                        {% endif %}
-                    </div>
-                    </nav>
-                </div>
-                {% endif %}
+            </div>
+            <div id="adminUsersGlobalUsageContainer" data-url="{% url 'indy_hub:settings_admin_users_global_usage_fragment' %}">
+                <button type="button" class="btn btn-sm btn-outline-primary" id="adminUsersLoadGlobalUsageBtn">
+                    <i class="fas fa-chart-bar me-1" aria-hidden="true"></i>{% trans "Load usage overview" %}
+                </button>
             </div>
         </div>
     </section>
+
+    <section class="card" aria-labelledby="adminUsersResultsTitle">
+        <div class="card-header bg-body d-flex flex-wrap align-items-start justify-content-between gap-2 py-3">
+            <div>
+                <h2 class="h6 mb-1" id="adminUsersResultsTitle">{% trans "Users" %}</h2>
+                <div class="text-body-secondary small">
+                    {% blocktrans count counter=all_rows_count with start=result_start end=result_end %}{{ counter }} result · showing {{ start }}–{{ end }}{% plural %}{{ counter }} results · showing {{ start }}–{{ end }}{% endblocktrans %}
+                </div>
+            </div>
+            <div class="text-body-secondary small d-flex align-items-start gap-2">
+                <i class="fas fa-circle-info mt-1" aria-hidden="true"></i>
+                <span>{% trans "Scope coverage uses locally recorded scopes; token validity is managed from ESI." %}</span>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table id="adminUsersUsersTable" class="table table-sm table-hover align-middle mb-0 admin-users-users-table">
+                <thead class="admin-users-table-head">
+                    <tr>
+                        <th scope="col">
+                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.username }}">{% trans "User" %}{% if filters.sort_key == 'username' %}<span aria-label="{% if filters.sort_direction == 'asc' %}{% trans 'Sorted ascending' %}{% else %}{% trans 'Sorted descending' %}{% endif %}">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+                        </th>
+                        <th scope="col" class="d-none d-xl-table-cell">
+                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.corporation }}">{% trans "Corporation" %}{% if filters.sort_key == 'corporation' %}<span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+                        </th>
+                        <th scope="col" class="d-none d-md-table-cell">
+                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.health }}">{% trans "Health" %}{% if filters.sort_key == 'health' %}<span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+                        </th>
+                        <th scope="col" class="d-none d-md-table-cell">
+                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.scopes }}">{% trans "Scopes" %}{% if filters.sort_key == 'scopes' %}<span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+                        </th>
+                        <th scope="col">
+                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.usage }}">{% trans "Usage" %}{% if filters.sort_key == 'usage' %}<span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
+                        </th>
+                        <th scope="col" class="text-end">{% trans "Actions" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr class="admin-users-data-row{% if row.status_is_pending %} table-info{% endif %}" data-user-id="{{ row.user.id }}">
+                        <td class="admin-users-user-cell">
+                            <div class="fw-semibold">{{ row.user.username }}</div>
+                            <div class="text-body-secondary small">
+                                {% if row.main_character_name %}{{ row.main_character_name }}{% else %}{% trans "No main character" %}{% endif %}
+                            </div>
+                            <div class="d-md-none small mt-1">
+                                {% if row.status_is_pending %}
+                                <span class="text-info-emphasis"><i class="fas fa-clock me-1" aria-hidden="true"></i>{% trans "Account data is being prepared" %}</span>
+                                {% else %}
+                                <span class="{% if row.health.level == 'good' %}text-success{% elif row.health.level == 'medium' %}text-warning-emphasis{% else %}text-danger{% endif %}">
+                                    {% if row.health.level == 'good' %}{% trans "Good" %}{% elif row.health.level == 'medium' %}{% trans "Needs attention" %}{% else %}{% trans "Critical" %}{% endif %}
+                                </span>
+                                <span class="text-body-tertiary mx-1">·</span>
+                                {% if row.scope_is_complete %}<span>{% trans "Scopes complete" %}</span>{% else %}<span class="text-warning-emphasis">{% trans "Scopes incomplete" %}</span>{% endif %}
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="d-none d-xl-table-cell">
+                            {% if row.corporations %}
+                                {% for corp in row.corporations %}<span>{{ corp.corporation_name }}</span>{% endfor %}
+                            {% else %}
+                                <span class="text-body-secondary small">{% trans "No main corporation" %}</span>
+                            {% endif %}
+                        </td>
+                        <td class="admin-users-health-cell d-none d-md-table-cell">
+                            {% if row.status_is_pending %}
+                            <div class="admin-users-status-line text-info-emphasis"><i class="fas fa-clock" aria-hidden="true"></i>{% trans "Preparing" %}</div>
+                            <div class="text-body-secondary small">{% trans "Not scored yet" %}</div>
+                            {% else %}
+                            <div class="admin-users-status-line {% if row.health.level == 'good' %}text-success{% elif row.health.level == 'medium' %}text-warning-emphasis{% else %}text-danger{% endif %}">
+                                <i class="fas {% if row.health.level == 'good' %}fa-circle-check{% elif row.health.level == 'medium' %}fa-triangle-exclamation{% else %}fa-circle-xmark{% endif %}" aria-hidden="true"></i>
+                                <span>{% if row.health.level == 'good' %}{% trans "Good" %}{% elif row.health.level == 'medium' %}{% trans "Needs attention" %}{% else %}{% trans "Critical" %}{% endif %}</span>
+                                <span class="text-body-secondary fw-normal">{{ row.health.score }}/100</span>
+                            </div>
+                            {% if row.problem_counts.total %}
+                            <div class="text-body-secondary small mt-1">
+                                {% if row.problem_counts.blocking %}{% blocktrans count counter=row.problem_counts.blocking %}{{ counter }} blocking issue{% plural %}{{ counter }} blocking issues{% endblocktrans %}{% endif %}
+                                {% if row.problem_counts.blocking and row.problem_counts.advisory %} · {% endif %}
+                                {% if row.problem_counts.advisory %}{% blocktrans count counter=row.problem_counts.advisory %}{{ counter }} advisory{% plural %}{{ counter }} advisories{% endblocktrans %}{% endif %}
+                            </div>
+                            {% endif %}
+                            {% endif %}
+                        </td>
+                        <td class="admin-users-scopes-cell d-none d-md-table-cell">
+                            {% if row.status_is_pending %}
+                            <div class="admin-users-status-line text-info-emphasis"><i class="fas fa-clock" aria-hidden="true"></i>{% trans "Preparing" %}</div>
+                            {% elif row.scope_is_complete %}
+                            <div class="admin-users-status-line text-success"><i class="fas fa-circle-check" aria-hidden="true"></i>{% trans "Complete" %}</div>
+                            {% else %}
+                            <div class="admin-users-status-line text-warning-emphasis"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>{% trans "Incomplete" %}</div>
+                            <div class="admin-users-scope-list text-body-secondary small mt-1" title="{{ row.missing_scopes|join:', ' }}">
+                                {% trans "Missing" %}: {{ row.missing_scopes|join:", " }}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="admin-users-usage-cell">
+                            {% if row.status_is_pending %}
+                            <span class="text-body-secondary">—</span>
+                            <div class="text-body-secondary small">{% trans "Being prepared" %}</div>
+                            {% elif row.activity_30d_count %}
+                            <div class="fw-semibold">{% blocktrans count counter=row.activity_30d_count %}{{ counter }} visit / 30d{% plural %}{{ counter }} visits / 30d{% endblocktrans %}</div>
+                            {% if row.last_used_at %}<div class="text-body-secondary small">{% trans "Last" %}: {{ row.last_used_at|date:"Y-m-d" }}</div>{% endif %}
+                            {% else %}
+                            <div>{% trans "No visits / 30d" %}</div>
+                            <div class="text-body-secondary small">{% if row.last_used_at %}{% trans "Last" %}: {{ row.last_used_at|date:"Y-m-d" }}{% else %}{% trans "Never recorded" %}{% endif %}</div>
+                            {% endif %}
+                        </td>
+                        <td class="admin-users-actions-cell text-end">
+                            <button
+                                type="button"
+                                class="btn btn-sm btn-outline-primary"
+                                data-bs-toggle="modal"
+                                data-bs-target="#adminUsersUsageModal"
+                                data-usage-url="{% url 'indy_hub:settings_admin_users_usage_detail_fragment' row.user.id %}"
+                                data-usage-user="{{ row.user.username }}"
+                            >
+                                <i class="fas fa-chart-bar me-sm-1" aria-hidden="true"></i><span class="d-none d-sm-inline">{% trans "Usage" %}</span><span class="visually-hidden d-sm-none">{% blocktrans with username=row.user.username %}Usage for {{ username }}{% endblocktrans %}</span>
+                            </button>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-4 text-body-secondary">{% trans "No users match the current filters." %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if is_paginated %}
+        <div class="card-footer bg-body d-flex justify-content-between align-items-center flex-wrap gap-2 py-3">
+            <div class="text-body-secondary small">
+                {% blocktrans with page=page_obj.number pages=page_obj.paginator.num_pages %}Page {{ page }} of {{ pages }}{% endblocktrans %}
+            </div>
+            <nav aria-label="{% trans 'User result pages' %}">
+                <div class="btn-group btn-group-sm" role="group" aria-label="{% trans 'Pagination' %}">
+                    {% if page_obj.has_previous %}
+                    <a class="btn btn-outline-secondary" href="?{{ current_query }}&amp;page={{ page_obj.previous_page_number }}" aria-label="{% trans 'Previous page' %}"><i class="fas fa-chevron-left" aria-hidden="true"></i></a>
+                    {% endif %}
+                    {% for page_link in page_links %}
+                        {% if page_link.is_ellipsis %}
+                        <span class="btn btn-outline-secondary disabled" aria-hidden="true">…</span>
+                        {% elif page_link.is_current %}
+                        <span class="btn btn-primary" aria-current="page">{{ page_link.number }}</span>
+                        {% else %}
+                        <a class="btn btn-outline-secondary" href="?{{ current_query }}&amp;page={{ page_link.number }}">{{ page_link.number }}</a>
+                        {% endif %}
+                    {% endfor %}
+                    {% if page_obj.has_next %}
+                    <a class="btn btn-outline-secondary" href="?{{ current_query }}&amp;page={{ page_obj.next_page_number }}" aria-label="{% trans 'Next page' %}"><i class="fas fa-chevron-right" aria-hidden="true"></i></a>
+                    {% endif %}
+                </div>
+            </nav>
+        </div>
+        {% endif %}
+    </section>
+
+    <div class="modal fade" id="adminUsersUsageModal" tabindex="-1" aria-labelledby="adminUsersUsageModalTitle" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5 js-usage-modal-title" id="adminUsersUsageModalTitle">{% trans "Usage detail" %}</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+                </div>
+                <div class="modal-body js-usage-detail-target" data-loaded="0">
+                    <div class="text-body-secondary small">{% trans "Select a user to load usage." %}</div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock content %}
 
 {% block extra_javascript %}
 {{ block.super }}
-<script>
-    (function () {
-        function appendQuery(url, query) {
-            if (!query) {
-                return url;
-            }
-            return url + (url.indexOf('?') >= 0 ? '&' : '?') + query;
-        }
-
-        var fragmentTimeoutMs = 12000;
-
-        function fetchFragment(url, controller) {
-            var didTimeout = false;
-            var timeoutId = window.setTimeout(function () {
-                didTimeout = true;
-                controller.abort();
-            }, fragmentTimeoutMs);
-            return fetch(url, {
-                credentials: 'same-origin',
-                signal: controller.signal,
-                headers: {
-                    'X-Requested-With': 'XMLHttpRequest'
-                }
-            }).then(function (response) {
-                if (!response.ok) {
-                    throw new Error('http_' + response.status);
-                }
-                return response.json();
-            }).catch(function (error) {
-                if (didTimeout) {
-                    error.indyHubTimedOut = true;
-                }
-                throw error;
-            }).finally(function () {
-                window.clearTimeout(timeoutId);
-            });
-        }
-
-        function renderFragmentError(target, message, retryHandler) {
-            target.innerHTML = [
-                '<div class="alert alert-warning mb-0 d-flex flex-wrap align-items-center gap-2" role="alert">',
-                '<span>' + message + '</span>',
-                '<button type="button" class="btn btn-sm btn-outline-warning js-analytics-retry">{{ adminUsersRetryText|escapejs }}</button>',
-                '</div>'
-            ].join('');
-            var retry = target.querySelector('.js-analytics-retry');
-            if (retry) {
-                retry.addEventListener('click', retryHandler, {once: true});
-            }
-        }
-
-        function loadGlobalUsageFragment() {
-            var container = document.getElementById('adminUsersGlobalUsageContainer');
-            if (!container) {
-                return;
-            }
-            if (container.indyHubFragmentController) {
-                container.indyHubFragmentController.abort();
-            }
-            var controller = new AbortController();
-            container.indyHubFragmentController = controller;
-            var trigger = document.getElementById('adminUsersLoadGlobalUsageBtn');
-            if (trigger) {
-                trigger.disabled = true;
-            }
-            container.innerHTML = [
-                '<div class="d-flex align-items-center gap-2 text-muted small" role="status" aria-live="polite">',
-                '<div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>',
-                '<span>{% trans "Loading usage analytics..." %}</span>',
-                '</div>'
-            ].join('');
-            var url = appendQuery(container.dataset.url || '', window.location.search.replace(/^\?/, ''));
-            if (!url) {
-                renderFragmentError(
-                    container,
-                    '{{ adminUsersGlobalUsageErrorText|escapejs }}',
-                    loadGlobalUsageFragment
-                );
-                return;
-            }
-            fetchFragment(url, controller)
-                .then(function (payload) {
-                    if (container.indyHubFragmentController !== controller) {
-                        return;
-                    }
-                    container.innerHTML = payload && payload.html ? payload.html : '<div class="text-muted small">{{ adminUsersNoGlobalPageDetailText|escapejs }}</div>';
-                })
-                .catch(function (error) {
-                    if (container.indyHubFragmentController !== controller) {
-                        return;
-                    }
-                    var message = error.indyHubTimedOut
-                        ? '{{ adminUsersUsageTimeoutText|escapejs }}'
-                        : '{{ adminUsersGlobalUsageErrorText|escapejs }}';
-                    renderFragmentError(container, message, loadGlobalUsageFragment);
-                });
-        }
-
-        function setupGlobalUsageTrigger() {
-            var trigger = document.getElementById('adminUsersLoadGlobalUsageBtn');
-            if (!trigger) {
-                return;
-            }
-            trigger.addEventListener('click', loadGlobalUsageFragment);
-        }
-
-        function loadUsageModal(modal) {
-            var target = modal.querySelector('.js-usage-detail-target');
-            if (!target || target.dataset.loaded === '1') {
-                return;
-            }
-            var url = modal.dataset.usageUrl || '';
-            if (!url) {
-                return;
-            }
-            if (target.indyHubFragmentController) {
-                target.indyHubFragmentController.abort();
-            }
-            var controller = new AbortController();
-            target.indyHubFragmentController = controller;
-            target.innerHTML = [
-                '<div class="d-flex align-items-center gap-2 text-muted small" role="status" aria-live="polite">',
-                '<div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>',
-                '<span>{% trans "Loading user analytics..." %}</span>',
-                '</div>'
-            ].join('');
-
-            fetchFragment(url, controller)
-                .then(function (payload) {
-                    if (target.indyHubFragmentController !== controller) {
-                        return;
-                    }
-                    target.innerHTML = payload && payload.html ? payload.html : '<div class="text-muted small">{{ adminUsersNoPageDetailText|escapejs }}</div>';
-                    target.dataset.loaded = '1';
-                })
-                .catch(function (error) {
-                    if (target.indyHubFragmentController !== controller) {
-                        return;
-                    }
-                    var message = error.indyHubTimedOut
-                        ? '{{ adminUsersUsageTimeoutText|escapejs }}'
-                        : '{{ adminUsersUserUsageErrorText|escapejs }}';
-                    renderFragmentError(target, message, function () {
-                        loadUsageModal(modal);
-                    });
-                });
-        }
-
-        function onUsageModalShow(event) {
-            var modal = event.target;
-            if (!modal || !modal.classList.contains('admin-users-usage-modal')) {
-                return;
-            }
-            loadUsageModal(modal);
-        }
-
-        function onUsageModalHide(event) {
-            var modal = event.target;
-            if (!modal || !modal.classList.contains('admin-users-usage-modal')) {
-                return;
-            }
-            var target = modal.querySelector('.js-usage-detail-target');
-            if (target && target.indyHubFragmentController) {
-                target.indyHubFragmentController.abort();
-                target.indyHubFragmentController = null;
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', setupGlobalUsageTrigger);
-        document.addEventListener('show.bs.modal', onUsageModalShow);
-        document.addEventListener('hide.bs.modal', onUsageModalHide);
-    })();
-</script>
+<script src="{% static 'indy_hub/js/admin_users.js' %}"></script>
 {% endblock extra_javascript %}

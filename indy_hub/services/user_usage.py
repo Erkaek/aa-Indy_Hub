@@ -24,17 +24,6 @@ from indy_hub.models import IndyHubUserUsage
 logger = get_extension_logger(__name__)
 
 USAGE_HISTORY_WINDOW_DAYS = 30
-_PAGE_RING_PALETTE = (
-    "rgba(240, 84, 129, 0.78)",
-    "rgba(255, 159, 67, 0.78)",
-    "rgba(255, 211, 107, 0.78)",
-    "rgba(123, 205, 165, 0.78)",
-    "rgba(92, 175, 255, 0.78)",
-    "rgba(149, 102, 255, 0.78)",
-    "rgba(255, 118, 180, 0.78)",
-    "rgba(84, 214, 224, 0.78)",
-)
-
 _USAGE_EXCLUDED_PATHS = {
     "/user_notifications_count/",
 }
@@ -254,15 +243,66 @@ def build_usage_timeline(
     }
 
 
+def _build_usage_page_bars(
+    page_rows: list[dict[str, object]],
+    *,
+    page_total_30d: int,
+    limit: int = 10,
+) -> list[dict[str, object]]:
+    """Build a bounded, descending 30-day page ranking for admin displays."""
+    if page_total_30d <= 0:
+        return []
+
+    recent_rows = [
+        dict(row) for row in page_rows if int(row.get("recent_30d_count") or 0) > 0
+    ]
+    grouped_count = sum(
+        int(row.get("recent_30d_count") or 0)
+        for row in recent_rows
+        if row.get("is_grouped")
+    )
+    ranked_rows = [row for row in recent_rows if not row.get("is_grouped")]
+    ranked_rows.sort(
+        key=lambda row: (
+            int(row.get("recent_30d_count") or 0),
+            str(row.get("label") or ""),
+        ),
+        reverse=True,
+    )
+
+    page_bars = ranked_rows[: max(int(limit), 1)]
+    remaining_count = grouped_count + sum(
+        int(row.get("recent_30d_count") or 0)
+        for row in ranked_rows[max(int(limit), 1) :]
+    )
+    if remaining_count > 0:
+        page_bars.append(
+            {
+                "label": "Other pages",
+                "path": "(grouped)",
+                "recent_30d_count": remaining_count,
+                "total_usage_count": remaining_count,
+                "is_grouped": True,
+            }
+        )
+
+    for row in page_bars:
+        count = int(row.get("recent_30d_count") or 0)
+        row["page_share_percent"] = int(round((count / page_total_30d) * 100))
+    return page_bars
+
+
 def build_indy_hub_usage_detail(usage) -> dict[str, object]:
     if not usage:
         return {
             "has_usage": False,
             "page_rows": [],
+            "page_bars": [],
             "overall_timeline": [],
             "active_days_30d": 0,
             "active_days_total": 0,
             "page_count": 0,
+            "page_breakdown_matches_activity_30d": True,
         }
 
     overall_daily_usage = _normalize_daily_counts(getattr(usage, "daily_usage", {}))
@@ -337,114 +377,10 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
     )
 
     page_total_30d = sum(int(row["recent_30d_count"]) for row in page_rows)
-    page_rings: list[dict[str, object]] = []
-    if page_rows and page_total_30d > 0:
-        center_x = 110
-        center_y = 110
-        outer_radius = 72
-        inner_radius = 46
-
-        all_ring_rows = [
-            row for row in page_rows if int(row.get("recent_30d_count") or 0) > 0
-        ]
-        grouped_count = sum(
-            int(row.get("recent_30d_count") or 0)
-            for row in all_ring_rows
-            if row.get("is_grouped")
-        )
-        ring_rows = [row for row in all_ring_rows if not row.get("is_grouped")]
-        ring_rows.sort(
-            key=lambda row: int(row.get("recent_30d_count") or 0),
-            reverse=True,
-        )
-        primary_ring_rows = [dict(row) for row in ring_rows[:12]]
-        remaining_count = grouped_count + sum(
-            int(row.get("recent_30d_count") or 0) for row in ring_rows[12:]
-        )
-        if remaining_count > 0:
-            primary_ring_rows.append(
-                {
-                    "label": "Other pages",
-                    "path": "(grouped)",
-                    "recent_30d_count": remaining_count,
-                    "total_usage_count": remaining_count,
-                    "page_share_percent": (
-                        int(round((remaining_count / page_total_30d) * 100))
-                        if page_total_30d
-                        else 0
-                    ),
-                }
-            )
-
-        current_angle = -90.0
-        for index, row in enumerate(primary_ring_rows):
-            count = int(row["recent_30d_count"])
-            if count <= 0:
-                continue
-            sweep = (count / page_total_30d) * 360.0
-            start_angle = current_angle
-            end_angle = current_angle + sweep
-            mid_angle = current_angle + (sweep / 2.0)
-            label_radius = outer_radius + 18
-            label_x = int(
-                round(center_x + math.cos(math.radians(mid_angle)) * label_radius)
-            )
-            label_y = int(
-                round(center_y + math.sin(math.radians(mid_angle)) * label_radius)
-            )
-            start_x = int(
-                round(center_x + math.cos(math.radians(start_angle)) * outer_radius)
-            )
-            start_y = int(
-                round(center_y + math.sin(math.radians(start_angle)) * outer_radius)
-            )
-            end_x = int(
-                round(center_x + math.cos(math.radians(end_angle)) * outer_radius)
-            )
-            end_y = int(
-                round(center_y + math.sin(math.radians(end_angle)) * outer_radius)
-            )
-            large_arc = 1 if sweep > 180 else 0
-            row["page_arc_path"] = (
-                f"M {int(round(center_x + math.cos(math.radians(start_angle)) * inner_radius))} "
-                f"{int(round(center_y + math.sin(math.radians(start_angle)) * inner_radius))} "
-                f"L {start_x} {start_y} "
-                f"A {outer_radius} {outer_radius} 0 {large_arc} 1 {end_x} {end_y} "
-                f"L {int(round(center_x + math.cos(math.radians(end_angle)) * inner_radius))} "
-                f"{int(round(center_y + math.sin(math.radians(end_angle)) * inner_radius))} "
-                f"A {inner_radius} {inner_radius} 0 {large_arc} 0 {int(round(center_x + math.cos(math.radians(start_angle)) * inner_radius))} "
-                f"{int(round(center_y + math.sin(math.radians(start_angle)) * inner_radius))} Z"
-            )
-            row["page_arc_label_x"] = label_x
-            row["page_arc_label_y"] = label_y
-            row["page_arc_mid_angle"] = mid_angle
-            normalized_mid_angle = (mid_angle + 360.0) % 360.0
-            on_left_side = 90.0 < normalized_mid_angle < 270.0
-            row["page_label_anchor"] = "end" if on_left_side else "start"
-            row["page_label_rotation"] = int(
-                round(mid_angle + (180.0 if on_left_side else 0.0))
-            )
-            row["page_label_short"] = (
-                f"{str(row.get('label') or '')[:25]}..."
-                if len(str(row.get("label") or "")) > 28
-                else str(row.get("label") or "")
-            )
-            row["page_label_x"] = int(
-                round(
-                    center_x + math.cos(math.radians(mid_angle)) * (outer_radius + 24)
-                )
-            )
-            row["page_label_y"] = int(
-                round(
-                    center_y + math.sin(math.radians(mid_angle)) * (outer_radius + 24)
-                )
-            )
-            row["page_color"] = _PAGE_RING_PALETTE[index % len(_PAGE_RING_PALETTE)]
-            row["page_share_percent"] = (
-                int(round((count / page_total_30d) * 100)) if page_total_30d else 0
-            )
-            page_rings.append(row)
-            current_angle = end_angle
+    page_bars = _build_usage_page_bars(
+        page_rows,
+        page_total_30d=page_total_30d,
+    )
 
     return {
         "has_usage": True,
@@ -459,13 +395,12 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
         "peak_day_label": overall_timeline_data["peak_day_label"],
         "peak_day_count": overall_timeline_data["peak_day_count"],
         "page_rows": page_rows,
-        "page_rings": page_rings,
+        "page_bars": page_bars,
         "page_total_30d": page_total_30d,
         "page_count": len(page_rows),
-        "page_ring_center_x": 110,
-        "page_ring_center_y": 110,
-        "page_ring_inner_radius": 46,
-        "page_ring_outer_radius": 72,
+        "page_breakdown_matches_activity_30d": (
+            page_total_30d == int(activity_30d_count or 0)
+        ),
     }
 
 
@@ -484,13 +419,10 @@ def build_indy_hub_global_usage_detail(usages) -> dict[str, object]:
             "timeline_30d_peak_day_label": "",
             "timeline_30d_peak_day_count": 0,
             "page_rows": [],
-            "page_rings": [],
+            "page_bars": [],
             "page_total_30d": 0,
             "page_count": 0,
-            "page_ring_center_x": 110,
-            "page_ring_center_y": 110,
-            "page_ring_inner_radius": 46,
-            "page_ring_outer_radius": 72,
+            "page_breakdown_matches_activity_30d": True,
         }
 
     aggregated_daily_usage: dict[str, int] = {}

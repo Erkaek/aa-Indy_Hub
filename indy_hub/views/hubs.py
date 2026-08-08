@@ -103,96 +103,125 @@ def _build_admin_users_queryset(user, params):
         default=Value(0),
         output_field=IntegerField(),
     )
-    health_score = ExpressionWrapper(
-        Coalesce(
-            "indy_hub_admin_status__scope_score",
-            Value(0),
+    current_scope_count = ExpressionWrapper(
+        Case(
+            When(indy_hub_admin_status__scope_blueprints=True, then=Value(1)),
+            default=Value(0),
             output_field=IntegerField(),
         )
-        + Coalesce(
-            "indy_hub_admin_status__settings_score",
-            Value(0),
+        + Case(
+            When(indy_hub_admin_status__scope_jobs=True, then=Value(1)),
+            default=Value(0),
             output_field=IntegerField(),
         )
-        + activity_score,
+        + Case(
+            When(indy_hub_admin_status__scope_assets=True, then=Value(1)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+        + Case(
+            When(indy_hub_admin_status__scope_skills=True, then=Value(1)),
+            default=Value(0),
+            output_field=IntegerField(),
+        ),
         output_field=IntegerField(),
     )
-    queryset = queryset.annotate(
-        admin_status_exists=Case(
-            When(indy_hub_admin_status__isnull=False, then=Value(True)),
-            default=Value(False),
-            output_field=BooleanField(),
-        ),
-        admin_main_character_name=Coalesce(
-            "indy_hub_admin_status__main_character_name",
-            Value(""),
-            output_field=CharField(),
-        ),
-        admin_corporation_name=Coalesce(
-            "indy_hub_admin_status__corporation_name",
-            Value(""),
-            output_field=CharField(),
-        ),
-        admin_scope_blueprints=Coalesce(
-            "indy_hub_admin_status__scope_blueprints",
-            Value(False),
-            output_field=BooleanField(),
-        ),
-        admin_scope_jobs=Coalesce(
-            "indy_hub_admin_status__scope_jobs",
-            Value(False),
-            output_field=BooleanField(),
-        ),
-        admin_scope_assets=Coalesce(
-            "indy_hub_admin_status__scope_assets",
-            Value(False),
-            output_field=BooleanField(),
-        ),
-        admin_scope_skills=Coalesce(
-            "indy_hub_admin_status__scope_skills",
-            Value(False),
-            output_field=BooleanField(),
-        ),
-        admin_scope_online=Coalesce(
-            "indy_hub_admin_status__scope_online",
-            Value(False),
-            output_field=BooleanField(),
-        ),
-        admin_scope_complete=Coalesce(
-            "indy_hub_admin_status__scope_complete",
-            Value(False),
-            output_field=BooleanField(),
-        ),
-        admin_notifications_enabled=Coalesce(
-            "indy_hub_admin_status__notifications_enabled",
-            Value(False),
-            output_field=BooleanField(),
-        ),
-        admin_activity_30d_count=Coalesce(
-            "indy_hub_admin_status__activity_30d_count",
-            Value(0),
-            output_field=IntegerField(),
-        ),
-        admin_total_usage_count=Coalesce(
-            "indy_hub_admin_status__total_usage_count",
-            Value(0),
-            output_field=IntegerField(),
-        ),
-        admin_is_inactive=Case(
-            When(
-                indy_hub_admin_status__last_used_at__gte=inactive_cutoff,
-                then=Value(False),
+    queryset = (
+        queryset.annotate(
+            admin_status_exists=Case(
+                When(indy_hub_admin_status__isnull=False, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
             ),
-            default=Value(True),
-            output_field=BooleanField(),
-        ),
-        admin_health_score=health_score,
-    ).annotate(
-        admin_health_level=Case(
-            When(admin_health_score__gte=80, then=Value("good")),
-            When(admin_health_score__gte=50, then=Value("medium")),
-            default=Value("critical"),
-            output_field=CharField(),
+            admin_main_character_name=Coalesce(
+                "indy_hub_admin_status__main_character_name",
+                Value(""),
+                output_field=CharField(),
+            ),
+            admin_corporation_name=Coalesce(
+                "indy_hub_admin_status__corporation_name",
+                Value(""),
+                output_field=CharField(),
+            ),
+            admin_scope_blueprints=Coalesce(
+                "indy_hub_admin_status__scope_blueprints",
+                Value(False),
+                output_field=BooleanField(),
+            ),
+            admin_scope_jobs=Coalesce(
+                "indy_hub_admin_status__scope_jobs",
+                Value(False),
+                output_field=BooleanField(),
+            ),
+            admin_scope_assets=Coalesce(
+                "indy_hub_admin_status__scope_assets",
+                Value(False),
+                output_field=BooleanField(),
+            ),
+            admin_scope_skills=Coalesce(
+                "indy_hub_admin_status__scope_skills",
+                Value(False),
+                output_field=BooleanField(),
+            ),
+            admin_scope_count=current_scope_count,
+            admin_notifications_enabled=Coalesce(
+                "indy_hub_admin_status__notifications_enabled",
+                Value(False),
+                output_field=BooleanField(),
+            ),
+            admin_activity_30d_count=Coalesce(
+                "indy_hub_admin_status__activity_30d_count",
+                Value(0),
+                output_field=IntegerField(),
+            ),
+            admin_total_usage_count=Coalesce(
+                "indy_hub_admin_status__total_usage_count",
+                Value(0),
+                output_field=IntegerField(),
+            ),
+            admin_is_inactive=Case(
+                When(
+                    indy_hub_admin_status__last_used_at__gte=inactive_cutoff,
+                    then=Value(False),
+                ),
+                default=Value(True),
+                output_field=BooleanField(),
+            ),
+        )
+        .annotate(
+            admin_scope_complete=Case(
+                When(admin_status_exists=True, admin_scope_count=4, then=Value(True)),
+                default=Value(False),
+                output_field=BooleanField(),
+            ),
+            admin_current_scope_score=Case(
+                When(admin_scope_count=4, then=Value(50)),
+                When(admin_scope_count=3, then=Value(38)),
+                When(admin_scope_count=2, then=Value(25)),
+                When(admin_scope_count=1, then=Value(12)),
+                default=Value(0),
+                output_field=IntegerField(),
+            ),
+        )
+        .annotate(
+            admin_health_score=ExpressionWrapper(
+                F("admin_current_scope_score")
+                + Coalesce(
+                    "indy_hub_admin_status__settings_score",
+                    Value(0),
+                    output_field=IntegerField(),
+                )
+                + activity_score,
+                output_field=IntegerField(),
+            ),
+        )
+        .annotate(
+            admin_health_level=Case(
+                When(admin_health_score__gte=80, then=Value("good")),
+                When(admin_health_score__gte=50, then=Value("medium")),
+                default=Value("critical"),
+                output_field=CharField(),
+            )
         )
     )
 
@@ -341,7 +370,6 @@ def _build_settings_admin_users_state(
             "jobs": bool(user_obj.admin_scope_jobs),
             "assets": bool(user_obj.admin_scope_assets),
             "skills": bool(user_obj.admin_scope_skills),
-            "online": bool(user_obj.admin_scope_online),
         }
         missing_scopes = [
             label for label, has_scope in scope_flags.items() if not has_scope
@@ -355,6 +383,12 @@ def _build_settings_admin_users_state(
             notifications_off=not bool(user_obj.admin_notifications_enabled),
             is_inactive=bool(user_obj.admin_is_inactive),
             health_level=health["level"],
+        )
+        blocking_problem_count = sum(
+            item.get("severity") == "blocking" for item in problems
+        )
+        advisory_problem_count = sum(
+            item.get("severity") == "comfort" for item in problems
         )
         corporation_id = getattr(
             getattr(user_obj, "indy_hub_admin_status", None),
@@ -375,7 +409,6 @@ def _build_settings_admin_users_state(
                 "user": user_obj,
                 "main_character_name": user_obj.admin_main_character_name,
                 "scope_is_complete": bool(user_obj.admin_scope_complete),
-                "scope_token_validity_confirmed": False,
                 "scope_flags": scope_flags,
                 "missing_scopes": missing_scopes,
                 "corporations": corporations,
@@ -390,12 +423,9 @@ def _build_settings_admin_users_state(
                 "health": health,
                 "status_is_pending": not bool(user_obj.admin_status_exists),
                 "problem_counts": {
-                    "blocking": sum(
-                        item.get("severity") == "blocking" for item in problems
-                    ),
-                    "comfort": sum(
-                        item.get("severity") == "comfort" for item in problems
-                    ),
+                    "blocking": blocking_problem_count,
+                    "advisory": advisory_problem_count,
+                    "total": blocking_problem_count + advisory_problem_count,
                 },
             }
         )
@@ -455,6 +485,18 @@ def _build_settings_admin_users_state(
         "page_links": page_links,
         "sort_queries": sort_queries,
         "filters": filters,
+        "has_active_filters": any(
+            (
+                filters["search_query"],
+                filters["corporation_query"],
+                filters["selected_corporation_id"] is not None,
+                filters["activity_filter"],
+                filters["scope_filter"],
+                filters["health_filter"],
+                filters["max_health_score"] is not None,
+                filters["usage_filter"],
+            )
+        ),
         "selected_corporation_id": filters["selected_corporation_id"],
         "corporation_filter_value": filters["corporation_query"]
         or filters["selected_corporation_id"]

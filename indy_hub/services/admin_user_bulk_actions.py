@@ -21,7 +21,6 @@ _SCOPE_REQUIREMENTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("assets", ("esi-assets.read_assets.v1",)),
     ("skills", ("esi-skills.read_skills.v1",)),
-    ("online", ("esi-location.read_online.v1",)),
 )
 
 

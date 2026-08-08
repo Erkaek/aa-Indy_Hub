@@ -67,9 +67,8 @@ class AdminUserStatusTests(TestCase):
                     "jobs": True,
                     "assets": True,
                     "skills": True,
-                    "online": False,
                 },
-                "is_complete": False,
+                "is_complete": True,
             }
         }
 
@@ -94,8 +93,9 @@ class AdminUserStatusTests(TestCase):
         self.assertEqual(status.main_character_id, self.character.character_id)
         self.assertEqual(status.main_character_name, self.character.character_name)
         self.assertEqual(status.corporation_id, self.character.corporation_id)
-        self.assertEqual(status.scope_score, 40)
-        self.assertFalse(status.scope_complete)
+        self.assertEqual(status.scope_score, 50)
+        self.assertTrue(status.scope_complete)
+        self.assertFalse(status.scope_online)
         self.assertEqual(status.settings_score, 20)
         self.assertTrue(status.notifications_enabled)
         self.assertEqual(status.last_used_at, usage.last_used_at)
