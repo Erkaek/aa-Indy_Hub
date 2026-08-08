@@ -3,6 +3,7 @@
 # Django
 from django.core.management.base import BaseCommand, CommandError
 
+# AA Example App
 # Local
 from indy_hub.models import IndyHubUserUsage
 from indy_hub.services.user_usage_rollups import (

@@ -12,6 +12,7 @@ from django.db import transaction
 from django.db.models import F, Max, Min, Q, Sum
 from django.utils import timezone
 
+# AA Example App
 # Local
 from indy_hub.models import IndyHubUsageDailyRollup, IndyHubUserUsage
 from indy_hub.services.user_usage import (
@@ -139,9 +140,7 @@ def increment_indy_hub_usage_rollups(
         for key in (usage.page_usage or {})
         if not is_usage_tracking_path_excluded(str(key))
     ]
-    page_rollups = rollups.exclude(
-        page_key=IndyHubUsageDailyRollup.OVERALL_PAGE_KEY
-    )
+    page_rollups = rollups.exclude(page_key=IndyHubUsageDailyRollup.OVERALL_PAGE_KEY)
     if retained_page_keys:
         page_rollups.exclude(page_key__in=retained_page_keys).delete()
     else:
@@ -212,9 +211,7 @@ def build_indy_hub_global_usage_detail_from_rollups(user_queryset):
         .annotate(usage_count=Sum("usage_count"))
         .order_by("usage_day")
     )
-    page_scope = rollup_scope.exclude(
-        page_key=IndyHubUsageDailyRollup.OVERALL_PAGE_KEY
-    )
+    page_scope = rollup_scope.exclude(page_key=IndyHubUsageDailyRollup.OVERALL_PAGE_KEY)
     page_stats = page_scope.aggregate(usage_count=Sum("usage_count"))
     page_rows = list(
         page_scope.values("page_key")

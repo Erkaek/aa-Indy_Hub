@@ -16,6 +16,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+# AA Example App
 # Local
 from indy_hub.models import IndyHubUsageDailyRollup, IndyHubUserUsage
 from indy_hub.services.user_usage import track_indy_hub_usage_for_user
@@ -233,9 +234,7 @@ class IndyHubUsageRollupTests(TestCase):
                 "indy_hub.tasks.housekeeping.rebuild_usage_rollups",
                 return_value=(5, 15),
             ) as rebuild,
-            patch.object(
-                consolidate_indy_hub_usage_rollups, "apply_async"
-            ) as enqueue,
+            patch.object(consolidate_indy_hub_usage_rollups, "apply_async") as enqueue,
         ):
             result = consolidate_indy_hub_usage_rollups.run(batch_size=5)
 
