@@ -1,4 +1,13 @@
 {% load i18n %}
+{% if global_usage_detail.rollup_pending_user_count %}
+<div class="alert alert-info py-2 mb-3" role="status">
+    {% blocktrans count counter=global_usage_detail.rollup_pending_user_count %}
+    Usage analytics are being consolidated for {{ counter }} user; recent totals may be temporarily incomplete.
+    {% plural %}
+    Usage analytics are being consolidated for {{ counter }} users; recent totals may be temporarily incomplete.
+    {% endblocktrans %}
+</div>
+{% endif %}
 <div class="admin-users-usage-summary-grid">
     <div class="admin-users-usage-summary-card">
         <div class="admin-users-usage-summary-label">{% trans "Visible users" %}</div>

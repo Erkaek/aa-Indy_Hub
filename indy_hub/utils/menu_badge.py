@@ -131,11 +131,17 @@ def compute_menu_badge_count(user_id: int) -> int:
     )
 
 
-def count_characters_missing_scopes(user_id: int) -> int:
+def count_characters_missing_scopes(
+    user_id: int,
+    *,
+    validate_tokens: bool = True,
+) -> int:
     """Return the number of the user's characters missing at least one required Indy Hub scope.
 
-    Only characters that already have at least one valid token are counted, so
+    Only characters that already have at least one token are counted, so
     brand-new users that never authorized Indy Hub do not see a navbar warning.
+    Callers may disable validation when a request must be strictly local-only;
+    in that mode the badge reflects scopes recorded in the database.
     The goal is to surface accounts that are only partially linked to the
     currently required personal Indy Hub scopes.
     Returns ``0`` silently when Alliance Auth's character or token models are
@@ -156,28 +162,26 @@ def count_characters_missing_scopes(user_id: int) -> int:
     if not character_ids:
         return 0
 
-    valid_tokens = Token.objects.filter(
-        user_id=user_id, character_id__in=character_ids
-    ).require_valid()
-    valid_character_ids = set(
-        valid_tokens.values_list("character_id", flat=True).distinct()
-    )
-    if not valid_character_ids:
+    tokens = Token.objects.filter(user_id=user_id, character_id__in=character_ids)
+    if validate_tokens:
+        tokens = tokens.require_valid()
+    token_character_ids = set(tokens.values_list("character_id", flat=True).distinct())
+    if not token_character_ids:
         return 0
 
     required_scopes = set(_CHARACTER_REQUIRED_SCOPES)
     scopes_by_character: dict[int, set[str]] = defaultdict(set)
-    for character_id, scope_name in valid_tokens.filter(
+    for character_id, scope_name in tokens.filter(
         scopes__name__in=required_scopes
     ).values_list("character_id", "scopes__name"):
         if scope_name:
             scopes_by_character[int(character_id)].add(scope_name)
 
-    # Count only characters that already have valid tokens, then flag those
-    # missing at least one required scope.
+    # Count only characters that already have tokens, then flag those missing
+    # at least one required scope.
     return sum(
         1
-        for character_id in valid_character_ids
+        for character_id in token_character_ids
         if not required_scopes.issubset(
             scopes_by_character.get(int(character_id), set())
         )

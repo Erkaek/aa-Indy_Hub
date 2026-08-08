@@ -1014,6 +1014,7 @@ class IndyHubUserUsage(models.Model):
     activity_30d_count = models.PositiveIntegerField(default=0)
     daily_usage = models.JSONField(default=dict, blank=True)
     page_usage = models.JSONField(default=dict, blank=True)
+    rollup_synced_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1148,6 +1149,97 @@ class IndyHubUserUsage(models.Model):
                 retained_page_usage = dict(sorted_entries[: self.PAGE_USAGE_MAX_KEYS])
 
             self.page_usage = retained_page_usage
+
+
+class IndyHubUsageDailyRollup(models.Model):
+    """Prepared daily usage counters used by global administration analytics."""
+
+    OVERALL_PAGE_KEY = ""
+
+    usage = models.ForeignKey(
+        IndyHubUserUsage,
+        on_delete=models.CASCADE,
+        related_name="daily_rollups",
+    )
+    usage_day = models.DateField()
+    page_key = models.CharField(max_length=255, blank=True, default="")
+    page_label = models.CharField(max_length=255, blank=True, default="")
+    usage_count = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_permissions = ()
+        verbose_name = _("Indy Hub daily usage rollup")
+        verbose_name_plural = _("Indy Hub daily usage rollups")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["usage", "usage_day", "page_key"],
+                name="indy_usage_rollup_unique",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["usage_day", "page_key"],
+                name="indy_rollup_day_page_idx",
+            ),
+            models.Index(
+                fields=["usage", "usage_day"],
+                name="indy_rollup_usage_day_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        scope = self.page_key or "all pages"
+        return f"{self.usage_id} · {scope} · {self.usage_day}"
+
+
+class AdminUserStatus(models.Model):
+    """Local read model used by the scalable user-administration listing."""
+
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="indy_hub_admin_status",
+    )
+    main_character_id = models.BigIntegerField(null=True, blank=True)
+    main_character_name = models.CharField(max_length=255, blank=True)
+    corporation_id = models.BigIntegerField(null=True, blank=True)
+    corporation_name = models.CharField(max_length=255, blank=True)
+
+    scope_blueprints = models.BooleanField(default=False)
+    scope_jobs = models.BooleanField(default=False)
+    scope_assets = models.BooleanField(default=False)
+    scope_skills = models.BooleanField(default=False)
+    scope_online = models.BooleanField(default=False)
+    scope_complete = models.BooleanField(default=False)
+    scope_score = models.PositiveSmallIntegerField(default=0)
+
+    settings_score = models.PositiveSmallIntegerField(default=0)
+    notifications_enabled = models.BooleanField(default=False)
+
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    activity_30d_count = models.PositiveIntegerField(default=0)
+    total_usage_count = models.PositiveBigIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_permissions = ()
+        verbose_name = _("Admin user status")
+        verbose_name_plural = _("Admin user statuses")
+        indexes = [
+            models.Index(
+                fields=["main_character_name"], name="indy_admin_char_name_idx"
+            ),
+            models.Index(fields=["corporation_id"], name="indy_admin_corp_id_idx"),
+            models.Index(fields=["corporation_name"], name="indy_admin_corp_name_idx"),
+            models.Index(fields=["scope_complete"], name="indy_admin_scope_ok_idx"),
+            models.Index(fields=["last_used_at"], name="indy_admin_last_used_idx"),
+            models.Index(fields=["activity_30d_count"], name="indy_admin_activity_idx"),
+            models.Index(fields=["total_usage_count"], name="indy_admin_usage_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Admin status for {self.user_id}"
 
 
 class UserFavoriteStructure(models.Model):

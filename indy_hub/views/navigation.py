@@ -23,6 +23,7 @@ def build_nav_context(
     show_corporation_workflow_jobs: bool | None = None,
     can_access_indy_hub: bool | None = None,
     material_hub_enabled: bool | None = None,
+    validate_esi_tokens: bool = True,
 ) -> dict[str, object]:
     """Return navbar context entries for templates extending the Indy Hub base."""
 
@@ -217,7 +218,12 @@ def build_nav_context(
         try:
             from ..utils.menu_badge import count_characters_missing_scopes
 
-            esi_missing = int(count_characters_missing_scopes(int(user.id)))
+            esi_missing = int(
+                count_characters_missing_scopes(
+                    int(user.id),
+                    validate_tokens=validate_esi_tokens,
+                )
+            )
         except Exception:
             esi_missing = 0
         context["esi_nav_badge_count"] = esi_missing

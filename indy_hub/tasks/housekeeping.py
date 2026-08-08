@@ -13,6 +13,7 @@ from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
+from allianceauth.services.tasks import QueueOnce
 from esi.models import Token
 
 # Indy Hub
@@ -27,7 +28,18 @@ from ..models import (
     CharacterRoles,
     IndustrySkillSnapshot,
 )
+from ..services.admin_user_status import rebuild_admin_user_statuses as rebuild_statuses
 from ..services.asset_cache import STRUCTURE_PLACEHOLDER_TTL
+from ..services.user_usage_rollups import (
+    ROLLUP_REBUILD_BATCH_SIZE,
+    ROLLUP_REBUILD_MAX_BATCH_SIZE,
+)
+from ..services.user_usage_rollups import (
+    rebuild_indy_hub_usage_rollups as rebuild_usage_rollups,
+)
+from ..services.user_usage_rollups import (
+    stale_usage_rollup_queryset,
+)
 from ..utils.analytics import emit_analytics_event
 from ..utils.eve import PLACEHOLDER_PREFIX, has_structure_forbidden_cooldown
 from .industry import (
@@ -41,6 +53,8 @@ from .user import CORP_ROLES_SCOPE, update_character_roles_for_character
 
 logger = get_extension_logger(__name__)
 User = get_user_model()
+
+_ADMIN_USER_STATUS_BATCH_SIZE = 500
 
 
 def _select_character_targets_for_stale_snapshots(
@@ -104,6 +118,85 @@ def _queue_staggered_character_tasks(
             priority=priority,
         )
     return total
+
+
+@shared_task(bind=True)
+def rebuild_admin_user_statuses(
+    self,
+    after_user_id: int = 0,
+    batch_size: int = _ADMIN_USER_STATUS_BATCH_SIZE,
+) -> dict[str, int | bool]:
+    """Rebuild one bounded batch of the local admin-user read model."""
+
+    normalized_batch_size = max(25, min(int(batch_size), 1000))
+    user_ids = list(
+        User.objects.filter(id__gt=max(int(after_user_id), 0))
+        .order_by("id")
+        .values_list("id", flat=True)[:normalized_batch_size]
+    )
+    rebuilt = rebuild_statuses([int(user_id) for user_id in user_ids])
+    has_more = len(user_ids) == normalized_batch_size
+    next_after_user_id = int(user_ids[-1]) if user_ids else int(after_user_id)
+
+    if has_more:
+        self.apply_async(
+            kwargs={
+                "after_user_id": next_after_user_id,
+                "batch_size": normalized_batch_size,
+            },
+            countdown=1,
+            priority=8,
+        )
+
+    return {
+        "rebuilt": rebuilt,
+        "has_more": has_more,
+        "next_after_user_id": next_after_user_id,
+    }
+
+
+@shared_task(
+    bind=True,
+    base=QueueOnce,
+    once={"graceful": True},
+    time_limit=300,
+)
+def consolidate_indy_hub_usage_rollups(
+    self,
+    after_usage_id: int = 0,
+    batch_size: int = ROLLUP_REBUILD_BATCH_SIZE,
+) -> dict[str, int | bool]:
+    """Consolidate one bounded batch of stale usage JSON into SQL rollups."""
+    normalized_batch_size = max(
+        5,
+        min(int(batch_size), ROLLUP_REBUILD_MAX_BATCH_SIZE),
+    )
+    usage_ids = list(
+        stale_usage_rollup_queryset()
+        .filter(id__gt=max(int(after_usage_id), 0))
+        .order_by("id")
+        .values_list("id", flat=True)[:normalized_batch_size]
+    )
+    rebuilt_users, rebuilt_rows = rebuild_usage_rollups(usage_ids)
+    has_more = len(usage_ids) == normalized_batch_size
+    next_after_usage_id = int(usage_ids[-1]) if usage_ids else int(after_usage_id)
+
+    if has_more:
+        self.apply_async(
+            kwargs={
+                "after_usage_id": next_after_usage_id,
+                "batch_size": normalized_batch_size,
+            },
+            countdown=1,
+            priority=8,
+        )
+
+    return {
+        "rebuilt_users": rebuilt_users,
+        "rebuilt_rows": rebuilt_rows,
+        "has_more": has_more,
+        "next_after_usage_id": next_after_usage_id,
+    }
 
 
 @shared_task

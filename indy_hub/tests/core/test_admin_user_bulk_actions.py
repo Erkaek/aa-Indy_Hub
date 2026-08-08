@@ -34,7 +34,9 @@ class CollectUserScopeStatusMapTests(SimpleTestCase):
         fake_token = SimpleNamespace(user_id=77, scopes=scope_manager)
 
         tokens_qs = MagicMock()
-        tokens_qs.require_valid.return_value = tokens_qs
+        tokens_qs.require_valid.side_effect = AssertionError(
+            "Scope listings must not validate or refresh tokens"
+        )
         tokens_qs.prefetch_related.return_value = [fake_token]
         mock_token.objects.filter.return_value = tokens_qs
 
@@ -62,7 +64,9 @@ class CollectUserScopeStatusMapTests(SimpleTestCase):
         token_b = SimpleNamespace(user_id=77, scopes=scope_manager_b)
 
         tokens_qs = MagicMock()
-        tokens_qs.require_valid.return_value = tokens_qs
+        tokens_qs.require_valid.side_effect = AssertionError(
+            "Scope listings must not validate or refresh tokens"
+        )
         tokens_qs.prefetch_related.return_value = [token_a, token_b]
         mock_token.objects.filter.return_value = tokens_qs
 

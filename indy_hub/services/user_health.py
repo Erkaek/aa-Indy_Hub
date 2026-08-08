@@ -24,9 +24,13 @@ def _score_scope_coverage(scope_flags: dict[str, bool]) -> int:
     return round((enabled_count / total_scopes) * SCOPE_WEIGHT_TOTAL)
 
 
-def _score_parameter_coherence(settings_obj: CharacterSettings | None) -> int:
+def build_user_settings_health_status(
+    settings_obj: CharacterSettings | None,
+) -> dict[str, int | bool]:
+    """Return the settings-only scalars shared by health views and read models."""
+
     if settings_obj is None:
-        return 0
+        return {"score": 0, "notifications_enabled": False}
 
     score = 0
     valid_scopes = dict(CharacterSettings.COPY_SHARING_SCOPE_CHOICES)
@@ -39,12 +43,21 @@ def _score_parameter_coherence(settings_obj: CharacterSettings | None) -> int:
             score += 10
 
     notify_frequency = settings_obj.jobs_notify_frequency
+    notifications_enabled = notify_frequency in valid_frequencies and (
+        notify_frequency != CharacterSettings.NOTIFY_DISABLED
+    )
     if notify_frequency in valid_frequencies:
-        notifications_enabled = notify_frequency != CharacterSettings.NOTIFY_DISABLED
         if bool(settings_obj.jobs_notify_completed) == notifications_enabled:
             score += 10
 
-    return score
+    return {
+        "score": score,
+        "notifications_enabled": notifications_enabled,
+    }
+
+
+def _score_parameter_coherence(settings_obj: CharacterSettings | None) -> int:
+    return int(build_user_settings_health_status(settings_obj)["score"])
 
 
 def _score_recent_activity(*, is_inactive: bool, activity_30d_count: int) -> int:

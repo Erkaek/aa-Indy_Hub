@@ -63,6 +63,18 @@ INDY_HUB_BEAT_SCHEDULE = {
         "options": {"priority": 7},
         "apply_offset": True,
     },
+    "indy-hub-rebuild-admin-user-statuses": {
+        "task": "indy_hub.tasks.housekeeping.rebuild_admin_user_statuses",
+        "schedule": crontab(hour=4, minute=15),
+        "options": {"priority": 8},
+        "apply_offset": True,
+    },
+    "indy-hub-consolidate-usage-rollups": {
+        "task": "indy_hub.tasks.housekeeping.consolidate_indy_hub_usage_rollups",
+        "schedule": crontab(hour=4, minute=45),
+        "options": {"priority": 8},
+        "apply_offset": True,
+    },
     # Material Exchange combined cycle: sync -> validate -> check completed
     "indy-hub-material-exchange-cycle": {
         "task": "indy_hub.tasks.material_exchange_contracts.run_material_exchange_cycle",

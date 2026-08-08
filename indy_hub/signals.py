@@ -2,10 +2,12 @@
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import connection
-from django.db.models.signals import post_delete, post_save, pre_save
+from django.db.models.signals import m2m_changed, post_delete, post_save, pre_save
 from django.dispatch import receiver
 
 # Alliance Auth
+from allianceauth.authentication.models import UserProfile
+from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
 
 from .models import (
@@ -13,10 +15,16 @@ from .models import (
     BlueprintCopyChat,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
+    CharacterSettings,
     IndustryJob,
+    IndyHubUserUsage,
     MaterialExchangeBuyOrder,
     MaterialExchangeConfig,
     MaterialExchangeSellOrder,
+)
+from .services.admin_user_status import (
+    rebuild_admin_user_statuses,
+    update_admin_user_status_usage,
 )
 from .tasks.material_exchange import (
     sync_material_exchange_prices,
@@ -297,6 +305,104 @@ if Token is not None:
         after the user re-authorizes the missing scopes, which is misleading.
         """
         invalidate_menu_badge_cache(getattr(instance, "user_id", None))
+
+
+def _refresh_admin_user_status_safely(*user_ids) -> None:
+    normalized_ids = sorted({int(user_id) for user_id in user_ids if user_id})
+    if not normalized_ids:
+        return
+    try:
+        rebuild_admin_user_statuses(normalized_ids)
+    except Exception:
+        logger.warning(
+            "Unable to refresh admin-user read model for users %s",
+            normalized_ids,
+            exc_info=True,
+        )
+
+
+@receiver(post_save, sender=CharacterSettings)
+@receiver(post_delete, sender=CharacterSettings)
+def refresh_admin_user_status_on_settings_change(sender, instance, **kwargs):
+    if int(instance.character_id or 0) == 0:
+        _refresh_admin_user_status_safely(instance.user_id)
+
+
+@receiver(post_save, sender=IndyHubUserUsage)
+def refresh_admin_user_status_on_usage_save(sender, instance, **kwargs):
+    try:
+        update_admin_user_status_usage(instance)
+    except Exception:
+        logger.warning(
+            "Unable to refresh admin-user usage status for user %s",
+            instance.user_id,
+            exc_info=True,
+        )
+
+
+@receiver(post_delete, sender=IndyHubUserUsage)
+def refresh_admin_user_status_on_usage_delete(sender, instance, **kwargs):
+    _refresh_admin_user_status_safely(instance.user_id)
+
+
+@receiver(post_save, sender=UserProfile)
+@receiver(post_delete, sender=UserProfile)
+def refresh_admin_user_status_on_profile_change(sender, instance, **kwargs):
+    _refresh_admin_user_status_safely(instance.user_id)
+
+
+@receiver(post_save, sender=EveCharacter)
+def refresh_admin_user_status_on_character_change(sender, instance, **kwargs):
+    user_ids = UserProfile.objects.filter(main_character=instance).values_list(
+        "user_id", flat=True
+    )
+    _refresh_admin_user_status_safely(*user_ids)
+
+
+if Token is not None:
+
+    @receiver(post_save, sender=Token)
+    @receiver(post_delete, sender=Token)
+    def refresh_admin_user_status_on_token_change(sender, instance, **kwargs):
+        _refresh_admin_user_status_safely(getattr(instance, "user_id", None))
+
+    @receiver(m2m_changed, sender=Token.scopes.through)
+    def refresh_admin_user_status_on_token_scopes_change(
+        sender,
+        instance,
+        action,
+        reverse,
+        pk_set,
+        **kwargs,
+    ):
+        if reverse and action == "pre_clear":
+            token_user_ids = Token.objects.filter(scopes=instance).values_list(
+                "user_id", flat=True
+            )
+            setattr(
+                instance,
+                "_indy_hub_admin_status_user_ids",
+                [int(user_id) for user_id in token_user_ids if user_id],
+            )
+            return
+        if action not in {"post_add", "post_remove", "post_clear"}:
+            return
+        if not reverse:
+            _refresh_admin_user_status_safely(getattr(instance, "user_id", None))
+            return
+        if action == "post_clear":
+            token_user_ids = getattr(
+                instance,
+                "_indy_hub_admin_status_user_ids",
+                [],
+            )
+            if hasattr(instance, "_indy_hub_admin_status_user_ids"):
+                delattr(instance, "_indy_hub_admin_status_user_ids")
+        else:
+            token_user_ids = Token.objects.filter(pk__in=pk_set or []).values_list(
+                "user_id", flat=True
+            )
+        _refresh_admin_user_status_safely(*token_user_ids)
 
 
 # --- Auto stock/price sync when MaterialExchangeConfig changes ---

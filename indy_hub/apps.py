@@ -169,6 +169,45 @@ class IndyHubConfig(AppConfig):
             except Exception as e:
                 logger.exception("Error setting up periodic tasks: %s", e)
 
+            # Rebuild the scalable admin-users read model asynchronously. The
+            # schema migration intentionally avoids a synchronous 10k-user
+            # data migration; signals keep rows current after this bootstrap.
+            try:
+                # Django
+                from django.contrib.auth import get_user_model
+
+                from .models import AdminUserStatus
+                from .tasks.housekeeping import rebuild_admin_user_statuses
+
+                user_model = get_user_model()
+                has_missing_statuses = user_model.objects.filter(
+                    indy_hub_admin_status__isnull=True
+                ).exists()
+                if has_missing_statuses:
+                    rebuild_admin_user_statuses.delay()
+                    logger.info(
+                        "Queued bounded AdminUserStatus reconstruction after migrate."
+                    )
+                elif not AdminUserStatus.objects.exists():
+                    logger.info("No users require AdminUserStatus reconstruction.")
+            except Exception as e:
+                logger.warning("Could not queue AdminUserStatus reconstruction: %s", e)
+
+            # Consolidate retained usage JSON asynchronously. Migration 0114 is
+            # schema-only, so deploys never parse historical JSON while holding
+            # the migration lock.
+            try:
+                from .services.user_usage_rollups import stale_usage_rollup_queryset
+                from .tasks.housekeeping import consolidate_indy_hub_usage_rollups
+
+                if stale_usage_rollup_queryset().exists():
+                    consolidate_indy_hub_usage_rollups.delay()
+                    logger.info(
+                        "Queued bounded Indy Hub usage-rollup reconstruction after migrate."
+                    )
+            except Exception as e:
+                logger.warning("Could not queue usage-rollup reconstruction: %s", e)
+
             # Bootstrap stale snapshots once after migration when local tables are empty.
             # This helps fresh/reinstalled instances populate role/skill/structure
             # snapshots without waiting for the next periodic schedule.

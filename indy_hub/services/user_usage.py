@@ -323,6 +323,7 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
                     "timeline": page_timeline,
                     "peak_day_label": page_timeline_data["peak_day_label"],
                     "peak_day_count": page_timeline_data["peak_day_count"],
+                    "is_grouped": bool(page_data.get("is_grouped")),
                 }
             )
 
@@ -343,15 +344,21 @@ def build_indy_hub_usage_detail(usage) -> dict[str, object]:
         outer_radius = 72
         inner_radius = 46
 
-        ring_rows = [
+        all_ring_rows = [
             row for row in page_rows if int(row.get("recent_30d_count") or 0) > 0
         ]
+        grouped_count = sum(
+            int(row.get("recent_30d_count") or 0)
+            for row in all_ring_rows
+            if row.get("is_grouped")
+        )
+        ring_rows = [row for row in all_ring_rows if not row.get("is_grouped")]
         ring_rows.sort(
             key=lambda row: int(row.get("recent_30d_count") or 0),
             reverse=True,
         )
         primary_ring_rows = [dict(row) for row in ring_rows[:12]]
-        remaining_count = sum(
+        remaining_count = grouped_count + sum(
             int(row.get("recent_30d_count") or 0) for row in ring_rows[12:]
         )
         if remaining_count > 0:
@@ -616,6 +623,7 @@ def track_indy_hub_usage_for_user(
     if not getattr(user, "is_authenticated", False):
         return
 
+    moment = at or timezone.now()
     normalized_page_path = None
     if page_path is not None:
         raw_page_path = str(page_path).strip()
@@ -635,8 +643,12 @@ def track_indy_hub_usage_for_user(
         usage, _created = IndyHubUserUsage.objects.select_for_update().get_or_create(
             user=user
         )
+        rollup_was_current = bool(
+            _created
+            or (usage.rollup_synced_at and usage.rollup_synced_at >= usage.updated_at)
+        )
         usage.register_usage(
-            at=at,
+            at=moment,
             page_path=normalized_page_path,
             page_label=page_label,
         )
@@ -651,6 +663,17 @@ def track_indy_hub_usage_for_user(
                 "page_usage",
                 "updated_at",
             ]
+        )
+        # Local import avoids a module cycle: rollup reconstruction reuses the
+        # normalization and chart helpers defined in this module.
+        from .user_usage_rollups import increment_indy_hub_usage_rollups
+
+        increment_indy_hub_usage_rollups(
+            usage,
+            usage_day=moment.date(),
+            page_path=normalized_page_path,
+            page_label=page_label,
+            mark_synced=rollup_was_current,
         )
 
 

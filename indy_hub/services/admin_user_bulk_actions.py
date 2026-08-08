@@ -39,6 +39,7 @@ def _build_scope_status_from_scope_names(scope_names: set[str]) -> dict[str, obj
         "flags": flags,
         "is_complete": all(flags.values()),
         "missing_labels": missing_labels,
+        "token_validity_confirmed": False,
     }
 
 
@@ -63,18 +64,24 @@ def _merge_scope_statuses(
         "flags": merged_flags,
         "is_complete": all(merged_flags.values()),
         "missing_labels": missing_labels,
+        "token_validity_confirmed": False,
     }
 
 
 def collect_user_scope_status_map(user_ids: list[int]) -> dict[int, dict[str, object]]:
+    """Return scope coverage recorded locally, without validating tokens.
+
+    Token validation is deliberately excluded because django-esi's
+    ``require_valid()`` refreshes expired tokens over OAuth and mutates token
+    rows. Admin listings must remain passive and bounded by local database work.
+    """
+
     normalized_user_ids = [int(user_id) for user_id in user_ids if user_id]
     scope_statuses_by_user_id: dict[int, list[dict[str, object]]] = defaultdict(list)
 
     if normalized_user_ids:
-        tokens = (
-            Token.objects.filter(user_id__in=normalized_user_ids)
-            .require_valid()
-            .prefetch_related("scopes")
+        tokens = Token.objects.filter(user_id__in=normalized_user_ids).prefetch_related(
+            "scopes"
         )
         for token in tokens:
             scope_names = {
