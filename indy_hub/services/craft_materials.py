@@ -14,7 +14,8 @@ def compute_job_material_quantity(
     """Return the total material quantity for a multi-run industry job.
 
     EVE industry applies material efficiency to the total job input, then rounds up.
-    Rounding per run overstates totals for many materials when runs > 1.
+    Rounding per run overstates totals for many materials when runs > 1. Every
+    listed material still has a minimum requirement of one unit per job run.
     """
 
     base_quantity = int(base_quantity_per_run or 0)
@@ -27,7 +28,7 @@ def compute_job_material_quantity(
         efficiency = max(0, min(int(material_efficiency or 0), 100))
         total_quantity = total_quantity * (100 - efficiency) / 100
 
-    return int(ceil(total_quantity))
+    return max(job_runs, int(ceil(total_quantity)))
 
 
 def is_base_item_material_efficiency_exempt(

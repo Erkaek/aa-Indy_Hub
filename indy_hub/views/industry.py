@@ -2275,6 +2275,7 @@ def craft_project(request, project_ref):
                 '<i class="fas fa-save me-1"></i>',
                 escape(str(_("Save table"))),
                 "</button>",
+                '<span id="simulationStatus" class="badge bg-secondary d-none page-header-status"></span>',
                 '<div class="dropdown d-inline-block project-status-dropdown"'
                 f' data-status-url="{escape(status_url)}"'
                 f' data-current-status="{escape(current_status)}">',
@@ -2463,6 +2464,7 @@ def craft_temp_project(request, temp_project_ref):
                 '<i class="fas fa-save me-1"></i>',
                 escape(str(_("Save table"))),
                 "</button>",
+                '<span id="simulationStatus" class="badge bg-secondary d-none page-header-status"></span>',
                 '<span class="badge bg-warning text-dark border">',
                 escape(str(_("Temporary"))),
                 "</span>",

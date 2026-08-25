@@ -1,7 +1,6 @@
 """Regression tests for published-only SDE resolution helpers."""
 
 # Standard Library
-from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
@@ -15,22 +14,23 @@ class EvePublishedDataTests(TestCase):
         eve._BP_PRODUCT_CACHE.clear()
         eve._REACTION_CACHE.clear()
 
+    @patch("indy_hub.utils.eve.connection.cursor")
     @patch("indy_hub.utils.eve._get_item_type_model")
     def test_batch_cache_type_names_filters_unpublished_types(
-        self, mock_get_item_type_model
+        self, mock_get_item_type_model, mock_cursor
     ) -> None:
-        item_type_model = MagicMock()
-        item_type_model.objects.filter.return_value.only.return_value = [
-            SimpleNamespace(id=34, name="Tritanium"),
-        ]
-        mock_get_item_type_model.return_value = item_type_model
+        mock_get_item_type_model.return_value = MagicMock()
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchall.return_value = [(34, "Tritanium")]
+        mock_cursor.return_value = cursor
 
         result = eve.batch_cache_type_names([34, 35])
 
-        item_type_model.objects.filter.assert_called_once_with(
-            id__in={34, 35},
-            published=True,
-        )
+        sql, params = cursor.execute.call_args[0]
+        self.assertIn("FROM eve_sde_itemtype", sql)
+        self.assertIn("COALESCE(published, 0) = 1", sql)
+        self.assertEqual(params, [34, 35])
         self.assertEqual(result, {34: "Tritanium", 35: "35"})
 
     @patch("indy_hub.utils.eve.connection.cursor")

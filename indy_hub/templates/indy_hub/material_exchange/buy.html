@@ -418,14 +418,14 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     function formatNumber(num) {
-        return new Intl.NumberFormat('en-US', {
+        return new Intl.NumberFormat(window.getIndyHubLocale(), {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }).format(num);
     }
 
     function formatWholeISK(num) {
-        return new Intl.NumberFormat('en-US', {
+        return new Intl.NumberFormat(window.getIndyHubLocale(), {
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
         }).format(num);
@@ -526,7 +526,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <span class="text-primary fw-semibold">${formatNumber(item.subtotal)} ISK</span>
                         </div>
                         <div class="d-flex justify-content-between small text-muted">
-                            <span>${item.qty.toLocaleString()} × ${formatNumber(item.unitPrice)} ISK</span>
+                            <span>${item.qty.toLocaleString(window.getIndyHubLocale())} × ${formatNumber(item.unitPrice)} ISK</span>
                         </div>
                     </div>
                 `;
@@ -654,7 +654,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (Number.isNaN(date.getTime())) {
             return;
         }
-        const formatted = new Intl.DateTimeFormat(undefined, {
+        const formatted = new Intl.DateTimeFormat(window.getIndyHubLocale(), {
             year: 'numeric',
             month: '2-digit',
             day: '2-digit',

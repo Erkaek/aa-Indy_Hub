@@ -882,7 +882,7 @@
                     group.label = family;
                     grouped[family]
                         .sort(function (left, right) {
-                            return String(left.name).localeCompare(String(right.name));
+                            return String(left.name).localeCompare(String(right.name), window.getIndyHubLocale());
                         })
                         .forEach(function (entry) {
                             const option = document.createElement('option');
@@ -896,14 +896,14 @@
 
                 Object.keys(grouped)
                     .sort(function (left, right) {
-                        return left.localeCompare(right);
+                        return left.localeCompare(right, window.getIndyHubLocale());
                     })
                     .forEach(function (family) {
                         const group = document.createElement('optgroup');
                         group.label = family;
                         grouped[family]
                             .sort(function (left, right) {
-                                return String(left.name).localeCompare(String(right.name));
+                                return String(left.name).localeCompare(String(right.name), window.getIndyHubLocale());
                             })
                             .forEach(function (entry) {
                                 const option = document.createElement('option');
@@ -1032,7 +1032,7 @@
             if ((left.supported_type_names || []).length !== (right.supported_type_names || []).length) {
                 return (left.supported_type_names || []).length - (right.supported_type_names || []).length;
             }
-            return String(left.label || '').localeCompare(String(right.label || ''));
+            return String(left.label || '').localeCompare(String(right.label || ''), window.getIndyHubLocale());
         }
 
         function splitRigAdvisorSupportedTypes(option, selectedCategories) {
@@ -1352,7 +1352,7 @@
                     if ((left.option.supported_type_names || []).length !== (right.option.supported_type_names || []).length) {
                         return (left.option.supported_type_names || []).length - (right.option.supported_type_names || []).length;
                     }
-                    return String(left.option.label).localeCompare(String(right.option.label));
+                    return String(left.option.label).localeCompare(String(right.option.label), window.getIndyHubLocale());
                 });
 
             if (!rankedOptions.length) {
@@ -1817,7 +1817,7 @@
             };
 
             const sortedRows = supportedTypeRows.slice().sort(function (left, right) {
-                return String(left.type_name).localeCompare(String(right.type_name));
+                return String(left.type_name).localeCompare(String(right.type_name), window.getIndyHubLocale());
             });
 
             const tableWrapper = document.createElement('div');

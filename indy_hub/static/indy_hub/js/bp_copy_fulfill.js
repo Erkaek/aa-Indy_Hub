@@ -136,7 +136,7 @@
         if (!isFinite(number)) {
             number = 0;
         }
-        return number.toLocaleString(undefined, {
+        return number.toLocaleString(window.getIndyHubLocale(), {
             minimumFractionDigits: fractionDigits,
             maximumFractionDigits: fractionDigits,
         });
@@ -1243,7 +1243,7 @@
         function formatIsk(value) {
             var n = Math.round(toNumber(value));
             try {
-                return n.toLocaleString(undefined, {
+                return n.toLocaleString(window.getIndyHubLocale(), {
                     minimumFractionDigits: 0,
                     maximumFractionDigits: 0
                 }) + " " + labels.isk;
@@ -1256,7 +1256,7 @@
             var d = (typeof digits === "number") ? digits : 2;
             var n = toNumber(value);
             try {
-                return n.toLocaleString(undefined, {
+                return n.toLocaleString(window.getIndyHubLocale(), {
                     minimumFractionDigits: d,
                     maximumFractionDigits: d
                 }) + " %";
@@ -1268,7 +1268,7 @@
         function formatInteger(value) {
             var n = Math.trunc(toNumber(value));
             try {
-                return n.toLocaleString();
+                return n.toLocaleString(window.getIndyHubLocale());
             } catch (err) {
                 return String(n);
             }

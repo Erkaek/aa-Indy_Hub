@@ -141,12 +141,12 @@
                                     <button
                                         type="button"
                                         class="me-help-icon"
-                                        aria-label="Help: Corporation"
+                                        aria-label="{% trans 'Help: Corporation' %}"
                                         data-bs-toggle="popover"
                                         data-bs-trigger="hover focus"
                                         data-bs-placement="right"
-                                        title="Corporation"
-                                        data-bs-content="Select the corporation that will run the hub.">
+                                        title="{% trans 'Corporation' %}"
+                                        data-bs-content="{% trans 'Select the corporation that will run the hub.' %}">
                                         <i class="fas fa-info-circle"></i>
                                     </button>
                                 </h5>
@@ -189,12 +189,12 @@
                                     <button
                                         type="button"
                                         class="me-help-icon"
-                                        aria-label="Help: Location Picker"
+                                        aria-label="{% trans 'Help: Location Picker' %}"
                                         data-bs-toggle="popover"
                                         data-bs-trigger="hover focus"
                                         data-bs-placement="right"
-                                        title="Location Picker"
-                                        data-bs-content="Pick a structure and hangar, then add it to the accepted locations list.">
+                                        title="{% trans 'Location Picker' %}"
+                                        data-bs-content="{% trans 'Pick a structure and hangar, then add it to the accepted locations list.' %}">
                                         <i class="fas fa-info-circle"></i>
                                     </button>
                                 </h5>
@@ -247,12 +247,12 @@
                                     <button
                                         type="button"
                                         class="me-help-icon"
-                                        aria-label="Help: Accepted Locations"
+                                        aria-label="{% trans 'Help: Accepted Locations' %}"
                                         data-bs-toggle="popover"
                                         data-bs-trigger="hover focus"
                                         data-bs-placement="right"
-                                        title="Accepted Locations"
-                                        data-bs-content="The first location is the primary hub. Additional locations are also accepted for stock and contract checks.">
+                                        title="{% trans 'Accepted Locations' %}"
+                                        data-bs-content="{% trans 'The first location is the primary hub. Additional locations are also accepted for stock and contract checks.' %}">
                                         <i class="fas fa-info-circle"></i>
                                     </button>
                                 </h5>
@@ -308,12 +308,12 @@
                                     <button
                                         type="button"
                                         class="me-help-icon"
-                                        aria-label="Help: Pricing"
+                                        aria-label="{% trans 'Help: Pricing' %}"
                                         data-bs-toggle="popover"
                                         data-bs-trigger="hover focus"
                                         data-bs-placement="right"
-                                        title="Pricing"
-                                        data-bs-content="Set how much members pay (BUY) and receive (SELL) compared to Jita prices.">
+                                        title="{% trans 'Pricing' %}"
+                                        data-bs-content="{% trans 'Set how much members pay (BUY) and receive (SELL) compared to Jita prices.' %}">
                                         <i class="fas fa-info-circle"></i>
                                     </button>
                                 </h5>
@@ -327,15 +327,15 @@
                                         id="enforceJitaPriceBounds"
                                         {% if config and config.enforce_jita_price_bounds %}checked{% endif %}>
                                     <label class="form-check-label fw-semibold" for="enforceJitaPriceBounds">
-                                        Enable Jita price bounds
+                                        {% trans "Enable Jita price bounds" %}
                                     </label>
                                 </div>
                                 <details class="me-details small text-muted">
-                                    <summary class="me-details-summary">What does it do?<span class="me-details-chevron"><i class="fas fa-chevron-down"></i></span></summary>
+                                    <summary class="me-details-summary">{% trans "What does it do?" %}<span class="me-details-chevron"><i class="fas fa-chevron-down"></i></span></summary>
                                     <div class="mt-1">
                                         <ul class="mb-0 ps-3">
-                                            <li>Jita Sell + negative % will never go below Jita Buy (floor)</li>
-                                            <li>Jita Buy + positive % will never go above Jita Sell (cap)</li>
+                                            <li>{% trans "Jita Sell + negative % will never go below Jita Buy (floor)" %}</li>
+                                            <li>{% trans "Jita Buy + positive % will never go above Jita Sell (cap)" %}</li>
                                         </ul>
                                     </div>
                                 </details>
@@ -446,12 +446,12 @@
                                         <button
                                             type="button"
                                             class="me-help-icon"
-                                            aria-label="Help: Market Groups"
+                                            aria-label="{% trans 'Help: Market Groups' %}"
                                             data-bs-toggle="popover"
                                             data-bs-trigger="hover focus"
                                             data-bs-placement="right"
-                                            title="Market Groups"
-                                            data-bs-content="Select which categories your hub will BUY from members and SELL to members.">
+                                            title="{% trans 'Market Groups' %}"
+                                            data-bs-content="{% trans 'Select which categories your hub will BUY from members and SELL to members.' %}">
                                             <i class="fas fa-info-circle"></i>
                                         </button>
                                     </h5>

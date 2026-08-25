@@ -107,7 +107,7 @@
         if (!Number.isFinite(numericValue)) {
             return '0';
         }
-        return Math.max(0, Math.round(numericValue)).toLocaleString();
+        return Math.max(0, Math.round(numericValue)).toLocaleString(window.getIndyHubLocale());
     }
 
     function buildItemRow(item, index) {

@@ -294,7 +294,7 @@ function sortBlueprints(sortBy) {
         if (sortBy === 'name') {
             const nameA = a.querySelector('.bp-request-card__title').textContent.trim().toLowerCase();
             const nameB = b.querySelector('.bp-request-card__title').textContent.trim().toLowerCase();
-            return nameA.localeCompare(nameB);
+            return nameA.localeCompare(nameB, window.getIndyHubLocale());
         } else if (sortBy === 'me') {
             const meA = parseInt(a.querySelector('.spec-badge:first-child').textContent.match(/\d+/)[0]);
             const meB = parseInt(b.querySelector('.spec-badge:first-child').textContent.match(/\d+/)[0]);
@@ -336,7 +336,7 @@ function parseNumber(value) {
 
 function formatIsk(value) {
     const amount = Math.max(0, Math.ceil(parseNumber(value)));
-    return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(amount)} ISK`;
+    return `${new Intl.NumberFormat(window.getIndyHubLocale(), { maximumFractionDigits: 0 }).format(amount)} ISK`;
 }
 
 function calculateCopyRequestPriceEstimate(modal, copies, runs) {

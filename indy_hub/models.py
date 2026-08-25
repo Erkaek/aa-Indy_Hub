@@ -3143,6 +3143,12 @@ class IndustrySystemCostIndex(models.Model, IndustryActivityMixin):
 
 
 class IndustryStructure(models.Model):
+    # Bump whenever `resolve_structure_bonuses`/rig type-family mappings change so
+    # previously cached `resolved_bonuses_cache` rows are invalidated automatically
+    # instead of silently serving stale supported-type lists (e.g. the
+    # Molecular-Forged Materials / hybrid_reactions family fix).
+    RESOLVED_BONUSES_CACHE_VERSION = 2
+
     class SecurityBand(models.TextChoices):
         HIGHSEC = "highsec", _("Highsec")
         LOWSEC = "lowsec", _("Lowsec")
@@ -3603,6 +3609,7 @@ class IndustryStructure(models.Model):
         )
         signature = "|".join(
             [
+                f"v{self.RESOLVED_BONUSES_CACHE_VERSION}",
                 str(int(self.structure_type_id or 0)),
                 str(self.system_security_band or ""),
                 ",".join(

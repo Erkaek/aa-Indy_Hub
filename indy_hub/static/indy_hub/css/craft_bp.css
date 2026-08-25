@@ -284,6 +284,91 @@ html[data-theme="darkly"] .craft-hero .header-bg {
     padding: 0.35rem 0.75rem;
 }
 
+.page-header .page-header-status {
+    position: absolute;
+    left: 50%;
+    bottom: 1rem;
+    transform: translateX(-50%);
+    z-index: 2;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 0.5rem 1.15rem;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+@keyframes pageHeaderStatusFlash {
+    0%, 100% {
+        opacity: 1;
+        transform: translateX(-50%) scale(1);
+    }
+    50% {
+        opacity: 0.4;
+        transform: translateX(-50%) scale(1.12);
+    }
+}
+
+.page-header .page-header-status.page-header-status--flash {
+    animation: pageHeaderStatusFlash 0.35s ease-in-out 2;
+}
+
+.craft-pending-refresh-banner {
+    position: fixed;
+    top: calc(var(--indy-hub-header-height, 58px) + 0.6rem);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1020;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--bs-danger, #dc3545);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.02em;
+    padding: 0.55rem 1.25rem;
+    border-radius: 999px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    max-width: calc(100vw - 2rem);
+}
+
+.craft-pending-refresh-banner.d-none {
+    display: none;
+}
+
+.craft-pending-refresh-banner.craft-pending-refresh-banner--flash {
+    animation: pageHeaderStatusFlash 0.35s ease-in-out 2;
+}
+
+@media (max-width: 575.98px) {
+    .craft-pending-refresh-banner {
+        font-size: 0.8rem;
+        padding: 0.45rem 0.9rem;
+        text-align: center;
+    }
+}
+
+@media (max-width: 767.98px) {
+    .page-header .page-header-status {
+        left: 1rem;
+        bottom: 0.75rem;
+        transform: none;
+    }
+
+    @keyframes pageHeaderStatusFlash {
+        0%, 100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+        50% {
+            opacity: 0.4;
+            transform: scale(1.12);
+        }
+    }
+}
+
 .craft-bp-workspace {
     transition: opacity 0.18s ease, visibility 0.18s ease;
 }
@@ -783,6 +868,10 @@ html[data-theme="darkly"] #financial-tab.blueprint-tab.active .tab-icon {
     width: min(100%, 280px);
     min-width: 0;
     max-width: 100%;
+}
+
+.structure-assign-recommended-btn {
+    flex: 0 0 auto;
 }
 
 .craft-structure-metric {

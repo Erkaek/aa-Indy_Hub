@@ -1,0 +1,2177 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: Indy Hub\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-25 00:11+0200\n"
+"PO-Revision-Date: 2026-08-25 00:00+0200\n"
+"Last-Translator: Indy Hub contributors\n"
+"Language-Team: French\n"
+"Language: fr_FR\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: models.py:1993 templates/indy_hub/index.html:77
+#: templates/indy_hub/industry/Craft_BP_v2.html:129
+#: templates/indy_hub/industry/Craft_BP_v2.html:853
+#: templates/indy_hub/industry/Craft_BP_v2.html:858
+#: templates/indy_hub/material_exchange/index.html:103
+#: templates/indy_hub/material_exchange/index.html:199
+#: templates/indy_hub/material_exchange/index.html:273
+#: templates/indy_hub/material_exchange/my_orders.html:89
+msgid "Buy"
+msgstr "Acheter"
+
+#: models.py:2095 templates/indy_hub/material_exchange/buy.html:31
+#: templates/indy_hub/material_exchange/config.html:371
+#: templates/indy_hub/material_exchange/config.html:415
+#: templates/indy_hub/material_exchange/sell.html:31
+msgid "Jita Buy Price"
+msgstr "Prix d'achat à Jita"
+
+#: models.py:2096 templates/indy_hub/material_exchange/buy.html:29
+#: templates/indy_hub/material_exchange/config.html:374
+#: templates/indy_hub/material_exchange/config.html:418
+#: templates/indy_hub/material_exchange/sell.html:29
+msgid "Jita Sell Price"
+msgstr "Prix de vente à Jita"
+
+#: models.py:2183 templates/indy_hub/material_exchange/config.html:5
+msgid "Material Exchange Configuration"
+msgstr "Configuration de l'échange de matériaux"
+
+#: services/industry_chat_helpers.py:41 services/industry_chat_helpers.py:121
+#: services/industry_offer_actions.py:69
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:174
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:653
+#: templates/indy_hub/material_exchange/buy_order_detail.html:57
+#: templates/indy_hub/material_exchange/history.html:89
+#: templates/indy_hub/material_exchange/transactions.html:179
+#: views/user.py:1898
+msgid "Buyer"
+msgstr "Acheteur"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:34
+#: templates/indy_hub/blueprint_sharing/bp_copy_my_requests.html:29
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:28
+#: templates/indy_hub/blueprints/All_BP_list.html:27
+#: templates/indy_hub/blueprints/Personnal_BP_list.html:33
+#: templates/indy_hub/esi/token_management.html:17
+#: templates/indy_hub/industry/Personnal_Job_list.html:34
+#: templates/indy_hub/material_exchange/index.html:32
+#: templates/indy_hub/material_exchange/not_configured.html:24
+#: templates/indy_hub/settings/hub.html:26
+msgid "Back to Overview"
+msgstr "Retour à la vue d'ensemble"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:507
+#: templates/indy_hub/industry/Craft_BP_v2.html:1046
+#: templates/indy_hub/material_exchange/config.html:480
+#: templates/indy_hub/material_exchange/config.html:513
+msgid "Available"
+msgstr "Disponible"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:570
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:627
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:638
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:236
+#: templates/indy_hub/includes/bp_chat_modal.html:10
+#: templates/indy_hub/industry/Craft_BP_v2.html:1209
+#: templates/indy_hub/industry/Craft_BP_v2.html:1237
+#: templates/indy_hub/industry/Craft_BP_v2.html:1254
+#: templates/indy_hub/industry/Craft_BP_v2.html:1306
+#: templates/indy_hub/industry/production_simulations_list.html:230
+#: templates/indy_hub/industry/production_simulations_list.html:294
+#: templates/indy_hub/industry/production_simulations_list.html:314
+#: templates/indy_hub/industry/structure_add.html:327
+#: templates/indy_hub/industry/structure_add.html:342
+#: templates/indy_hub/industry/structure_registry.html:301
+#: templates/indy_hub/industry/structure_registry.html:451
+#: templates/indy_hub/industry/structure_registry.html:574
+#: templates/indy_hub/industry/structure_registry.html:624
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:226
+#: templates/indy_hub/material_exchange/sell_order_detail.html:324
+#: templates/indy_hub/settings/admin_users.html:317
+#: templates/indy_hub/settings/hub.html:483
+msgid "Close"
+msgstr "Fermer"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:580
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:749
+#: templates/indy_hub/esi/token_management.html:124
+#: templates/indy_hub/index.html:170
+#: templates/indy_hub/material_exchange/config.html:118
+#: templates/indy_hub/material_exchange/config.html:140
+#: templates/indy_hub/material_exchange/config.html:148
+#: templates/indy_hub/material_exchange/config.html:154
+#: templates/indy_hub/material_exchange/sell_order_detail.html:57
+#: templates/indy_hub/settings/admin_users.html:57
+#: templates/indy_hub/settings/admin_users.html:123
+#: templates/indy_hub/settings/admin_users.html:179
+#: templates/indy_hub/settings/hub.html:174
+#: templates/indy_hub/settings/hub.html:218
+#: templates/indy_hub/settings/hub.html:289 views/industry.py:1345
+#: views/industry.py:1993 views/user.py:1262 views/user.py:1273
+msgid "Corporation"
+msgstr "Corporation"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_fulfill_requests.html:590
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:269
+#: templates/indy_hub/industry/Craft_BP_v2.html:1224
+#: templates/indy_hub/industry/confirm_delete_production_project.html:45
+#: templates/indy_hub/industry/confirm_delete_simulation.html:42
+#: templates/indy_hub/industry/confirm_delete_structure.html:34
+#: templates/indy_hub/industry/edit_simulation_name.html:54
+#: templates/indy_hub/industry/production_simulations_list.html:106
+#: templates/indy_hub/industry/rename_simulation.html:44
+#: templates/indy_hub/industry/structure_duplicate.html:94
+#: templates/indy_hub/material_exchange/config.html:628
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:45
+#: templates/indy_hub/partials/project_name_edit.html:21
+#: templates/indy_hub/settings/hub.html:490
+msgid "Cancel"
+msgstr "Annuler"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:494
+#: templates/indy_hub/industry/Craft_BP_v2.html:632
+#: templates/indy_hub/industry/Craft_BP_v2.html:684
+#: templates/indy_hub/industry/Craft_BP_v2.html:690
+#: templates/indy_hub/material_exchange/buy.html:220
+#: templates/indy_hub/material_exchange/buy_order_detail.html:68
+#: templates/indy_hub/material_exchange/buy_order_detail.html:225
+#: templates/indy_hub/material_exchange/history.html:51
+#: templates/indy_hub/material_exchange/history.html:90
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:385
+#: templates/indy_hub/material_exchange/sell_order_detail.html:68
+#: templates/indy_hub/material_exchange/sell_order_detail.html:209
+msgid "Total"
+msgstr "Total"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:563
+#: templates/indy_hub/blueprint_sharing/bp_copy_my_requests.html:430
+#: templates/indy_hub/esi/token_management.html:48
+#: templates/indy_hub/esi/token_management.html:125
+#: templates/indy_hub/industry/Personnal_Job_list.html:210
+#: templates/indy_hub/industry/production_simulations_list.html:126
+#: templates/indy_hub/industry/production_simulations_list.html:161
+#: templates/indy_hub/industry/production_simulations_list.html:198
+#: templates/indy_hub/industry/structure_registry.html:182
+#: templates/indy_hub/material_exchange/history.html:52
+#: templates/indy_hub/material_exchange/history.html:91
+msgid "Status"
+msgstr "Statut"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:586
+#: templates/indy_hub/industry/Craft_BP_v2.html:99
+#: templates/indy_hub/industry/structure_registry.html:33
+#: templates/indy_hub/material_exchange/stats_history.html:83
+#: templates/indy_hub/material_exchange/transactions.html:108
+#: templates/indy_hub/settings/admin_users.html:63
+msgid "Apply"
+msgstr "Appliquer"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:590
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:98
+#: templates/indy_hub/industry/Craft_BP_v2.html:971
+#: templates/indy_hub/industry/structure_registry.html:37
+#: templates/indy_hub/material_exchange/stats_history.html:85
+#: templates/indy_hub/material_exchange/transactions.html:111
+#: templates/indy_hub/settings/admin_users.html:77
+msgid "Reset"
+msgstr "Réinitialiser"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:781
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:783
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:188
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:190
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:447
+#: templates/indy_hub/material_exchange/my_orders.html:176
+#: templates/indy_hub/material_exchange/transactions.html:229
+#: templates/indy_hub/settings/partials/admin_user_usage_modal_body.html:18
+msgid "First"
+msgstr "Première"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:787
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:789
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:194
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:196
+#: templates/indy_hub/blueprints/All_BP_list.html:117
+#: templates/indy_hub/blueprints/Personnal_BP_list.html:256
+#: templates/indy_hub/industry/Personnal_Job_list.html:444
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:450
+#: templates/indy_hub/material_exchange/my_orders.html:179
+#: templates/indy_hub/material_exchange/transactions.html:232
+msgid "Previous"
+msgstr "Précédente"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:803
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:805
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:210
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:212
+#: templates/indy_hub/blueprints/All_BP_list.html:142
+#: templates/indy_hub/blueprints/Personnal_BP_list.html:281
+#: templates/indy_hub/industry/Personnal_Job_list.html:463
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:458
+#: templates/indy_hub/material_exchange/my_orders.html:191
+#: templates/indy_hub/material_exchange/transactions.html:244
+msgid "Next"
+msgstr "Suivante"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:809
+#: templates/indy_hub/blueprint_sharing/bp_copy_history.html:811
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:216
+#: templates/indy_hub/blueprint_sharing/bp_copy_request_page.html:218
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:461
+#: templates/indy_hub/material_exchange/my_orders.html:194
+#: templates/indy_hub/material_exchange/transactions.html:247
+#: templates/indy_hub/settings/admin_users.html:257
+#: templates/indy_hub/settings/admin_users.html:260
+msgid "Last"
+msgstr "Dernière"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_my_requests.html:75
+#: templates/indy_hub/index.html:212
+#: templates/indy_hub/material_exchange/config.html:89
+msgid "Active"
+msgstr "Actif"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_my_requests.html:107
+#: templates/indy_hub/material_exchange/my_orders.html:78
+msgid "Action"
+msgstr "Action"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_my_requests.html:594
+#: templates/indy_hub/industry/Craft_BP_v2.html:427
+#: templates/indy_hub/industry/Craft_BP_v2.html:432
+#: templates/indy_hub/material_exchange/transactions.html:123
+#: templates/indy_hub/material_exchange/transactions.html:134
+msgid "Reference"
+msgstr "Référence"
+
+#: templates/indy_hub/blueprint_sharing/bp_copy_my_requests.html:601
+#: templates/indy_hub/blueprints/Personnal_BP_list.html:78
+#: templates/indy_hub/industry/Craft_BP_v2.html:567
+#: templates/indy_hub/industry/Craft_BP_v2.html:571
+#: templates/indy_hub/industry/confirm_delete_structure.html:25
+#: templates/indy_hub/industry/structure_duplicate.html:35
+#: templates/indy_hub/industry/structure_registry.html:309
+#: templates/indy_hub/material_exchange/my_orders.html:74
+#: templates/indy_hub/material_exchange/transactions.html:88
+msgid "Type"
+msgstr "Type"
+
+#: templates/indy_hub/blueprints/All_BP_list.html:44
+#: templates/indy_hub/blueprints/Personnal_BP_list.html:59
+#: templates/indy_hub/industry/Personnal_Job_list.html:219
+#: templates/indy_hub/industry/structure_registry.html:117
+#: templates/indy_hub/industry/structure_registry.html:340
+#: templates/indy_hub/material_exchange/stats_history.html:135
+#: templates/indy_hub/material_exchange/stats_history.html:149
+#: templates/indy_hub/settings/admin_users.html:87 views/industry.py:5905
+msgid "Activity"
+msgstr "Activité"
+
+#: templates/indy_hub/blueprints/Personnal_BP_list.html:184
+#: templates/indy_hub/material_exchange/buy_order_detail.html:49
+#: templates/indy_hub/material_exchange/buy_order_detail.html:59
+#: templates/indy_hub/material_exchange/buy_order_detail.html:72
+#: templates/indy_hub/material_exchange/buy_order_detail.html:158
+#: templates/indy_hub/material_exchange/buy_order_detail.html:169
+#: templates/indy_hub/material_exchange/buy_order_detail.html:176
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:393
+#: templates/indy_hub/material_exchange/sell_order_detail.html:49
+#: templates/indy_hub/material_exchange/sell_order_detail.html:59
+#: templates/indy_hub/material_exchange/sell_order_detail.html:72
+#: templates/indy_hub/material_exchange/sell_order_detail.html:157
+#: templates/indy_hub/material_exchange/sell_order_detail.html:168
+#: templates/indy_hub/material_exchange/sell_order_detail.html:175
+msgid "Copy"
+msgstr "Copier"
+
+#: templates/indy_hub/esi/token_management.html:195
+#: templates/indy_hub/industry/production_simulations.html:167
+#: templates/indy_hub/material_exchange/buy.html:81
+#: templates/indy_hub/material_exchange/config.html:49
+#: templates/indy_hub/material_exchange/config.html:58
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:35
+msgid "Never"
+msgstr "Jamais"
+
+#: templates/indy_hub/index.html:74
+#: templates/indy_hub/material_exchange/index.html:103
+#: templates/indy_hub/material_exchange/index.html:199
+#: templates/indy_hub/material_exchange/index.html:273
+#: templates/indy_hub/material_exchange/my_orders.html:87
+msgid "Sell"
+msgstr "Vendre"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html:135
+#: templates/indy_hub/material_exchange/buy.html:191
+msgid "Stock"
+msgstr "Stock"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html:159
+#: templates/indy_hub/industry/Craft_BP_v2.html:1287
+#: templates/indy_hub/industry/structure_add.html:348
+#: templates/indy_hub/industry/structure_duplicate.html:34
+#: templates/indy_hub/industry/structure_registry.html:180
+#: templates/indy_hub/material_exchange/config.html:202
+msgid "Structure"
+msgstr "Structure"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html:427
+#: templates/indy_hub/industry/Craft_BP_v2.html:430
+#: templates/indy_hub/industry/Craft_BP_v2.html:684
+#: templates/indy_hub/industry/Craft_BP_v2.html:687
+#: templates/indy_hub/industry/Craft_BP_v2.html:775
+#: templates/indy_hub/industry/Craft_BP_v2.html:778
+#: templates/indy_hub/industry/Craft_BP_v2.html:853
+#: templates/indy_hub/industry/Craft_BP_v2.html:856
+#: templates/indy_hub/industry/Craft_BP_v2.html:937
+#: templates/indy_hub/industry/Craft_BP_v2.html:940
+#: templates/indy_hub/industry/Craft_BP_v2.html:1286
+#: templates/indy_hub/material_exchange/buy.html:151
+#: templates/indy_hub/material_exchange/buy.html:190
+#: templates/indy_hub/material_exchange/buy_order_detail.html:222
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:311
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:350
+#: templates/indy_hub/material_exchange/sell_order_detail.html:206
+#: views/material_exchange_orders.py:589
+msgid "Item"
+msgstr "Objet"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html:567
+#: templates/indy_hub/industry/Craft_BP_v2.html:573
+#: templates/indy_hub/industry/Craft_BP_v2.html:684
+#: templates/indy_hub/industry/Craft_BP_v2.html:689
+#: templates/indy_hub/material_exchange/buy.html:192
+#: templates/indy_hub/material_exchange/buy_order_detail.html:224
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:352
+#: templates/indy_hub/material_exchange/sell_order_detail.html:208
+msgid "Unit Price"
+msgstr "Prix unitaire"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html:668
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:330
+msgid "Copied"
+msgstr "Copié"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html:853
+#: templates/indy_hub/industry/Craft_BP_v2.html:863
+#: templates/indy_hub/material_exchange/config.html:498
+#: templates/indy_hub/material_exchange/config.html:531
+msgid "Selected"
+msgstr "Sélectionné"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html:965
+#: templates/indy_hub/material_exchange/buy.html:243
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:408
+msgid "Max"
+msgstr "Max."
+
+#: templates/indy_hub/industry/Craft_BP_v2.html:1324
+#: templates/indy_hub/material_exchange/buy.html:193
+#: templates/indy_hub/material_exchange/buy_order_detail.html:223
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:353
+#: templates/indy_hub/material_exchange/sell_order_detail.html:207
+#: templates/indy_hub/material_exchange/transactions.html:208
+msgid "Quantity"
+msgstr "Quantité"
+
+#: templates/indy_hub/industry/Personnal_Job_list.html:56
+#: templates/indy_hub/material_exchange/index.html:143
+#: templates/indy_hub/material_exchange/index.html:147
+#: templates/indy_hub/material_exchange/index.html:240
+#: templates/indy_hub/material_exchange/index.html:314
+msgid "Details"
+msgstr "Détails"
+
+#: templates/indy_hub/industry/_project_card.html:50
+#: templates/indy_hub/industry/production_simulations_list.html:67
+#: templates/indy_hub/material_exchange/transactions.html:188
+msgid "units"
+msgstr "unités"
+
+#: templates/indy_hub/industry/confirm_delete_production_project.html:32
+#: templates/indy_hub/industry/confirm_delete_simulation.html:29
+#: templates/indy_hub/material_exchange/buy_order_detail.html:129
+#: templates/indy_hub/material_exchange/sell_order_detail.html:129
+msgid "Created:"
+msgstr "Créée le :"
+
+#: templates/indy_hub/industry/production_simulations.html:247
+#: templates/indy_hub/industry/production_simulations_list.html:33
+#: templates/indy_hub/industry/production_simulations_list.html:34
+#: templates/indy_hub/industry/structure_registry.html:270
+#: templates/indy_hub/material_exchange/buy_order_detail.html:100
+#: templates/indy_hub/material_exchange/sell_order_detail.html:100
+msgid "Delete"
+msgstr "Supprimer"
+
+#: templates/indy_hub/industry/production_simulations_list.html:40
+#: templates/indy_hub/material_exchange/buy.html:45
+#: templates/indy_hub/material_exchange/config.html:27
+#: templates/indy_hub/material_exchange/my_orders.html:35
+#: templates/indy_hub/material_exchange/sell.html:45
+#: templates/indy_hub/material_exchange/transactions.html:33
+msgid "Back to Hub"
+msgstr "Retour au Hub"
+
+#: templates/indy_hub/industry/production_simulations_list.html:254
+#: templates/indy_hub/material_exchange/my_orders.html:75
+#: templates/indy_hub/material_exchange/sell_order_detail.html:198
+msgid "Items"
+msgstr "Objets"
+
+#: templates/indy_hub/industry/structure_add.html:155
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:236
+msgid "Clear"
+msgstr "Effacer"
+
+#: templates/indy_hub/industry/structure_registry.html:266
+#: templates/indy_hub/material_exchange/my_orders.html:123
+#: templates/indy_hub/material_exchange/my_orders.html:145
+msgid "View"
+msgstr "Voir"
+
+#: templates/indy_hub/material_exchange/buy.html:7
+#: templates/indy_hub/material_exchange/buy.html:22
+msgid "Buy Materials from Hub"
+msgstr "Acheter des matériaux au Hub"
+
+#: templates/indy_hub/material_exchange/buy.html:24
+msgid "Purchase materials from Hub stock"
+msgstr "Achetez des matériaux dans le stock du Hub"
+
+#: templates/indy_hub/material_exchange/buy.html:27
+#: templates/indy_hub/material_exchange/sell.html:27
+msgid "Pricing Formula"
+msgstr "Formule de tarification"
+
+#: templates/indy_hub/material_exchange/buy.html:38
+#: templates/indy_hub/material_exchange/sell.html:38
+msgid "no markup"
+msgstr "aucun ajustement"
+
+#: templates/indy_hub/material_exchange/buy.html:63
+msgid "Refreshing via ESI (assets + prices)."
+msgstr "Actualisation via ESI (ressources + prix)."
+
+#: templates/indy_hub/material_exchange/buy.html:72
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:26
+msgid "Last update"
+msgstr "Dernière mise à jour"
+
+#: templates/indy_hub/material_exchange/buy.html:77
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:31
+msgid "Local"
+msgstr "Local"
+
+#: templates/indy_hub/material_exchange/buy.html:86
+msgid "Auto-refresh will run on the next page open."
+msgstr ""
+"L'actualisation automatique s'exécutera à la prochaine ouverture de la page."
+
+#: templates/indy_hub/material_exchange/buy.html:88
+#, python-format
+msgid "Auto-refresh runs on page open in about %(minutes)s minute(s)."
+msgstr ""
+"L'actualisation automatique s'exécute à l'ouverture de la page dans environ "
+"%(minutes)s minute(s)."
+
+#: templates/indy_hub/material_exchange/buy.html:90
+msgid "Auto-refresh runs on page open once data is older than 60 minutes."
+msgstr ""
+"L'actualisation automatique s'exécute à l'ouverture lorsque les données ont "
+"plus de 60 minutes."
+
+#: templates/indy_hub/material_exchange/buy.html:99
+msgid "Select the quantities you want to purchase."
+msgstr "Sélectionnez les quantités que vous souhaitez acheter."
+
+#: templates/indy_hub/material_exchange/buy.html:100
+msgid "Totals update automatically based on your selections."
+msgstr "Les totaux sont mis à jour automatiquement selon vos sélections."
+
+#: templates/indy_hub/material_exchange/buy.html:108
+msgid "ESI is temporarily unavailable. Using cached stock."
+msgstr "ESI est temporairement indisponible. Le stock en cache est utilisé."
+
+#: templates/indy_hub/material_exchange/buy.html:111
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:111
+#, python-format
+msgid "Retry in about %(minutes)s minute(s)."
+msgstr "Réessayez dans environ %(minutes)s minute(s)."
+
+#: templates/indy_hub/material_exchange/buy.html:124
+msgid ""
+"Missing corporation assets token: the hub cannot load stock. A director must "
+"authorize the required ESI scope for the corporation."
+msgstr ""
+"Jeton de ressources de corporation manquant : le Hub ne peut pas charger le "
+"stock. Un directeur doit autoriser le scope ESI requis pour la corporation."
+
+#: templates/indy_hub/material_exchange/buy.html:127
+msgid "Open ESI"
+msgstr "Ouvrir ESI"
+
+#: templates/indy_hub/material_exchange/buy.html:128
+msgid "Manage tokens"
+msgstr "Gérer les jetons"
+
+#: templates/indy_hub/material_exchange/buy.html:141
+msgid "Available Stock in"
+msgstr "Stock disponible dans"
+
+#: templates/indy_hub/material_exchange/buy.html:148
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:308
+msgid "Search mode"
+msgstr "Mode de recherche"
+
+#: templates/indy_hub/material_exchange/buy.html:155
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:315
+msgid "Category"
+msgstr "Catégorie"
+
+#: templates/indy_hub/material_exchange/buy.html:164
+#: templates/indy_hub/material_exchange/buy.html:165
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:324
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:325
+msgid "Search by item or category"
+msgstr "Rechercher par objet ou catégorie"
+
+#: templates/indy_hub/material_exchange/buy.html:174
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:334
+msgid "Clear visible"
+msgstr "Effacer les valeurs visibles"
+
+#: templates/indy_hub/material_exchange/buy.html:181
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:341
+msgid "Max visible"
+msgstr "Maximum visible"
+
+#: templates/indy_hub/material_exchange/buy.html:212
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:377
+#: views/industry.py:1850
+msgid "Other"
+msgstr "Autre"
+
+#: templates/indy_hub/material_exchange/buy.html:218
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:383
+msgid "Reserved"
+msgstr "Réservé"
+
+#: templates/indy_hub/material_exchange/buy.html:239
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:404
+msgid "Quantity shortcuts"
+msgstr "Raccourcis de quantité"
+
+#: templates/indy_hub/material_exchange/buy.html:240
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:405
+msgid "Zero"
+msgstr "Zéro"
+
+#: templates/indy_hub/material_exchange/buy.html:247
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:412
+msgid "Max:"
+msgstr "Max. :"
+
+#: templates/indy_hub/material_exchange/buy.html:258
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:469
+msgid "No matching items for your search."
+msgstr "Aucun objet ne correspond à votre recherche."
+
+#: templates/indy_hub/material_exchange/buy.html:268
+msgid "Order Summary"
+msgstr "Récapitulatif de la commande"
+
+#: templates/indy_hub/material_exchange/buy.html:273
+msgid "Select items to see your order summary"
+msgstr ""
+"Sélectionnez des objets pour afficher le récapitulatif de votre commande"
+
+#: templates/indy_hub/material_exchange/buy.html:280
+msgid "Total Amount"
+msgstr "Montant total"
+
+#: templates/indy_hub/material_exchange/buy.html:284
+msgid "Confirm Purchase"
+msgstr "Confirmer l'achat"
+
+#: templates/indy_hub/material_exchange/buy.html:296
+msgid "No materials currently available in stock. Please check back later."
+msgstr ""
+"Aucun matériau n'est actuellement disponible en stock. Veuillez réessayer "
+"plus tard."
+
+#: templates/indy_hub/material_exchange/buy.html:317
+#: templates/indy_hub/material_exchange/sell.html:185
+msgid "Search item"
+msgstr "Rechercher un objet"
+
+#: templates/indy_hub/material_exchange/buy.html:318
+#: templates/indy_hub/material_exchange/sell.html:186
+msgid "Search category"
+msgstr "Rechercher une catégorie"
+
+#: templates/indy_hub/material_exchange/buy.html:589
+msgid "Some quantities exceeded available stock and have been adjusted."
+msgstr ""
+"Certaines quantités dépassaient le stock disponible et ont été ajustées."
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:6
+#: templates/indy_hub/material_exchange/buy_order_detail.html:22
+msgid "Buy Order Details"
+msgstr "Détails de la commande d'achat"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:24
+#: templates/indy_hub/material_exchange/sell_order_detail.html:24
+msgid "Order"
+msgstr "Commande"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:30
+#: templates/indy_hub/material_exchange/my_orders.html:6
+#: templates/indy_hub/material_exchange/my_orders.html:21
+#: templates/indy_hub/material_exchange/sell_order_detail.html:30
+msgid "My Orders"
+msgstr "Mes commandes"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:46
+#: templates/indy_hub/material_exchange/sell_order_detail.html:46
+msgid "Order Reference"
+msgstr "Référence de la commande"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:84
+#: templates/indy_hub/material_exchange/sell_order_detail.html:84
+msgid ""
+"Paste the in-game Copy All result to compare the contract with this order"
+msgstr ""
+"Collez le résultat de « Copy All » en jeu pour comparer le contrat à cette "
+"commande"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:85
+#: templates/indy_hub/material_exchange/sell_order_detail.html:85
+msgid "Paste and check contract"
+msgstr "Coller et vérifier le contrat"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:93
+#: views/material_exchange_orders.py:226
+msgid "I will pay"
+msgstr "Je paierai"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:95
+#: templates/indy_hub/material_exchange/sell_order_detail.html:95
+msgid "Paste & Check"
+msgstr "Coller et vérifier"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:114
+#: templates/indy_hub/material_exchange/sell_order_detail.html:114
+msgid "Order Status"
+msgstr "Statut de la commande"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:141
+#: templates/indy_hub/material_exchange/sell_order_detail.html:141
+msgid "How This Works"
+msgstr "Fonctionnement"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:149
+msgid ""
+"You create an Item Exchange contract to the buyer with the details below. "
+"The system auto-validates the contract once it matches."
+msgstr ""
+"Vous créez pour l'acheteur un contrat d'échange d'objets avec les "
+"informations ci-dessous. Le système valide automatiquement le contrat dès "
+"qu'il correspond."
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:153
+#: templates/indy_hub/material_exchange/sell_order_detail.html:152
+msgid "Type:"
+msgstr "Type :"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:153
+#: templates/indy_hub/material_exchange/sell_order_detail.html:152
+msgid "Item Exchange"
+msgstr "Échange d'objets"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:156
+#: templates/indy_hub/material_exchange/sell_order_detail.html:155
+msgid "Assign to:"
+msgstr "Attribuer à :"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:163
+#: templates/indy_hub/material_exchange/sell_order_detail.html:162
+msgid "Location:"
+msgstr "Emplacement :"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:167
+#: templates/indy_hub/material_exchange/sell_order_detail.html:166
+msgid "Price:"
+msgstr "Prix :"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:174
+#: templates/indy_hub/material_exchange/sell_order_detail.html:173
+msgid "Title/Description:"
+msgstr "Titre/Description :"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:179
+#: templates/indy_hub/material_exchange/sell_order_detail.html:178
+msgid "REQUIRED!"
+msgstr "OBLIGATOIRE !"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:182
+#: templates/indy_hub/material_exchange/sell_order_detail.html:181
+msgid "Duration:"
+msgstr "Durée :"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:182
+#: templates/indy_hub/material_exchange/sell_order_detail.html:181
+msgid "4 weeks"
+msgstr "4 semaines"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:187
+#: templates/indy_hub/material_exchange/sell_order_detail.html:186
+msgid "Important:"
+msgstr "Important :"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:188
+#: templates/indy_hub/material_exchange/sell_order_detail.html:187
+msgid ""
+"Include the exact order reference in the contract title. Once the contract "
+"matches these details, validation happens automatically within a few minutes."
+msgstr ""
+"Indiquez la référence exacte de la commande dans le titre du contrat. Dès "
+"que le contrat correspond à ces informations, il est automatiquement validé "
+"en quelques minutes."
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:195
+msgid "The corporation"
+msgstr "La corporation"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:195
+msgid "will create an"
+msgstr "créera un contrat de type"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:195
+msgid "Item Exchange contract"
+msgstr "Échange d'objets"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:195
+msgid "with the items listed below."
+msgstr "avec les objets indiqués ci-dessous."
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:198
+msgid ""
+"You will receive a notification when the contract is created. Review the "
+"items and accept the contract to complete the transaction."
+msgstr ""
+"Vous recevrez une notification lors de la création du contrat. Vérifiez les "
+"objets et acceptez le contrat pour terminer la transaction."
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:202
+msgid ""
+"No action is required from you at this moment. Wait for the in-game contract "
+"notification."
+msgstr ""
+"Aucune action n'est requise pour le moment. Attendez la notification du "
+"contrat en jeu."
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:214
+msgid "Items Wanted"
+msgstr "Objets demandés"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:227
+#: templates/indy_hub/material_exchange/sell_order_detail.html:211
+msgid "Validated"
+msgstr "Validé"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:256
+msgid "TOTAL PURCHASE PRICE:"
+msgstr "PRIX D'ACHAT TOTAL :"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:277
+#: templates/indy_hub/material_exchange/sell_order_detail.html:262
+msgid "Timeline"
+msgstr "Chronologie"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:320
+#: templates/indy_hub/material_exchange/sell_order_detail.html:305
+msgid "Notes"
+msgstr "Notes"
+
+#: templates/indy_hub/material_exchange/buy_order_detail.html:390
+#: templates/indy_hub/material_exchange/sell_order_detail.html:404
+msgid "Copied!"
+msgstr "Copié !"
+
+#: templates/indy_hub/material_exchange/config.html:21
+#: templates/indy_hub/material_exchange/index.html:6
+#: templates/indy_hub/material_exchange/index.html:21
+#: templates/indy_hub/material_exchange/not_configured.html:19
+#: templates/indy_hub/material_exchange/order_not_found.html:19
+#: templates/indy_hub/material_exchange/order_not_found.html:51
+#: templates/indy_hub/settings/hub.html:395 views/user.py:2858
+msgid "Material Exchange"
+msgstr "Échange de matériaux"
+
+#: templates/indy_hub/material_exchange/config.html:23
+msgid "Configure accepted hub locations, pricing rules, and item filters."
+msgstr ""
+"Configurez les emplacements acceptés du Hub, les règles de tarification et "
+"les filtres d'objets."
+
+#: templates/indy_hub/material_exchange/config.html:32
+msgid "Add All Scopes"
+msgstr "Ajouter tous les scopes"
+
+#: templates/indy_hub/material_exchange/config.html:36
+msgid "Manage Tokens"
+msgstr "Gérer les jetons"
+
+#: templates/indy_hub/material_exchange/config.html:44
+msgid "Stock sync:"
+msgstr "Synchronisation du stock :"
+
+#: templates/indy_hub/material_exchange/config.html:53
+msgid "Price sync:"
+msgstr "Synchronisation des prix :"
+
+#: templates/indy_hub/material_exchange/config.html:65
+msgid "Current:"
+msgstr "Actuel :"
+
+#: templates/indy_hub/material_exchange/config.html:85
+msgid "Jita bounds"
+msgstr "Limites de Jita"
+
+#: templates/indy_hub/material_exchange/config.html:91
+#: templates/indy_hub/settings/hub.html:408
+msgid "Disabled"
+msgstr "Désactivé"
+
+#: templates/indy_hub/material_exchange/config.html:103
+msgid "No corporations found. Make sure you have ESI tokens authorized."
+msgstr ""
+"Aucune corporation trouvée. Vérifiez que vos jetons ESI sont autorisés."
+
+#: templates/indy_hub/material_exchange/config.html:120
+#: templates/indy_hub/material_exchange/config.html:188
+#: templates/indy_hub/material_exchange/config.html:196
+msgid "Location Picker"
+msgstr "Sélecteur d'emplacement"
+
+#: templates/indy_hub/material_exchange/config.html:122
+#: templates/indy_hub/material_exchange/config.html:246
+#: templates/indy_hub/material_exchange/config.html:254
+#: templates/indy_hub/material_exchange/index.html:49
+msgid "Accepted Locations"
+msgstr "Emplacements acceptés"
+
+#: templates/indy_hub/material_exchange/config.html:124
+#: templates/indy_hub/material_exchange/config.html:307
+#: templates/indy_hub/material_exchange/config.html:315
+msgid "Pricing"
+msgstr "Tarification"
+
+#: templates/indy_hub/material_exchange/config.html:126
+#: templates/indy_hub/material_exchange/config.html:445
+#: templates/indy_hub/material_exchange/config.html:453
+msgid "Market Groups"
+msgstr "Groupes de marché"
+
+#: templates/indy_hub/material_exchange/config.html:128
+#: templates/indy_hub/material_exchange/config.html:595
+msgid "Notifications"
+msgstr "Notifications"
+
+#: templates/indy_hub/material_exchange/config.html:144
+msgid "Help: Corporation"
+msgstr "Aide : Corporation"
+
+#: templates/indy_hub/material_exchange/config.html:149
+msgid "Select the corporation that will run the hub."
+msgstr "Sélectionnez la corporation qui gérera le Hub."
+
+#: templates/indy_hub/material_exchange/config.html:157
+msgid "Select a corporation..."
+msgstr "Sélectionnez une corporation…"
+
+#: templates/indy_hub/material_exchange/config.html:169
+#: templates/indy_hub/material_exchange/config.html:1201
+msgid "Refreshing assets..."
+msgstr "Actualisation des ressources…"
+
+#: templates/indy_hub/material_exchange/config.html:192
+msgid "Help: Location Picker"
+msgstr "Aide : Sélecteur d'emplacement"
+
+#: templates/indy_hub/material_exchange/config.html:197
+msgid ""
+"Pick a structure and hangar, then add it to the accepted locations list."
+msgstr ""
+"Choisissez une structure et un hangar, puis ajoutez-les à la liste des "
+"emplacements acceptés."
+
+#: templates/indy_hub/material_exchange/config.html:205
+#: templates/indy_hub/material_exchange/config.html:809
+msgid "Select corporation first..."
+msgstr "Sélectionnez d'abord une corporation…"
+
+#: templates/indy_hub/material_exchange/config.html:215
+msgid "Refresh corporation assets and structures"
+msgstr "Actualiser les ressources et structures de la corporation"
+
+#: templates/indy_hub/material_exchange/config.html:224
+msgid ""
+"Structures need esi-assets.read_corporation_assets.v1 for this corporation."
+msgstr ""
+"Les structures nécessitent le scope esi-assets.read_corporation_assets.v1 "
+"pour cette corporation."
+
+#: templates/indy_hub/material_exchange/config.html:227
+#: templates/indy_hub/material_exchange/config.html:288
+msgid "Add token"
+msgstr "Ajouter un jeton"
+
+#: templates/indy_hub/material_exchange/config.html:230
+#: templates/indy_hub/material_exchange/config.html:291
+msgid "Refresh tokens"
+msgstr "Actualiser les jetons"
+
+#: templates/indy_hub/material_exchange/config.html:250
+msgid "Help: Accepted Locations"
+msgstr "Aide : Emplacements acceptés"
+
+#: templates/indy_hub/material_exchange/config.html:255
+msgid ""
+"The first location is the primary hub. Additional locations are also "
+"accepted for stock and contract checks."
+msgstr ""
+"Le premier emplacement est le Hub principal. Les emplacements supplémentaires "
+"sont également acceptés pour le stock et la vérification des contrats."
+
+#: templates/indy_hub/material_exchange/config.html:260
+msgid "Hangar Division"
+msgstr "Division de hangar"
+
+#: templates/indy_hub/material_exchange/config.html:270
+msgid "Add Accepted Location"
+msgstr "Ajouter un emplacement accepté"
+
+#: templates/indy_hub/material_exchange/config.html:274
+msgid ""
+"The first location in the list is used as the primary legacy location. "
+"Additional locations are accepted too."
+msgstr ""
+"Le premier emplacement de la liste est utilisé comme emplacement principal "
+"historique. Les emplacements supplémentaires sont également acceptés."
+
+#: templates/indy_hub/material_exchange/config.html:277
+msgid "Configured locations"
+msgstr "Emplacements configurés"
+
+#: templates/indy_hub/material_exchange/config.html:279
+#: templates/indy_hub/material_exchange/config.html:986
+msgid "Add at least one accepted location before saving."
+msgstr "Ajoutez au moins un emplacement accepté avant d'enregistrer."
+
+#: templates/indy_hub/material_exchange/config.html:285
+msgid ""
+"Division names need esi-corporations.read_divisions.v1 for this corporation."
+msgstr ""
+"Les noms de divisions nécessitent le scope esi-corporations.read_divisions."
+"v1 pour cette corporation."
+
+#: templates/indy_hub/material_exchange/config.html:311
+msgid "Help: Pricing"
+msgstr "Aide : Tarification"
+
+#: templates/indy_hub/material_exchange/config.html:316
+msgid ""
+"Set how much members pay (BUY) and receive (SELL) compared to Jita prices."
+msgstr ""
+"Définissez ce que les membres paient (ACHAT) et reçoivent (VENTE) par "
+"rapport aux prix de Jita."
+
+#: templates/indy_hub/material_exchange/config.html:330
+msgid "Enable Jita price bounds"
+msgstr "Activer les limites de prix de Jita"
+
+#: templates/indy_hub/material_exchange/config.html:334
+msgid "What does it do?"
+msgstr "À quoi cela sert-il ?"
+
+#: templates/indy_hub/material_exchange/config.html:337
+#, python-format
+msgid "Jita Sell + negative %% will never go below Jita Buy (floor)"
+msgstr ""
+"Vente Jita + pourcentage négatif ne descendra jamais sous l'achat Jita "
+"(plancher)"
+
+#: templates/indy_hub/material_exchange/config.html:338
+#, python-format
+msgid "Jita Buy + positive %% will never go above Jita Sell (cap)"
+msgstr ""
+"Achat Jita + pourcentage positif ne dépassera jamais la vente Jita (plafond)"
+
+#: templates/indy_hub/material_exchange/config.html:352
+msgid "Sell Markup"
+msgstr "Ajustement de vente"
+
+#: templates/indy_hub/material_exchange/config.html:354
+msgid "Members SELL items to your hub"
+msgstr "Les membres VENDENT des objets à votre Hub"
+
+#: templates/indy_hub/material_exchange/config.html:355
+#: templates/indy_hub/material_exchange/config.html:399
+#, python-format
+msgid "Markup %%"
+msgstr "Ajustement %%"
+
+#: templates/indy_hub/material_exchange/config.html:368
+#: templates/indy_hub/material_exchange/config.html:412
+msgid "Base Price"
+msgstr "Prix de base"
+
+#: templates/indy_hub/material_exchange/config.html:378
+#: templates/indy_hub/material_exchange/config.html:422
+msgid "Examples"
+msgstr "Exemples"
+
+#: templates/indy_hub/material_exchange/config.html:381
+#, python-format
+msgid "0%% on Jita Buy = members get exact Jita Buy price"
+msgstr ""
+"0 %% sur l'achat Jita = les membres reçoivent exactement le prix d'achat Jita"
+
+#: templates/indy_hub/material_exchange/config.html:382
+#, python-format
+msgid "5%% on Jita Buy = members get 5%% less ISK per unit"
+msgstr ""
+"5 %% sur l'achat Jita = les membres reçoivent 5 %% d'ISK en moins par unité"
+
+#: templates/indy_hub/material_exchange/config.html:396
+msgid "Buy Markup"
+msgstr "Ajustement d'achat"
+
+#: templates/indy_hub/material_exchange/config.html:398
+msgid "Members BUY items from your hub"
+msgstr "Les membres ACHÈTENT des objets à votre Hub"
+
+#: templates/indy_hub/material_exchange/config.html:425
+#, python-format
+msgid "-5%% on Jita Sell = members pay 5%% less than Jita Sell"
+msgstr ""
+"-5 %% sur la vente Jita = les membres paient 5 %% de moins que le prix de "
+"vente Jita"
+
+#: templates/indy_hub/material_exchange/config.html:426
+#, python-format
+msgid "5%% on Jita Buy = members pay 5%% more than Jita Buy"
+msgstr ""
+"5 %% sur l'achat Jita = les membres paient 5 %% de plus que le prix d'achat "
+"Jita"
+
+#: templates/indy_hub/material_exchange/config.html:449
+msgid "Help: Market Groups"
+msgstr "Aide : Groupes de marché"
+
+#: templates/indy_hub/material_exchange/config.html:454
+msgid ""
+"Select which categories your hub will BUY from members and SELL to members."
+msgstr ""
+"Sélectionnez les catégories que votre Hub ACHÈTERA aux membres et leur "
+"VENDRA."
+
+#: templates/indy_hub/material_exchange/config.html:460
+msgid "Search categories or items"
+msgstr "Rechercher des catégories ou des objets"
+
+#: templates/indy_hub/material_exchange/config.html:465
+msgid "Type a category or item name…"
+msgstr "Saisissez le nom d'une catégorie ou d'un objet…"
+
+#: templates/indy_hub/material_exchange/config.html:467
+msgid ""
+"Tip: you can type an item name (e.g. Mexallon) to reveal its category, then "
+"add the whole category."
+msgstr ""
+"Astuce : saisissez le nom d'un objet (par exemple Mexallon) pour afficher sa "
+"catégorie, puis ajoutez toute la catégorie."
+
+#: templates/indy_hub/material_exchange/config.html:472
+msgid ""
+"No industry market groups found. Check that SDE compatibility data is loaded."
+msgstr ""
+"Aucun groupe de marché industriel trouvé. Vérifiez que les données de "
+"compatibilité SDE sont chargées."
+
+#: templates/indy_hub/material_exchange/config.html:477
+msgid "SELL - Market Groups"
+msgstr "VENTE - Groupes de marché"
+
+#: templates/indy_hub/material_exchange/config.html:490
+#: templates/indy_hub/material_exchange/config.html:523
+msgid "Add"
+msgstr "Ajouter"
+
+#: templates/indy_hub/material_exchange/config.html:493
+#: templates/indy_hub/material_exchange/config.html:526
+#: templates/indy_hub/material_exchange/config.html:705
+msgid "Remove"
+msgstr "Retirer"
+
+#: templates/indy_hub/material_exchange/config.html:510
+msgid "BUY - Market Groups"
+msgstr "ACHAT - Groupes de marché"
+
+#: templates/indy_hub/material_exchange/config.html:546
+msgid "SELL - Specific Items"
+msgstr "VENTE - Objets spécifiques"
+
+#: templates/indy_hub/material_exchange/config.html:552
+#: templates/indy_hub/material_exchange/config.html:571
+msgid "One item name or type ID per line"
+msgstr "Un nom d'objet ou un identifiant de type par ligne"
+
+#: templates/indy_hub/material_exchange/config.html:554
+msgid ""
+"These items are added to the SELL allowlist even if their market group is "
+"not selected above."
+msgstr ""
+"Ces objets sont ajoutés à la liste d'autorisation de VENTE même si leur "
+"groupe de marché n'est pas sélectionné ci-dessus."
+
+#: templates/indy_hub/material_exchange/config.html:565
+msgid "BUY - Specific Items"
+msgstr "ACHAT - Objets spécifiques"
+
+#: templates/indy_hub/material_exchange/config.html:573
+msgid ""
+"These items are added to the BUY allowlist even if their market group is not "
+"selected above."
+msgstr ""
+"Ces objets sont ajoutés à la liste d'autorisation d'ACHAT même si leur "
+"groupe de marché n'est pas sélectionné ci-dessus."
+
+#: templates/indy_hub/material_exchange/config.html:606
+msgid "Alert Material Hub admins on sell contract anomalies"
+msgstr ""
+"Alerter les administrateurs du Hub de matériaux en cas d'anomalie sur un "
+"contrat de vente"
+
+#: templates/indy_hub/material_exchange/config.html:610
+msgid ""
+"If disabled, users must submit fully compliant contracts. Admin anomaly "
+"review notifications will not be sent automatically."
+msgstr ""
+"Si cette option est désactivée, les utilisateurs doivent soumettre des "
+"contrats entièrement conformes. Les notifications de vérification des "
+"anomalies ne seront pas envoyées automatiquement aux administrateurs."
+
+#: templates/indy_hub/material_exchange/config.html:620
+msgid "Delete this configuration?"
+msgstr "Supprimer cette configuration ?"
+
+#: templates/indy_hub/material_exchange/config.html:621
+msgid "Delete Configuration"
+msgstr "Supprimer la configuration"
+
+#: templates/indy_hub/material_exchange/config.html:625
+msgid "Save Configuration"
+msgstr "Enregistrer la configuration"
+
+#: templates/indy_hub/material_exchange/config.html:699
+#: templates/indy_hub/test_darkly_theme.html:34
+msgid "Primary"
+msgstr "Principale"
+
+#: templates/indy_hub/material_exchange/config.html:704
+msgid "Make Primary"
+msgstr "Définir comme principale"
+
+#: templates/indy_hub/material_exchange/config.html:749
+msgid "Add at least one accepted location before saving"
+msgstr "Ajoutez au moins un emplacement accepté avant d'enregistrer"
+
+#: templates/indy_hub/material_exchange/config.html:750
+msgid "Please add a divisions token to save configuration"
+msgstr ""
+"Ajoutez un jeton avec le scope des divisions pour enregistrer la "
+"configuration"
+
+#: templates/indy_hub/material_exchange/config.html:762
+msgid "Add divisions token to load hangars"
+msgstr "Ajoutez un jeton avec le scope des divisions pour charger les hangars"
+
+#: templates/indy_hub/material_exchange/config.html:815
+msgid "Loading structures..."
+msgstr "Chargement des structures…"
+
+#: templates/indy_hub/material_exchange/config.html:821
+#: templates/indy_hub/material_exchange/config.html:1305
+msgid "Select a structure..."
+msgstr "Sélectionnez une structure…"
+
+#: templates/indy_hub/material_exchange/config.html:895
+msgid "Error loading structures"
+msgstr "Erreur lors du chargement des structures"
+
+#: templates/indy_hub/material_exchange/config.html:905
+msgid "Select a structure and hangar before adding a location."
+msgstr ""
+"Sélectionnez une structure et un hangar avant d'ajouter un emplacement."
+
+#: templates/indy_hub/material_exchange/config.html:919
+msgid "This accepted location is already in the list."
+msgstr "Cet emplacement accepté figure déjà dans la liste."
+
+#: templates/indy_hub/material_exchange/config.html:982
+msgid ""
+"Please add a divisions token and select a hangar division before saving."
+msgstr ""
+"Ajoutez un jeton avec le scope des divisions et sélectionnez une division de "
+"hangar avant d'enregistrer."
+
+#: templates/indy_hub/material_exchange/config.html:1229
+msgid "Task started. Waiting for completion..."
+msgstr "Tâche démarrée. En attente de son achèvement…"
+
+#: templates/indy_hub/material_exchange/config.html:1241
+msgid "Task took too long to complete"
+msgstr "La tâche a mis trop de temps à se terminer"
+
+#: templates/indy_hub/material_exchange/config.html:1276
+msgid "Task complete! Loading structures..."
+msgstr "Tâche terminée ! Chargement des structures…"
+
+#: templates/indy_hub/material_exchange/config.html:1287
+msgid "Task failed"
+msgstr "La tâche a échoué"
+
+#: templates/indy_hub/material_exchange/config.html:1289
+msgid "Unknown task status"
+msgstr "Statut de tâche inconnu"
+
+#: templates/indy_hub/material_exchange/config.html:1315
+msgid "Done! Structures loaded."
+msgstr "Terminé ! Structures chargées."
+
+#: templates/indy_hub/material_exchange/config.html:1323
+msgid "Failed to refresh assets"
+msgstr "Échec de l'actualisation des ressources"
+
+#: templates/indy_hub/material_exchange/config.html:1328
+msgid "Error refreshing assets"
+msgstr "Erreur lors de l'actualisation des ressources"
+
+#: templates/indy_hub/material_exchange/history.html:6
+msgid "Material Exchange History"
+msgstr "Historique de l'échange de matériaux"
+
+#: templates/indy_hub/material_exchange/history.html:25
+msgid "Closed Orders History"
+msgstr "Historique des commandes clôturées"
+
+#: templates/indy_hub/material_exchange/history.html:27
+msgid "Completed, rejected and cancelled contracts"
+msgstr "Contrats terminés, rejetés et annulés"
+
+#: templates/indy_hub/material_exchange/history.html:31
+msgid "Back to Admin"
+msgstr "Retour à l'administration"
+
+#: templates/indy_hub/material_exchange/history.html:41
+#: templates/indy_hub/material_exchange/index.html:191
+#: templates/indy_hub/material_exchange/my_orders.html:47
+msgid "Sell Orders"
+msgstr "Commandes de vente"
+
+#: templates/indy_hub/material_exchange/history.html:49
+#: templates/indy_hub/material_exchange/history.html:88
+msgid "Ref"
+msgstr "Réf."
+
+#: templates/indy_hub/material_exchange/history.html:50
+#: templates/indy_hub/material_exchange/transactions.html:177
+msgid "Seller"
+msgstr "Vendeur"
+
+#: templates/indy_hub/material_exchange/history.html:53
+#: templates/indy_hub/material_exchange/history.html:92
+msgid "Date"
+msgstr "Date"
+
+#: templates/indy_hub/material_exchange/history.html:72
+msgid "No closed sell orders."
+msgstr "Aucune commande de vente clôturée."
+
+#: templates/indy_hub/material_exchange/history.html:80
+#: templates/indy_hub/material_exchange/index.html:265
+#: templates/indy_hub/material_exchange/my_orders.html:60
+msgid "Buy Orders"
+msgstr "Commandes d'achat"
+
+#: templates/indy_hub/material_exchange/history.html:111
+msgid "No closed buy orders."
+msgstr "Aucune commande d'achat clôturée."
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:224
+msgid "Check contract before validation"
+msgstr "Vérifier le contrat avant validation"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:238
+msgid "How to copy from the game"
+msgstr "Comment copier depuis le jeu"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:240
+msgid ""
+"On the Create Contract window, go to step 4/4, then right-click and use Copy "
+"All. Paste the full result here: the check starts automatically."
+msgstr ""
+"Dans la fenêtre de création du contrat, allez à l'étape 4/4, puis faites un "
+"clic droit et utilisez « Copy All ». Collez ici le résultat complet : la "
+"vérification démarre automatiquement."
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:249
+msgid "Paste the full in-game contract export"
+msgstr "Collez l'export complet du contrat en jeu"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:250
+msgid "Paste the copied contract data here…"
+msgstr "Collez ici les données du contrat copiées…"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:351
+msgid "Checking contract…"
+msgstr "Vérification du contrat…"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:352
+msgid "Comparing the pasted contract with this order."
+msgstr "Comparaison du contrat collé avec cette commande."
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:370
+msgid "Check failed"
+msgstr "Échec de la vérification"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:399
+msgid "Current value:"
+msgstr "Valeur actuelle :"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:400
+msgid "Expected value:"
+msgstr "Valeur attendue :"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:402
+msgid "Reminder:"
+msgstr "Rappel :"
+
+#: templates/indy_hub/material_exchange/includes/contract_check_modal.html:417
+msgid "OK checks"
+msgstr "Vérifications réussies"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:16
+msgid "Loading your asset inventory."
+msgstr "Chargement de votre inventaire de ressources."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:38
+msgid "Update recommended"
+msgstr "Mise à jour recommandée"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:40
+msgid "Up to date"
+msgstr "À jour"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:49
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:61
+msgid "Assets update"
+msgstr "Mise à jour des ressources"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:50
+msgid "Assets update in"
+msgstr "Mise à jour des ressources dans"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:59
+#, python-format
+msgid "Assets update in %(minutes)s min"
+msgstr "Mise à jour des ressources dans %(minutes)s min"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:68
+msgid ""
+"Asset data is older than 60 minutes. A manual update is recommended before "
+"relying on character-owned quantities."
+msgstr ""
+"Les données de ressources ont plus de 60 minutes. Une mise à jour manuelle "
+"est recommandée avant de vous fier aux quantités détenues par le personnage."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:70
+msgid ""
+"A manual assets update is recommended to refresh cached data for the current "
+"app version."
+msgstr ""
+"Une mise à jour manuelle des ressources est recommandée afin d'actualiser "
+"les données en cache pour la version actuelle de l'application."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:72
+msgid ""
+"No cached asset snapshot yet. Use Assets update if you want the manual "
+"character inventory view."
+msgstr ""
+"Aucun instantané de ressources n'est encore en cache. Utilisez « Mise à jour "
+"des ressources » pour afficher manuellement l'inventaire du personnage."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:74
+msgid ""
+"Asset refresh is manual on this page. Use Paste import for the contract-"
+"first workflow, or update assets when you want the manual inventory view."
+msgstr ""
+"L'actualisation des ressources est manuelle sur cette page. Utilisez "
+"l'import par collage pour le processus basé sur le contrat, ou actualisez "
+"les ressources pour afficher manuellement l'inventaire."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:83
+msgid "Choose how you want to build your sell order."
+msgstr "Choisissez comment créer votre commande de vente."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:84
+msgid "Use the standard quantity table or paste an in-game copied item list."
+msgstr ""
+"Utilisez le tableau de quantités standard ou collez une liste d'objets "
+"copiée depuis le jeu."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:94
+msgid "Missing assets token: add the ESI assets scope to load your assets."
+msgstr ""
+"Jeton de ressources manquant : ajoutez le scope ESI des ressources pour "
+"charger vos ressources."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:97
+msgid "Add assets token"
+msgstr "Ajouter un jeton de ressources"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:108
+msgid "ESI is temporarily unavailable. Using cached assets."
+msgstr ""
+"ESI est temporairement indisponible. Les ressources en cache sont utilisées."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:122
+msgid "Assets refresh completed, but no items were returned."
+msgstr ""
+"L'actualisation des ressources est terminée, mais aucun objet n'a été "
+"renvoyé."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:123
+msgid "Try again later or verify your assets scope."
+msgstr "Réessayez plus tard ou vérifiez le scope de vos ressources."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:134
+msgid "Your Materials at"
+msgstr "Vos matériaux à"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:147
+msgid "Selected character"
+msgstr "Personnage sélectionné"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:154
+msgid "Switch character"
+msgstr "Changer de personnage"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:160
+msgid "Select character"
+msgstr "Sélectionner un personnage"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:190
+msgid "Sell order input mode"
+msgstr "Mode de saisie de la commande de vente"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:194
+msgid "Manual selection"
+msgstr "Sélection manuelle"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:195
+msgid "Pick quantities directly from your visible assets."
+msgstr "Choisissez les quantités directement dans vos ressources visibles."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:201
+msgid "Paste import"
+msgstr "Import par collage"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:202
+msgid "Paste an in-game list and let the page classify it."
+msgstr "Collez une liste du jeu et laissez la page la classer."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:212
+msgid "Paste Import"
+msgstr "Import par collage"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:214
+msgid ""
+"Paste an in-game copied list. The system classifies lines and prepares "
+"accepted items for contract validation."
+msgstr ""
+"Collez une liste copiée depuis le jeu. Le système classe les lignes et "
+"prépare les objets acceptés pour la validation du contrat."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:216
+msgid "Supported formats"
+msgstr "Formats pris en charge"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:217
+msgid "Name x Quantity"
+msgstr "Nom x Quantité"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:218
+msgid "Name<TAB>Quantity"
+msgstr "Nom<TAB>Quantité"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:219
+msgid "Qty Name"
+msgstr "Qté Nom"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:225
+msgid "Pasted lines"
+msgstr "Lignes collées"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:230
+msgid "Example: Tritanium x 25000 or Tritanium<TAB>25000"
+msgstr "Exemple : Tritanium x 25000 ou Tritanium<TAB>25000"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:233
+msgid ""
+"Accepted items are added automatically. Not bought and unknown lines are "
+"ignored for order creation."
+msgstr ""
+"Les objets acceptés sont ajoutés automatiquement. Les lignes non achetées ou "
+"inconnues sont ignorées lors de la création de la commande."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:243
+msgid "Paste result categories"
+msgstr "Catégories de résultats du collage"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:251
+msgid "Accepted items"
+msgstr "Objets acceptés"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:261
+#: templates/indy_hub/material_exchange/sell.html:175
+msgid "Not bought by the hub"
+msgstr "Non achetés par le Hub"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:271
+msgid "Known but not on this character"
+msgstr "Connus mais absents de ce personnage"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:281
+msgid "Unknown items or lines"
+msgstr "Objets ou lignes inconnus"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:351
+msgid "You Own"
+msgstr "Vous possédez"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:425
+#, python-format
+msgid "Page %(current)s of %(total)s · %(count)s items"
+msgstr "Page %(current)s sur %(total)s · %(count)s objets"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:432
+msgid "Rows"
+msgstr "Lignes"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:454
+#: templates/indy_hub/material_exchange/my_orders.html:185
+#: templates/indy_hub/material_exchange/transactions.html:238
+msgid "Page"
+msgstr "Page"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:474
+msgid ""
+"No accepted items are currently available for manual selection on this "
+"character."
+msgstr ""
+"Aucun objet accepté n'est actuellement disponible pour une sélection "
+"manuelle sur ce personnage."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:486
+msgid "Sell Summary"
+msgstr "Récapitulatif de la vente"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:491
+msgid "Enter quantities to see your payout"
+msgstr "Saisissez les quantités pour afficher votre versement"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:498
+msgid "Total Payout"
+msgstr "Versement total"
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html:502
+msgid "Create Sell Order"
+msgstr "Créer la commande de vente"
+
+#: templates/indy_hub/material_exchange/index.html:23
+msgid "Supply hub for buying and selling materials"
+msgstr "Hub d'approvisionnement pour acheter et vendre des matériaux"
+
+#: templates/indy_hub/material_exchange/index.html:28
+msgid "Configuration"
+msgstr "Configuration"
+
+#: templates/indy_hub/material_exchange/index.html:40
+msgid ""
+"Superuser detected without 'can_manage_material_hub': you won't receive "
+"Material Hub admin notifications."
+msgstr ""
+"Superutilisateur détecté sans la permission « can_manage_material_hub » : "
+"vous ne recevrez pas les notifications d'administration du Hub de matériaux."
+
+#: templates/indy_hub/material_exchange/index.html:53
+#, python-format
+msgid "%(location)s"
+msgstr "%(location)s"
+
+#: templates/indy_hub/material_exchange/index.html:63
+msgid "Sell to Hub"
+msgstr "Vendre au Hub"
+
+#: templates/indy_hub/material_exchange/index.html:64
+#: templates/indy_hub/material_exchange/index.html:76
+msgid "pending"
+msgstr "en attente"
+
+#: templates/indy_hub/material_exchange/index.html:65
+msgid "Sell your materials to the Hub, prices based on Jita."
+msgstr "Vendez vos matériaux au Hub, à des prix basés sur Jita."
+
+#: templates/indy_hub/material_exchange/index.html:67
+msgid "Start Selling"
+msgstr "Commencer à vendre"
+
+#: templates/indy_hub/material_exchange/index.html:75
+msgid "Buy from Hub"
+msgstr "Acheter au Hub"
+
+#: templates/indy_hub/material_exchange/index.html:77
+msgid "Purchase materials from the Hub stock without going to Jita."
+msgstr "Achetez des matériaux dans le stock du Hub sans aller à Jita."
+
+#: templates/indy_hub/material_exchange/index.html:79
+msgid "Browse Stock"
+msgstr "Parcourir le stock"
+
+#: templates/indy_hub/material_exchange/index.html:90
+msgid "Your Active Orders"
+msgstr "Vos commandes actives"
+
+#: templates/indy_hub/material_exchange/index.html:93
+msgid "My Orders History"
+msgstr "Historique de mes commandes"
+
+#: templates/indy_hub/material_exchange/index.html:106
+#: templates/indy_hub/material_exchange/index.html:202
+#: templates/indy_hub/material_exchange/index.html:276
+#: templates/indy_hub/material_exchange/sell_order_detail.html:322
+msgid "Anomaly detected"
+msgstr "Anomalie détectée"
+
+#: templates/indy_hub/material_exchange/index.html:108
+#: templates/indy_hub/material_exchange/index.html:204
+#: templates/indy_hub/material_exchange/index.html:278
+msgid "Anomaly"
+msgstr "Anomalie"
+
+#: templates/indy_hub/material_exchange/index.html:118
+#: templates/indy_hub/material_exchange/index.html:214
+#: templates/indy_hub/material_exchange/index.html:288
+msgid "Order workflow"
+msgstr "Suivi de la commande"
+
+#: templates/indy_hub/material_exchange/index.html:156
+msgid "No active orders."
+msgstr "Aucune commande active."
+
+#: templates/indy_hub/material_exchange/index.html:174
+msgid "Admin Panel"
+msgstr "Panneau d'administration"
+
+#: templates/indy_hub/material_exchange/index.html:176
+#, python-format
+msgid "%(order_count)s active order"
+msgid_plural "%(order_count)s active orders"
+msgstr[0] "%(order_count)s commande active"
+msgstr[1] "%(order_count)s commandes actives"
+
+#: templates/indy_hub/material_exchange/index.html:183
+msgid "View History"
+msgstr "Voir l'historique"
+
+#: templates/indy_hub/material_exchange/index.html:208
+#: templates/indy_hub/material_exchange/index.html:282
+#: templates/indy_hub/material_exchange/stats_history.html:134
+#: templates/indy_hub/material_exchange/stats_history.html:143
+#: templates/indy_hub/material_exchange/transactions.html:96
+#: templates/indy_hub/material_exchange/transactions.html:126
+#: templates/indy_hub/material_exchange/transactions.html:172
+#: templates/indy_hub/settings/admin_users.html:176
+msgid "User"
+msgstr "Utilisateur"
+
+#: templates/indy_hub/material_exchange/index.html:246
+#: templates/indy_hub/material_exchange/index.html:320
+msgid "Reject"
+msgstr "Rejeter"
+
+#: templates/indy_hub/material_exchange/index.html:257
+msgid "No sell orders found."
+msgstr "Aucune commande de vente trouvée."
+
+#: templates/indy_hub/material_exchange/index.html:331
+msgid "No buy orders found."
+msgstr "Aucune commande d'achat trouvée."
+
+#: templates/indy_hub/material_exchange/my_orders.html:24
+msgid "Track every buy and sell order in one streamlined view."
+msgstr "Suivez toutes les commandes d'achat et de vente dans une vue unifiée."
+
+#: templates/indy_hub/material_exchange/my_orders.html:29
+#: templates/indy_hub/material_exchange/my_orders.html:211
+msgid "Sell Materials"
+msgstr "Vendre des matériaux"
+
+#: templates/indy_hub/material_exchange/my_orders.html:32
+#: templates/indy_hub/material_exchange/my_orders.html:214
+msgid "Buy Materials"
+msgstr "Acheter des matériaux"
+
+#: templates/indy_hub/material_exchange/my_orders.html:76
+msgid "Value"
+msgstr "Valeur"
+
+#: templates/indy_hub/material_exchange/my_orders.html:77
+msgid "Progress"
+msgstr "Progression"
+
+#: templates/indy_hub/material_exchange/my_orders.html:138
+#: templates/indy_hub/material_exchange/my_orders.html:160
+msgid "Check Contract"
+msgstr "Vérifier le contrat"
+
+#: templates/indy_hub/material_exchange/my_orders.html:185
+#: templates/indy_hub/material_exchange/transactions.html:238
+msgid "of"
+msgstr "sur"
+
+#: templates/indy_hub/material_exchange/my_orders.html:205
+msgid "No orders yet"
+msgstr "Aucune commande pour le moment"
+
+#: templates/indy_hub/material_exchange/my_orders.html:207
+msgid "Start by creating a sell or buy order"
+msgstr "Commencez par créer une commande de vente ou d'achat"
+
+#: templates/indy_hub/material_exchange/not_configured.html:5
+#: templates/indy_hub/material_exchange/not_configured.html:43
+msgid "Material Exchange Not Configured"
+msgstr "Échange de matériaux non configuré"
+
+#: templates/indy_hub/material_exchange/not_configured.html:37
+msgid "Material Exchange Disabled"
+msgstr "Échange de matériaux désactivé"
+
+#: templates/indy_hub/material_exchange/not_configured.html:39
+msgid ""
+"The Material Exchange hub is configured but currently disabled in settings."
+msgstr ""
+"Le Hub d'échange de matériaux est configuré, mais actuellement désactivé "
+"dans les paramètres."
+
+#: templates/indy_hub/material_exchange/not_configured.html:45
+msgid ""
+"The Material Exchange hub is not yet configured. Please contact an "
+"administrator to set up the corp hangar, structure location, and pricing "
+"rules."
+msgstr ""
+"Le Hub d'échange de matériaux n'est pas encore configuré. Contactez un "
+"administrateur pour définir le hangar de corporation, l'emplacement de la "
+"structure et les règles de tarification."
+
+#: templates/indy_hub/material_exchange/not_configured.html:50
+msgid "Configure Material Exchange"
+msgstr "Configurer l'échange de matériaux"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:4
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:50
+msgid "Delete Order"
+msgstr "Supprimer la commande"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:15
+msgid "Confirm Delete"
+msgstr "Confirmer la suppression"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:21
+msgid "Are you sure you want to delete this sell order?"
+msgstr "Voulez-vous vraiment supprimer cette commande de vente ?"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:23
+msgid "Are you sure you want to delete this buy order?"
+msgstr "Voulez-vous vraiment supprimer cette commande d'achat ?"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:28
+msgid "Order Reference:"
+msgstr "Référence de la commande :"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:30
+msgid "Items to sell:"
+msgstr "Objets à vendre :"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:31
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:34
+msgid "Total:"
+msgstr "Total :"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:33
+msgid "Items to buy:"
+msgstr "Objets à acheter :"
+
+#: templates/indy_hub/material_exchange/order_delete_confirm.html:40
+msgid "This action cannot be undone. All associated items will be deleted."
+msgstr ""
+"Cette action est irréversible. Tous les objets associés seront supprimés."
+
+#: templates/indy_hub/material_exchange/order_not_found.html:5
+msgid "Order Not Found"
+msgstr "Commande introuvable"
+
+#: templates/indy_hub/material_exchange/order_not_found.html:24
+msgid "Back to Material Exchange"
+msgstr "Retour à l'échange de matériaux"
+
+#: templates/indy_hub/material_exchange/order_not_found.html:36
+msgid "This order is no longer available"
+msgstr "Cette commande n'est plus disponible"
+
+#: templates/indy_hub/material_exchange/order_not_found.html:39
+#, python-format
+msgid ""
+"The buy order #%(order_id)s is not available. It may have been completed, "
+"cancelled, deleted, or you may not have access to it."
+msgstr ""
+"La commande d'achat n° %(order_id)s n'est pas disponible. Elle peut être "
+"terminée, annulée, supprimée ou vous n'y avez peut-être pas accès."
+
+#: templates/indy_hub/material_exchange/order_not_found.html:41
+#, python-format
+msgid ""
+"The sell order #%(order_id)s is not available. It may have been completed, "
+"cancelled, deleted, or you may not have access to it."
+msgstr ""
+"La commande de vente n° %(order_id)s n'est pas disponible. Elle peut être "
+"terminée, annulée, supprimée ou vous n'y avez peut-être pas accès."
+
+#: templates/indy_hub/material_exchange/order_not_found.html:47
+msgid "Continue"
+msgstr "Continuer"
+
+#: templates/indy_hub/material_exchange/sell.html:7
+#: templates/indy_hub/material_exchange/sell.html:22
+msgid "Sell Materials to Hub"
+msgstr "Vendre des matériaux au Hub"
+
+#: templates/indy_hub/material_exchange/sell.html:24
+msgid "Sell your materials to the Hub"
+msgstr "Vendez vos matériaux au Hub"
+
+#: templates/indy_hub/material_exchange/sell.html:176
+msgid ""
+"No coherent price was found for this item. Contact the admins to discuss a "
+"sale through another path."
+msgstr ""
+"Aucun prix cohérent n'a été trouvé pour cet objet. Contactez les "
+"administrateurs pour discuter d'une vente par un autre moyen."
+
+#: templates/indy_hub/material_exchange/sell.html:177
+msgid "Not available on this character"
+msgstr "Indisponible sur ce personnage"
+
+#: templates/indy_hub/material_exchange/sell.html:178
+msgid ""
+"Item not found on your characters: contract validation will verify the "
+"delivered items directly."
+msgstr ""
+"Objet introuvable sur vos personnages : la validation du contrat vérifiera "
+"directement les objets livrés."
+
+#: templates/indy_hub/material_exchange/sell.html:179
+msgid "Quantity exceeds what is available on the selected character"
+msgstr ""
+"La quantité dépasse ce qui est disponible sur le personnage sélectionné"
+
+#: templates/indy_hub/material_exchange/sell.html:180
+msgid "Unknown item or unsupported line"
+msgstr "Objet inconnu ou ligne non prise en charge"
+
+#: templates/indy_hub/material_exchange/sell.html:181
+msgid "Could not read this line"
+msgstr "Impossible de lire cette ligne"
+
+#: templates/indy_hub/material_exchange/sell.html:1274
+msgid "Some quantities exceeded what you own and have been adjusted."
+msgstr ""
+"Certaines quantités dépassaient ce que vous possédez et ont été ajustées."
+
+#: templates/indy_hub/material_exchange/sell_order_detail.html:6
+#: templates/indy_hub/material_exchange/sell_order_detail.html:22
+msgid "Sell Order Details"
+msgstr "Détails de la commande de vente"
+
+#: templates/indy_hub/material_exchange/sell_order_detail.html:93
+#: views/material_exchange_orders.py:195
+msgid "I will receive"
+msgstr "Je recevrai"
+
+#: templates/indy_hub/material_exchange/sell_order_detail.html:148
+msgid ""
+"You create an Item Exchange contract to the corporation with the details "
+"below. The system auto-validates the contract once it matches."
+msgstr ""
+"Vous créez pour la corporation un contrat d'échange d'objets avec les "
+"informations ci-dessous. Le système valide automatiquement le contrat dès "
+"qu'il correspond."
+
+#: templates/indy_hub/material_exchange/sell_order_detail.html:241
+msgid "TOTAL PAYOUT:"
+msgstr "VERSEMENT TOTAL :"
+
+#: templates/indy_hub/material_exchange/sell_order_detail.html:327
+msgid "This order requires your attention:"
+msgstr "Cette commande nécessite votre attention :"
+
+#: templates/indy_hub/material_exchange/sell_order_detail.html:331
+msgid "Understood"
+msgstr "Compris"
+
+#: templates/indy_hub/material_exchange/stats_history.html:6
+#: templates/indy_hub/material_exchange/stats_history.html:21
+msgid "Transaction Stats History"
+msgstr "Historique des statistiques de transactions"
+
+#: templates/indy_hub/material_exchange/stats_history.html:23
+msgid "Monthly trends for buy and sell orders"
+msgstr "Tendances mensuelles des commandes d'achat et de vente"
+
+#: templates/indy_hub/material_exchange/stats_history.html:27
+msgid "Back to Transactions"
+msgstr "Retour aux transactions"
+
+#: templates/indy_hub/material_exchange/stats_history.html:40
+msgid "Total Buy Volume"
+msgstr "Volume total des achats"
+
+#: templates/indy_hub/material_exchange/stats_history.html:51
+msgid "Total Sell Volume"
+msgstr "Volume total des ventes"
+
+#: templates/indy_hub/material_exchange/stats_history.html:62
+msgid "Orders Tracked"
+msgstr "Commandes suivies"
+
+#: templates/indy_hub/material_exchange/stats_history.html:64
+msgid "months"
+msgstr "mois"
+
+#: templates/indy_hub/material_exchange/stats_history.html:74
+msgid "Period"
+msgstr "Période"
+
+#: templates/indy_hub/material_exchange/stats_history.html:89
+#, python-format
+msgid "Data shown since %(start)s."
+msgstr "Données affichées depuis le %(start)s."
+
+#: templates/indy_hub/material_exchange/stats_history.html:91
+msgid "Data shown for all available history."
+msgstr "Données affichées pour tout l'historique disponible."
+
+#: templates/indy_hub/material_exchange/stats_history.html:103
+msgid "Monthly Volume (ISK)"
+msgstr "Volume mensuel (ISK)"
+
+#: templates/indy_hub/material_exchange/stats_history.html:113
+msgid "Monthly Orders"
+msgstr "Commandes mensuelles"
+
+#: templates/indy_hub/material_exchange/stats_history.html:125
+msgid "Top Users (All Time)"
+msgstr "Principaux utilisateurs (toute période)"
+
+#: templates/indy_hub/material_exchange/stats_history.html:126
+msgid "Sorted by total traded volume"
+msgstr "Triés par volume total échangé"
+
+#: templates/indy_hub/material_exchange/stats_history.html:136
+#: templates/indy_hub/material_exchange/stats_history.html:161
+msgid "Volume"
+msgstr "Volume"
+
+#: templates/indy_hub/material_exchange/stats_history.html:137
+#: templates/indy_hub/material_exchange/stats_history.html:173
+msgid "Net Flow"
+msgstr "Flux net"
+
+#: templates/indy_hub/material_exchange/stats_history.html:146
+msgid "orders tracked"
+msgstr "commandes suivies"
+
+#: templates/indy_hub/material_exchange/stats_history.html:152
+msgid "Buy orders"
+msgstr "Commandes d'achat"
+
+#: templates/indy_hub/material_exchange/stats_history.html:156
+msgid "Sell orders"
+msgstr "Commandes de vente"
+
+#: templates/indy_hub/material_exchange/stats_history.html:164
+msgid "Buy volume"
+msgstr "Volume d'achat"
+
+#: templates/indy_hub/material_exchange/stats_history.html:168
+msgid "Sell volume"
+msgstr "Volume de vente"
+
+#: templates/indy_hub/material_exchange/stats_history.html:178
+msgid "Net buy volume"
+msgstr "Volume net d'achat"
+
+#: templates/indy_hub/material_exchange/stats_history.html:180
+msgid "Net sell volume"
+msgstr "Volume net de vente"
+
+#: templates/indy_hub/material_exchange/stats_history.html:192
+msgid "No user transaction stats available yet."
+msgstr ""
+"Aucune statistique de transaction par utilisateur n'est encore disponible."
+
+#: templates/indy_hub/material_exchange/stats_history.html:199
+msgid "No transaction history available yet."
+msgstr "Aucun historique de transaction n'est encore disponible."
+
+#: templates/indy_hub/material_exchange/stats_history.html:236
+msgid "Buy Order Volume"
+msgstr "Volume des commandes d'achat"
+
+#: templates/indy_hub/material_exchange/stats_history.html:244
+msgid "Sell Order Volume"
+msgstr "Volume des commandes de vente"
+
+#: templates/indy_hub/material_exchange/stats_history.html:281
+msgid "Orders"
+msgstr "Commandes"
+
+#: templates/indy_hub/material_exchange/transactions.html:6
+#: templates/indy_hub/material_exchange/transactions.html:21
+msgid "Transaction History"
+msgstr "Historique des transactions"
+
+#: templates/indy_hub/material_exchange/transactions.html:23
+msgid "Complete transaction log and financial reports"
+msgstr "Journal complet des transactions et rapports financiers"
+
+#: templates/indy_hub/material_exchange/transactions.html:29
+msgid "Stats History"
+msgstr "Historique des statistiques"
+
+#: templates/indy_hub/material_exchange/transactions.html:46
+msgid "Bought This Month"
+msgstr "Acheté ce mois-ci"
+
+#: templates/indy_hub/material_exchange/transactions.html:57
+msgid "Sold This Month"
+msgstr "Vendu ce mois-ci"
+
+#: templates/indy_hub/material_exchange/transactions.html:68
+msgid "Transactions"
+msgstr "Transactions"
+
+#: templates/indy_hub/material_exchange/transactions.html:70
+#: views/material_exchange.py:3132
+msgid "This month"
+msgstr "Ce mois-ci"
+
+#: templates/indy_hub/material_exchange/transactions.html:78
+msgid "All Transactions"
+msgstr "Toutes les transactions"
+
+#: templates/indy_hub/material_exchange/transactions.html:80
+msgid "records"
+msgstr "enregistrements"
+
+#: templates/indy_hub/material_exchange/transactions.html:90
+msgid "All types"
+msgstr "Tous les types"
+
+#: templates/indy_hub/material_exchange/transactions.html:91
+#: templates/indy_hub/material_exchange/transactions.html:160
+msgid "Sell Order"
+msgstr "Commande de vente"
+
+#: templates/indy_hub/material_exchange/transactions.html:92
+#: templates/indy_hub/material_exchange/transactions.html:166
+msgid "Buy Order"
+msgstr "Commande d'achat"
+
+#: templates/indy_hub/material_exchange/transactions.html:103
+msgid "Search by username"
+msgstr "Rechercher par nom d'utilisateur"
+
+#: templates/indy_hub/material_exchange/transactions.html:124
+#: templates/indy_hub/material_exchange/transactions.html:149
+msgid "Executed"
+msgstr "Exécuté"
+
+#: templates/indy_hub/material_exchange/transactions.html:125
+#: templates/indy_hub/material_exchange/transactions.html:155
+msgid "Flow"
+msgstr "Flux"
+
+#: templates/indy_hub/material_exchange/transactions.html:127
+#: templates/indy_hub/material_exchange/transactions.html:184
+msgid "Order Detail"
+msgstr "Détail de la commande"
+
+#: templates/indy_hub/material_exchange/transactions.html:128
+#: templates/indy_hub/material_exchange/transactions.html:200
+msgid "Financial Summary"
+msgstr "Récapitulatif financier"
+
+#: templates/indy_hub/material_exchange/transactions.html:140
+msgid "No linked order"
+msgstr "Aucune commande liée"
+
+#: templates/indy_hub/material_exchange/transactions.html:145
+#, python-format
+msgid "1 line item"
+msgid_plural "%(count)s line items"
+msgstr[0] "1 ligne d'article"
+msgstr[1] "%(count)s lignes d'articles"
+
+#: templates/indy_hub/material_exchange/transactions.html:162
+msgid "Outgoing stock"
+msgstr "Stock sortant"
+
+#: templates/indy_hub/material_exchange/transactions.html:168
+msgid "Incoming stock"
+msgstr "Stock entrant"
+
+#: templates/indy_hub/material_exchange/transactions.html:203
+msgid "Order total"
+msgstr "Total de la commande"
+
+#: templates/indy_hub/material_exchange/transactions.html:212
+msgid "Avg unit"
+msgstr "Moyenne unitaire"
+
+#: templates/indy_hub/material_exchange/transactions.html:212
+msgid "Unit price"
+msgstr "Prix unitaire"
+
+#: templates/indy_hub/material_exchange/transactions.html:256
+msgid "No transactions yet."
+msgstr "Aucune transaction pour le moment."

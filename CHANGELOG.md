@@ -11,8 +11,10 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Added
 
+- Localization: added compiled gettext catalogs for every non-English language exposed by Alliance Auth (`de`, `es`, `fr-fr`, `it-it`, `ja`, `ko-kr`, `nl-nl`, `pl-pl`, `ru`, `uk`, and `zh-hans`), with complete French coverage and initial translations for the primary Material Exchange labels; English remains the source language.
 - Structure Registry / Crafting Projects: users can star (★) production structures; favorites are prioritized in structure assignment controls and used as defaults when no explicit structure is selected.
 - Crafting Projects / Structure tab: added Category Assignments, grouped by craft group, to apply one structure to every matching item in a single action.
+- Crafting Projects / Structure tab: added a per-item button to instantly reset the selected structure back to the recommended one.
 - Crafting Projects / Blueprint tab: added a persistent Corp BP toggle for personal/corporation sourcing; better corporation blueprints are selected automatically, included in temporary projects, and identified with a `CORP BP` badge.
 - Settings / User admin: added a private superuser dashboard for efficiently searching, filtering, sorting, paginating, and inspecting large user directories by username, main character, corporation, activity, scopes, account health, and usage, with per-user detail and resilient global 30-day analytics.
 - Usage analytics: added rolling daily and per-page tracking, preaggregated global statistics, and progressive consolidation of retained historical usage.
@@ -25,10 +27,17 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Fixed
 
+- Celery bulk refresh: blueprint and industry-job fan-out now uses a cache-backed minute dispatcher instead of publishing hours of ETA tasks, preventing Redis visibility-timeout redelivery and worker starvation.
+- Material Exchange: French translations now cover the hub, buy/sell forms, orders, contract checks, history, statistics, and configuration instead of falling back to English for app-specific labels such as `Buy Orders`.
+- Material Exchange sell paste: compressed and enriched ore variants are now resolved as their exact EVE types instead of being merged into a shorter base-item name contained in the pasted line.
 - Locations: NPC station placeholders (`Structure <id>`) are now repaired more reliably, including when upstream responses are cached or delayed.
 - Locations: very large non-deployed asset-item IDs are no longer looked up as structures, preventing wrong labels and noisy retries.
 - CharLink / scope-health display: users are no longer incorrectly shown as fully `OK` when required scopes are split across multiple tokens; scope completeness is now evaluated per token before user-level aggregation.
 - Industry Jobs pages: invalid `page` / `per_page` values are now handled safely, preventing crashes and oversized result pages.
+- Crafting Projects / Financial tab: additional cost/revenue rows are no longer discarded when saving a project; they now persist and reload correctly.
+- Crafting Projects / material calculations: one-unit-per-run inputs now retain that minimum after material efficiency is applied, preventing 1:1 reaction inputs from being reduced below the number of job runs.
+- Crafting Projects: blueprint and item names used in generated project names and reaction formulas now remain canonical instead of changing with an unrelated active Django locale.
+- Industry Structures: `Molecular-Forged Materials` (and `Hybrid Polymers`) items now correctly match the Hybrid Reactor rig's material/time efficiency bonus; they were previously assigned to an unused reaction-type family that no live rig effect triggers, so those items showed no applicable ME/TE bonus. Cached per-structure bonus data now includes a version marker and automatically recomputes when this kind of bonus-matching fix ships, instead of silently keeping stale results.
 
 ### Internal
 

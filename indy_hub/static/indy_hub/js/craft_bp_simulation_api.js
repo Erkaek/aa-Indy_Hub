@@ -782,7 +782,11 @@
             );
             const blueprintMultiplier = 1 - (blueprintME / 100);
             const structureMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
-            return normalizeQuantity(baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier);
+            const adjustedQuantity = normalizeQuantity(
+                baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier
+            );
+            // EVE requires at least one unit of every listed material per run.
+            return Math.max(jobRuns, adjustedQuantity);
         }
 
         const fallbackMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
@@ -1080,11 +1084,11 @@
         results.sort((a, b) => {
             const groupA = a.marketGroup || fallbackGroupName;
             const groupB = b.marketGroup || fallbackGroupName;
-            const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
+            const groupCmp = String(groupA).localeCompare(String(groupB), window.getIndyHubLocale(), { sensitivity: 'base' });
             if (groupCmp !== 0) {
                 return groupCmp;
             }
-            return String(a.typeName).localeCompare(String(b.typeName), undefined, { sensitivity: 'base' });
+            return String(a.typeName).localeCompare(String(b.typeName), window.getIndyHubLocale(), { sensitivity: 'base' });
         });
         return results;
     }

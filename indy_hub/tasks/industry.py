@@ -255,9 +255,16 @@ _TASK_QUEUE_INFLIGHT_BUFFER_SECONDS = 15 * 60
 _TASK_QUEUE_INFLIGHT_MIN_SECONDS = 60
 _BLUEPRINTS_BULK_LOCK_KEY = "indy_hub:blueprints_bulk:lock"
 _INDUSTRY_JOBS_BULK_LOCK_KEY = "indy_hub:industry_jobs_bulk:lock"
+_BLUEPRINTS_BULK_STATE_KEY = "indy_hub:blueprints_bulk:state"
+_INDUSTRY_JOBS_BULK_STATE_KEY = "indy_hub:industry_jobs_bulk:state"
+_BLUEPRINTS_BULK_DISPATCH_LOCK_KEY = "indy_hub:blueprints_bulk:dispatch_lock"
+_INDUSTRY_JOBS_BULK_DISPATCH_LOCK_KEY = "indy_hub:industry_jobs_bulk:dispatch_lock"
 _BULK_LOCK_TTL_BUFFER_SECONDS = 15 * 60
 _BULK_LOCK_TTL_MIN_SECONDS = 30 * 60
 _BULK_LOCK_TTL_MAX_SECONDS = 18 * 60 * 60
+_BULK_STATE_TTL_SECONDS = _BULK_LOCK_TTL_MAX_SECONDS
+_BULK_DISPATCH_LOCK_TTL_SECONDS = 55
+_BULK_DISPATCH_INTERVAL_SECONDS = 55
 _DEFAULT_BULK_WINDOWS = {
     # Stable defaults used when no explicit per-kind window is configured.
     MANUAL_REFRESH_KIND_BLUEPRINTS: 240,
@@ -706,25 +713,6 @@ def _refresh_bulk_lock(lock_key: str, lock_token: str, *, window_minutes: int) -
     return True
 
 
-def _refresh_created_bulk_lock(
-    lock_key: str,
-    lock_token: str,
-    *,
-    window_minutes: int,
-) -> bool:
-    """Refresh a lock created in the current batch while preserving ownership."""
-    owner = cache.get(lock_key)
-    if owner != lock_token:
-        return False
-
-    cache.set(
-        lock_key,
-        lock_token,
-        timeout=_get_bulk_lock_ttl_seconds(window_minutes),
-    )
-    return True
-
-
 def _manual_refresh_cache_key(kind: str, user_id: int, scope: str | None = None) -> str:
     scope_key = (scope or "").lower() or "default"
     return f"{_MANUAL_REFRESH_CACHE_PREFIX}:{kind}:{user_id}:{scope_key}"
@@ -824,187 +812,24 @@ def _clear_manual_refresh_inflight(
     cache.delete(_manual_refresh_inflight_key(kind, user_id, scope))
 
 
-def _queue_staggered_user_tasks(
-    task, user_ids: list[int], *, window_minutes: int, priority: int | None = None
-) -> int:
-    if not user_ids:
-        return 0
-
-    total = len(user_ids)
-    window_seconds = max(window_minutes * 60, 0)
-
-    if total == 1 or window_seconds == 0:
-        for user_id in user_ids:
-            task.apply_async(args=(user_id,), priority=priority)
-        return total
-
-    spacing = window_seconds / total
-    for index, user_id in enumerate(user_ids):
-        countdown = int(round(index * spacing))
-        task.apply_async(args=(user_id,), countdown=countdown, priority=priority)
-    return total
-
-
-def _queue_staggered_industry_job_character_tasks(
-    targets: list[tuple[int, int]],
-    *,
-    window_minutes: int,
-    priority: int | None = None,
-) -> int:
-    if not targets:
-        return 0
-
-    total = len(targets)
-    window_seconds = max(window_minutes * 60, 0)
-
-    if total == 1 or window_seconds == 0:
-        queued = 0
-        for user_id, character_id in targets:
-            if queue_industry_job_update_for_user(
-                int(user_id),
-                priority=priority,
-                scope="character",
-                character_id=int(character_id),
-            ):
-                queued += 1
-        return queued
-
-    spacing = window_seconds / total
-    queued = 0
-    for index, (user_id, character_id) in enumerate(targets):
-        countdown = int(round(index * spacing))
-        if queue_industry_job_update_for_user(
-            int(user_id),
-            countdown=countdown,
-            priority=priority,
-            scope="character",
-            character_id=int(character_id),
-        ):
-            queued += 1
-    return queued
-
-
-def _queue_staggered_industry_job_corporation_tasks(
-    user_ids: list[int],
-    *,
-    window_minutes: int,
-    priority: int | None = None,
-) -> int:
-    if not user_ids:
-        return 0
-
-    total = len(user_ids)
-    window_seconds = max(window_minutes * 60, 0)
-
-    if total == 1 or window_seconds == 0:
-        queued = 0
-        for user_id in user_ids:
-            if queue_industry_job_update_for_user(
-                int(user_id),
-                priority=priority,
-                scope="corporation",
-                character_id=0,
-            ):
-                queued += 1
-        return queued
-
-    spacing = window_seconds / total
-    queued = 0
-    for index, user_id in enumerate(user_ids):
-        countdown = int(round(index * spacing))
-        if queue_industry_job_update_for_user(
-            int(user_id),
-            countdown=countdown,
-            priority=priority,
-            scope="corporation",
-            character_id=0,
-        ):
-            queued += 1
-    return queued
-
-
-def _queue_staggered_blueprint_character_tasks(
-    targets: list[tuple[int, int]],
-    *,
-    window_minutes: int,
-    priority: int | None = None,
-) -> int:
-    if not targets:
-        return 0
-
-    total = len(targets)
-    window_seconds = max(window_minutes * 60, 0)
-
-    if total == 1 or window_seconds == 0:
-        queued = 0
-        for user_id, character_id in targets:
-            if queue_blueprint_update_for_user(
-                int(user_id),
-                priority=priority,
-                scope="character",
-                character_id=int(character_id),
-            ):
-                queued += 1
-        return queued
-
-    spacing = window_seconds / total
-    queued = 0
-    for index, (user_id, character_id) in enumerate(targets):
-        countdown = int(round(index * spacing))
-        if queue_blueprint_update_for_user(
-            int(user_id),
-            countdown=countdown,
-            priority=priority,
-            scope="character",
-            character_id=int(character_id),
-        ):
-            queued += 1
-    return queued
-
-
-def _queue_staggered_blueprint_corporation_tasks(
-    user_ids: list[int],
-    *,
-    window_minutes: int,
-    priority: int | None = None,
-) -> int:
-    if not user_ids:
-        return 0
-
-    total = len(user_ids)
-    window_seconds = max(window_minutes * 60, 0)
-
-    if total == 1 or window_seconds == 0:
-        queued = 0
-        for user_id in user_ids:
-            if queue_blueprint_update_for_user(
-                int(user_id),
-                priority=priority,
-                scope="corporation",
-            ):
-                queued += 1
-        return queued
-
-    spacing = window_seconds / total
-    queued = 0
-    for index, user_id in enumerate(user_ids):
-        countdown = int(round(index * spacing))
-        if queue_blueprint_update_for_user(
-            int(user_id),
-            countdown=countdown,
-            priority=priority,
-            scope="corporation",
-        ):
-            queued += 1
-    return queued
-
-
 def _select_blueprint_sync_user_ids(
     *,
     last_user_id: int | None = None,
     batch_size: int = 500,
 ) -> list[int]:
-    return _select_sync_user_ids(
+    user_ids, _, _ = _select_blueprint_sync_user_page(
+        last_user_id=last_user_id,
+        batch_size=batch_size,
+    )
+    return user_ids
+
+
+def _select_blueprint_sync_user_page(
+    *,
+    last_user_id: int | None = None,
+    batch_size: int = 500,
+) -> tuple[list[int], int | None, bool]:
+    return _select_sync_user_page(
         character_scope=BLUEPRINT_SCOPE,
         corporation_scope=CORP_BLUEPRINT_SCOPE,
         last_user_id=last_user_id,
@@ -1019,8 +844,24 @@ def _select_sync_user_ids(
     last_user_id: int | None,
     batch_size: int,
 ) -> list[int]:
+    user_ids, _, _ = _select_sync_user_page(
+        character_scope=character_scope,
+        corporation_scope=corporation_scope,
+        last_user_id=last_user_id,
+        batch_size=batch_size,
+    )
+    return user_ids
+
+
+def _select_sync_user_page(
+    *,
+    character_scope: str,
+    corporation_scope: str,
+    last_user_id: int | None,
+    batch_size: int,
+) -> tuple[list[int], int | None, bool]:
     if batch_size <= 0:
-        return []
+        return [], last_user_id, True
 
     valid_tokens = Token.objects.all().require_valid()
     if last_user_id:
@@ -1044,9 +885,13 @@ def _select_sync_user_ids(
     )
     selected_user_ids = [int(row["user_id"]) for row in rows if row.get("user_id")]
     if not selected_user_ids:
-        return []
+        return [], last_user_id, True
 
-    return _filter_active_user_ids_bulk(selected_user_ids)
+    return (
+        _filter_active_user_ids_bulk(selected_user_ids),
+        int(selected_user_ids[-1]),
+        len(selected_user_ids) < batch_size,
+    )
 
 
 def _filter_active_user_ids_bulk(user_ids: list[int]) -> list[int]:
@@ -1189,7 +1034,19 @@ def _select_industry_job_sync_user_ids(
     last_user_id: int | None = None,
     batch_size: int = 500,
 ) -> list[int]:
-    return _select_sync_user_ids(
+    user_ids, _, _ = _select_industry_job_sync_user_page(
+        last_user_id=last_user_id,
+        batch_size=batch_size,
+    )
+    return user_ids
+
+
+def _select_industry_job_sync_user_page(
+    *,
+    last_user_id: int | None = None,
+    batch_size: int = 500,
+) -> tuple[list[int], int | None, bool]:
+    return _select_sync_user_page(
         character_scope=JOBS_SCOPE,
         corporation_scope=CORP_JOBS_SCOPE,
         last_user_id=last_user_id,
@@ -2783,6 +2640,360 @@ def populate_location_names_async(
     return summary
 
 
+def _bulk_lock_key(kind: str) -> str:
+    if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
+        return _BLUEPRINTS_BULK_LOCK_KEY
+    return _INDUSTRY_JOBS_BULK_LOCK_KEY
+
+
+def _bulk_state_key(kind: str) -> str:
+    if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
+        return _BLUEPRINTS_BULK_STATE_KEY
+    return _INDUSTRY_JOBS_BULK_STATE_KEY
+
+
+def _bulk_dispatch_lock_key(kind: str) -> str:
+    if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
+        return _BLUEPRINTS_BULK_DISPATCH_LOCK_KEY
+    return _INDUSTRY_JOBS_BULK_DISPATCH_LOCK_KEY
+
+
+def _new_bulk_state(
+    kind: str,
+    *,
+    lock_token: str,
+    last_user_id: int | None,
+    batch_size: int,
+) -> dict[str, object]:
+    return {
+        "kind": kind,
+        "lock_token": lock_token,
+        "last_user_id": int(last_user_id) if last_user_id else None,
+        "batch_size": max(int(batch_size), 1),
+        "pending_targets": [],
+        "source_exhausted": False,
+    }
+
+
+def _load_bulk_state(kind: str) -> dict[str, object] | None:
+    state = cache.get(_bulk_state_key(kind))
+    if not isinstance(state, dict) or state.get("kind") != kind:
+        return None
+    if not state.get("lock_token"):
+        return None
+    if not isinstance(state.get("pending_targets", []), list):
+        return None
+    return state
+
+
+def _save_bulk_state(kind: str, state: dict[str, object]) -> None:
+    cache.set(
+        _bulk_state_key(kind),
+        state,
+        timeout=_BULK_STATE_TTL_SECONDS,
+    )
+
+
+def _release_bulk_state(kind: str, lock_token: str) -> None:
+    state_key = _bulk_state_key(kind)
+    state = cache.get(state_key)
+    if not isinstance(state, dict) or state.get("lock_token") == lock_token:
+        cache.delete(state_key)
+
+    lock_key = _bulk_lock_key(kind)
+    if cache.get(lock_key) == lock_token:
+        cache.delete(lock_key)
+
+
+def _release_bulk_dispatch_lock(kind: str, dispatch_token: str) -> None:
+    lock_key = _bulk_dispatch_lock_key(kind)
+    if cache.get(lock_key) == dispatch_token:
+        cache.delete(lock_key)
+
+
+def _load_bulk_target_page(
+    kind: str,
+    *,
+    last_user_id: int | None,
+    batch_size: int,
+) -> tuple[list[dict[str, object]], int | None, bool, int]:
+    if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
+        user_ids, next_user_id, source_exhausted = _select_blueprint_sync_user_page(
+            last_user_id=last_user_id,
+            batch_size=batch_size,
+        )
+        character_targets = _select_character_blueprint_targets_for_users(user_ids)
+        corporation_user_ids = _select_corporation_blueprint_user_ids_for_users(
+            user_ids
+        )
+    else:
+        user_ids, next_user_id, source_exhausted = _select_industry_job_sync_user_page(
+            last_user_id=last_user_id,
+            batch_size=batch_size,
+        )
+        character_targets = _select_character_job_targets_for_users(user_ids)
+        corporation_user_ids = _select_corporation_job_user_ids_for_users(user_ids)
+
+    targets: list[dict[str, object]] = [
+        {
+            "user_id": int(user_id),
+            "scope": "character",
+            "character_id": int(character_id),
+        }
+        for user_id, character_id in character_targets
+    ]
+    targets.extend(
+        {
+            "user_id": int(user_id),
+            "scope": "corporation",
+            "character_id": 0,
+        }
+        for user_id in corporation_user_ids
+    )
+    return targets, next_user_id, source_exhausted, len(user_ids)
+
+
+def _queue_bulk_target(kind: str, target: dict[str, object]) -> bool:
+    user_id = int(target["user_id"])
+    scope = str(target["scope"])
+    character_id = int(target.get("character_id") or 0)
+    if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
+        return queue_blueprint_update_for_user(
+            user_id,
+            priority=7,
+            scope=scope,
+            character_id=character_id or None,
+        )
+    return queue_industry_job_update_for_user(
+        user_id,
+        priority=7,
+        scope=scope,
+        character_id=character_id,
+    )
+
+
+def _dispatch_bulk_state(kind: str, state: dict[str, object]) -> dict[str, object]:
+    lock_token = str(state["lock_token"])
+    if not _refresh_bulk_lock(
+        _bulk_lock_key(kind),
+        lock_token,
+        window_minutes=0,
+    ):
+        logger.warning(
+            "Discarding stale %s bulk state after its owner lock was lost",
+            kind,
+        )
+        _release_bulk_state(kind, lock_token)
+        return {
+            "users_queued": 0,
+            "characters_queued": 0,
+            "corporation_users_queued": 0,
+            "done": True,
+            "reason": "lock_lost",
+        }
+
+    now_timestamp = timezone.now().timestamp()
+    try:
+        last_dispatch_timestamp = float(state.get("last_dispatch_timestamp") or 0)
+    except (TypeError, ValueError):
+        last_dispatch_timestamp = 0
+    elapsed_seconds = now_timestamp - last_dispatch_timestamp
+    if last_dispatch_timestamp and elapsed_seconds < _BULK_DISPATCH_INTERVAL_SECONDS:
+        return {
+            "users_queued": 0,
+            "characters_queued": 0,
+            "corporation_users_queued": 0,
+            "targets_attempted": 0,
+            "targets_pending": len(state.get("pending_targets") or []),
+            "done": False,
+            "reason": "dispatch_interval",
+            "retry_after_seconds": max(
+                int(_BULK_DISPATCH_INTERVAL_SECONDS - elapsed_seconds),
+                1,
+            ),
+        }
+
+    pending_targets = list(state.get("pending_targets") or [])
+    users_scanned = 0
+    if not pending_targets and not bool(state.get("source_exhausted")):
+        (
+            pending_targets,
+            next_user_id,
+            source_exhausted,
+            users_scanned,
+        ) = _load_bulk_target_page(
+            kind,
+            last_user_id=state.get("last_user_id"),
+            batch_size=max(int(state.get("batch_size") or 1), 1),
+        )
+        state["last_user_id"] = next_user_id
+        state["source_exhausted"] = source_exhausted
+
+    target_setting_kind = (
+        "blueprints" if kind == MANUAL_REFRESH_KIND_BLUEPRINTS else "industry_jobs"
+    )
+    quota = max(_get_target_per_min(target_setting_kind), 1)
+    targets_to_dispatch = pending_targets[:quota]
+
+    character_queued = 0
+    corporation_queued = 0
+    for target in targets_to_dispatch:
+        if not _queue_bulk_target(kind, target):
+            continue
+        if target.get("scope") == "corporation":
+            corporation_queued += 1
+        else:
+            character_queued += 1
+
+    state["pending_targets"] = pending_targets[len(targets_to_dispatch) :]
+    state["last_dispatch_timestamp"] = now_timestamp
+    done = bool(state.get("source_exhausted")) and not state["pending_targets"]
+    if done:
+        _release_bulk_state(kind, lock_token)
+    else:
+        _save_bulk_state(kind, state)
+
+    queued_total = character_queued + corporation_queued
+    logger.info(
+        "Bulk %s dispatcher released %s/%s targets (%s pending, cursor=%s)",
+        kind,
+        queued_total,
+        len(targets_to_dispatch),
+        len(state["pending_targets"]),
+        state.get("last_user_id"),
+    )
+    analytics_task = (
+        "industry.update_all_blueprints"
+        if kind == MANUAL_REFRESH_KIND_BLUEPRINTS
+        else "industry.update_all_industry_jobs"
+    )
+    emit_analytics_event(
+        task=analytics_task,
+        label="queued",
+        result="success",
+        value=max(queued_total, 1),
+    )
+    return {
+        "users_queued": users_scanned,
+        "characters_queued": character_queued,
+        "corporation_users_queued": corporation_queued,
+        "targets_attempted": len(targets_to_dispatch),
+        "targets_pending": len(state["pending_targets"]),
+        "batch_size": int(state.get("batch_size") or 1),
+        "last_user_id": state.get("last_user_id"),
+        "done": done,
+    }
+
+
+def _start_or_resume_bulk_dispatch(
+    kind: str,
+    *,
+    last_user_id: int | None,
+    batch_size: int,
+    lock_token: str | None,
+) -> dict[str, object]:
+    batch_size = max(int(batch_size), 1)
+    if lock_token is None:
+        lock_token = uuid.uuid4().hex
+        if not _acquire_bulk_lock(
+            _bulk_lock_key(kind),
+            lock_token,
+            window_minutes=0,
+        ):
+            logger.info("Skipping bulk %s update: another run is in progress", kind)
+            return {
+                "users_queued": 0,
+                "characters_queued": 0,
+                "corporation_users_queued": 0,
+                "done": True,
+                "reason": "locked",
+            }
+        state = _new_bulk_state(
+            kind,
+            lock_token=lock_token,
+            last_user_id=last_user_id,
+            batch_size=batch_size,
+        )
+    else:
+        if not _refresh_bulk_lock(
+            _bulk_lock_key(kind),
+            lock_token,
+            window_minutes=0,
+        ):
+            logger.warning("Aborting bulk %s update: owner lock was lost", kind)
+            return {
+                "users_queued": 0,
+                "characters_queued": 0,
+                "corporation_users_queued": 0,
+                "done": True,
+                "reason": "lock_lost",
+            }
+        state = _load_bulk_state(kind)
+        if state is None or state.get("lock_token") != lock_token:
+            # Compatibility with continuation messages published by older releases.
+            state = _new_bulk_state(
+                kind,
+                lock_token=lock_token,
+                last_user_id=last_user_id,
+                batch_size=batch_size,
+            )
+
+    _save_bulk_state(kind, state)
+    dispatch_token = uuid.uuid4().hex
+    if not cache.add(
+        _bulk_dispatch_lock_key(kind),
+        dispatch_token,
+        timeout=_BULK_DISPATCH_LOCK_TTL_SECONDS,
+    ):
+        return {
+            "users_queued": 0,
+            "characters_queued": 0,
+            "corporation_users_queued": 0,
+            "done": False,
+            "reason": "dispatcher_busy",
+        }
+
+    try:
+        return _dispatch_bulk_state(kind, state)
+    finally:
+        _release_bulk_dispatch_lock(kind, dispatch_token)
+
+
+def _dispatch_pending_bulk_kind(kind: str) -> dict[str, object]:
+    state = _load_bulk_state(kind)
+    if state is None:
+        return {"done": True, "reason": "idle"}
+
+    dispatch_token = uuid.uuid4().hex
+    if not cache.add(
+        _bulk_dispatch_lock_key(kind),
+        dispatch_token,
+        timeout=_BULK_DISPATCH_LOCK_TTL_SECONDS,
+    ):
+        return {"done": False, "reason": "dispatcher_busy"}
+
+    try:
+        state = _load_bulk_state(kind)
+        if state is None:
+            return {"done": True, "reason": "idle"}
+        return _dispatch_bulk_state(kind, state)
+    finally:
+        _release_bulk_dispatch_lock(kind, dispatch_token)
+
+
+@shared_task
+def dispatch_pending_industry_bulk_updates() -> dict[str, object]:
+    """Release bounded blueprint/job work without storing long ETA tasks in Celery."""
+    results: dict[str, object] = {}
+    for kind in (MANUAL_REFRESH_KIND_BLUEPRINTS, MANUAL_REFRESH_KIND_JOBS):
+        try:
+            results[kind] = _dispatch_pending_bulk_kind(kind)
+        except Exception as exc:  # pragma: no cover - defensive per-kind isolation
+            logger.exception("Unable to dispatch pending %s bulk updates", kind)
+            results[kind] = {"done": False, "reason": "error", "error": str(exc)}
+    return results
+
+
 @shared_task
 def update_all_blueprints(
     *,
@@ -2790,178 +3001,13 @@ def update_all_blueprints(
     batch_size: int = 500,
     lock_token: str | None = None,
 ):
-    """
-    Update blueprints for all users - scheduled via Celery beat.
-
-    Dispatches per-user tasks in batches to avoid long-running scheduler work.
-    """
-    if batch_size <= 0:
-        batch_size = 1
-
-    release_lock = False
-    created_lock = False
-    initial_window_minutes = _get_bulk_window_minutes(MANUAL_REFRESH_KIND_BLUEPRINTS)
-    if lock_token is None:
-        lock_token = uuid.uuid4().hex
-        if not _acquire_bulk_lock(
-            _BLUEPRINTS_BULK_LOCK_KEY,
-            lock_token,
-            window_minutes=initial_window_minutes,
-        ):
-            logger.info(
-                "Skipping bulk blueprint update: another run is already in progress"
-            )
-            return {
-                "users_queued": 0,
-                "characters_queued": 0,
-                "done": True,
-                "reason": "locked",
-            }
-        created_lock = True
-    elif not _refresh_bulk_lock(
-        _BLUEPRINTS_BULK_LOCK_KEY,
-        lock_token,
-        window_minutes=initial_window_minutes,
-    ):
-        logger.warning(
-            "Aborting bulk blueprint update batch: lock lost for token %s",
-            lock_token,
-        )
-        return {
-            "users_queued": 0,
-            "characters_queued": 0,
-            "corporation_users_queued": 0,
-            "batch_size": batch_size,
-            "done": True,
-            "reason": "lock_lost",
-        }
-
-    try:
-        logger.info(
-            "Starting bulk blueprint update batch (last_user_id=%s, batch_size=%s)",
-            last_user_id,
-            batch_size,
-        )
-
-        user_ids = _select_blueprint_sync_user_ids(
-            last_user_id=last_user_id,
-            batch_size=batch_size,
-        )
-        if not user_ids:
-            logger.info("No users remaining for blueprint updates.")
-            release_lock = True
-            return {
-                "users_queued": 0,
-                "characters_queued": 0,
-                "corporation_users_queued": 0,
-                "batch_size": batch_size,
-                "done": True,
-            }
-
-        character_targets = _select_character_blueprint_targets_for_users(user_ids)
-        corporation_user_ids = _select_corporation_blueprint_user_ids_for_users(
-            user_ids
-        )
-        total_targets = len(character_targets) + len(corporation_user_ids)
-
-        window_minutes = max(
-            _get_bulk_window_minutes(MANUAL_REFRESH_KIND_BLUEPRINTS),
-            _get_adaptive_window_minutes("blueprints", total_targets),
-        )
-        if created_lock and not _refresh_created_bulk_lock(
-            _BLUEPRINTS_BULK_LOCK_KEY,
-            lock_token,
-            window_minutes=window_minutes,
-        ):
-            logger.warning(
-                "Aborting bulk blueprint update batch after lock ownership check failed for token %s",
-                lock_token,
-            )
-            return {
-                "users_queued": 0,
-                "characters_queued": 0,
-                "corporation_users_queued": 0,
-                "batch_size": batch_size,
-                "done": True,
-                "reason": "lock_lost",
-            }
-        elif not created_lock and not _refresh_bulk_lock(
-            _BLUEPRINTS_BULK_LOCK_KEY,
-            lock_token,
-            window_minutes=window_minutes,
-        ):
-            logger.warning(
-                "Aborting bulk blueprint update batch after lock ownership check failed for token %s",
-                lock_token,
-            )
-            return {
-                "users_queued": 0,
-                "characters_queued": 0,
-                "corporation_users_queued": 0,
-                "batch_size": batch_size,
-                "done": True,
-                "reason": "lock_lost",
-            }
-
-        character_queued = _queue_staggered_blueprint_character_tasks(
-            character_targets,
-            window_minutes=window_minutes,
-            priority=7,
-        )
-        corporation_queued = 0
-        if corporation_user_ids:
-            corporation_queued = _queue_staggered_blueprint_corporation_tasks(
-                corporation_user_ids,
-                window_minutes=window_minutes,
-                priority=7,
-            )
-
-        if len(user_ids) == batch_size:
-            update_all_blueprints.apply_async(
-                kwargs={
-                    "last_user_id": int(user_ids[-1]),
-                    "batch_size": batch_size,
-                    "lock_token": lock_token,
-                },
-                countdown=max(window_minutes * 60, 1),
-            )
-        else:
-            release_lock = True
-
-        queued_total = character_queued + corporation_queued
-        logger.info(
-            "Queued blueprint updates for %s users (%s characters, %s corporation scopes, batch_size=%s, window=%s min)",
-            len(user_ids),
-            character_queued,
-            corporation_queued,
-            batch_size,
-            window_minutes,
-        )
-        emit_analytics_event(
-            task="industry.update_all_blueprints",
-            label="queued",
-            result="success",
-            value=max(queued_total, 1),
-        )
-        return {
-            "users_queued": len(user_ids),
-            "characters_queued": character_queued,
-            "corporation_users_queued": corporation_queued,
-            "batch_size": batch_size,
-            "window_minutes": window_minutes,
-            "last_user_id": int(user_ids[-1]),
-            "done": len(user_ids) < batch_size,
-        }
-    except Exception:
-        release_lock = True
-        raise
-    finally:
-        if (
-            release_lock
-            and lock_token
-            and cache.get(_BLUEPRINTS_BULK_LOCK_KEY) == lock_token
-        ):
-            cache.delete(_BLUEPRINTS_BULK_LOCK_KEY)
+    """Start or resume a cache-backed, rate-bounded blueprint refresh."""
+    return _start_or_resume_bulk_dispatch(
+        MANUAL_REFRESH_KIND_BLUEPRINTS,
+        last_user_id=last_user_id,
+        batch_size=batch_size,
+        lock_token=lock_token,
+    )
 
 
 @shared_task
@@ -2971,176 +3017,13 @@ def update_all_industry_jobs(
     batch_size: int = 500,
     lock_token: str | None = None,
 ):
-    """
-    Update industry jobs for all users - scheduled via Celery beat.
-
-    Dispatches per-user tasks in batches to avoid long-running scheduler work.
-    """
-    if batch_size <= 0:
-        batch_size = 1
-
-    release_lock = False
-    created_lock = False
-    initial_window_minutes = _get_bulk_window_minutes(MANUAL_REFRESH_KIND_JOBS)
-    if lock_token is None:
-        lock_token = uuid.uuid4().hex
-        if not _acquire_bulk_lock(
-            _INDUSTRY_JOBS_BULK_LOCK_KEY,
-            lock_token,
-            window_minutes=initial_window_minutes,
-        ):
-            logger.info(
-                "Skipping bulk industry jobs update: another run is already in progress"
-            )
-            return {
-                "users_queued": 0,
-                "characters_queued": 0,
-                "done": True,
-                "reason": "locked",
-            }
-        created_lock = True
-    elif not _refresh_bulk_lock(
-        _INDUSTRY_JOBS_BULK_LOCK_KEY,
-        lock_token,
-        window_minutes=initial_window_minutes,
-    ):
-        logger.warning(
-            "Aborting bulk industry jobs update batch: lock lost for token %s",
-            lock_token,
-        )
-        return {
-            "users_queued": 0,
-            "characters_queued": 0,
-            "corporation_users_queued": 0,
-            "batch_size": batch_size,
-            "done": True,
-            "reason": "lock_lost",
-        }
-
-    try:
-        logger.info(
-            "Starting bulk industry jobs update batch (last_user_id=%s, batch_size=%s)",
-            last_user_id,
-            batch_size,
-        )
-
-        user_ids = _select_industry_job_sync_user_ids(
-            last_user_id=last_user_id,
-            batch_size=batch_size,
-        )
-        if not user_ids:
-            logger.info("No users remaining for industry job updates.")
-            release_lock = True
-            return {
-                "users_queued": 0,
-                "characters_queued": 0,
-                "corporation_users_queued": 0,
-                "batch_size": batch_size,
-                "done": True,
-            }
-
-        character_targets = _select_character_job_targets_for_users(user_ids)
-        corporation_user_ids = _select_corporation_job_user_ids_for_users(user_ids)
-        total_targets = len(character_targets) + len(corporation_user_ids)
-
-        window_minutes = max(
-            _get_bulk_window_minutes(MANUAL_REFRESH_KIND_JOBS),
-            _get_adaptive_window_minutes("industry_jobs", total_targets),
-        )
-        if created_lock and not _refresh_created_bulk_lock(
-            _INDUSTRY_JOBS_BULK_LOCK_KEY,
-            lock_token,
-            window_minutes=window_minutes,
-        ):
-            logger.warning(
-                "Aborting bulk industry jobs update batch after lock ownership check failed for token %s",
-                lock_token,
-            )
-            return {
-                "users_queued": 0,
-                "characters_queued": 0,
-                "corporation_users_queued": 0,
-                "batch_size": batch_size,
-                "done": True,
-                "reason": "lock_lost",
-            }
-        elif not created_lock and not _refresh_bulk_lock(
-            _INDUSTRY_JOBS_BULK_LOCK_KEY,
-            lock_token,
-            window_minutes=window_minutes,
-        ):
-            logger.warning(
-                "Aborting bulk industry jobs update batch after lock ownership check failed for token %s",
-                lock_token,
-            )
-            return {
-                "users_queued": 0,
-                "characters_queued": 0,
-                "corporation_users_queued": 0,
-                "batch_size": batch_size,
-                "done": True,
-                "reason": "lock_lost",
-            }
-
-        character_queued = _queue_staggered_industry_job_character_tasks(
-            character_targets,
-            window_minutes=window_minutes,
-            priority=7,
-        )
-        corporation_queued = 0
-        if corporation_user_ids:
-            corporation_queued = _queue_staggered_industry_job_corporation_tasks(
-                corporation_user_ids,
-                window_minutes=window_minutes,
-                priority=7,
-            )
-
-        if len(user_ids) == batch_size:
-            update_all_industry_jobs.apply_async(
-                kwargs={
-                    "last_user_id": int(user_ids[-1]),
-                    "batch_size": batch_size,
-                    "lock_token": lock_token,
-                },
-                countdown=max(window_minutes * 60, 1),
-            )
-        else:
-            release_lock = True
-
-        queued_total = character_queued + corporation_queued
-        logger.info(
-            "Queued industry job updates for %s users (%s characters, %s corporation scopes, batch_size=%s, window=%s min)",
-            len(user_ids),
-            character_queued,
-            corporation_queued,
-            batch_size,
-            window_minutes,
-        )
-        emit_analytics_event(
-            task="industry.update_all_industry_jobs",
-            label="queued",
-            result="success",
-            value=max(queued_total, 1),
-        )
-        return {
-            "users_queued": len(user_ids),
-            "characters_queued": character_queued,
-            "corporation_users_queued": corporation_queued,
-            "batch_size": batch_size,
-            "window_minutes": window_minutes,
-            "last_user_id": int(user_ids[-1]),
-            "done": len(user_ids) < batch_size,
-        }
-    except Exception:
-        release_lock = True
-        raise
-    finally:
-        if (
-            release_lock
-            and lock_token
-            and cache.get(_INDUSTRY_JOBS_BULK_LOCK_KEY) == lock_token
-        ):
-            cache.delete(_INDUSTRY_JOBS_BULK_LOCK_KEY)
+    """Start or resume a cache-backed, rate-bounded industry-job refresh."""
+    return _start_or_resume_bulk_dispatch(
+        MANUAL_REFRESH_KIND_JOBS,
+        last_user_id=last_user_id,
+        batch_size=batch_size,
+        lock_token=lock_token,
+    )
 
 
 @shared_task

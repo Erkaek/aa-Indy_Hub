@@ -308,7 +308,11 @@ SUPPORTED_TYPE_FALLBACKS = {
         "Intermediate Material",
         "Unrefined Mineral",
     ),
-    "hybrid_reactions": ("Hybrid Reaction",),
+    "hybrid_reactions": (
+        "Hybrid Reaction",
+        "Hybrid Polymer",
+        "Molecular-Forged Material",
+    ),
     "polymer_reactions": (
         "Polymer Reaction",
         "Hybrid Polymer",
@@ -1148,7 +1152,11 @@ def _live_output_row_matches_family(
             "unrefined mineral",
         }
     if family_key == "hybrid_reactions":
-        return normalized_group == "hybrid reaction"
+        return normalized_group in {
+            "hybrid reaction",
+            "hybrid polymer",
+            "molecular forged material",
+        }
     if family_key == "polymer_reactions":
         return normalized_group in {
             "polymer reaction",

@@ -307,7 +307,10 @@ class CraftBlueprintPayloadApiTests(TestCase):
     def test_compute_job_material_quantity_uses_job_level_rounding(self) -> None:
         self.assertEqual(compute_job_material_quantity(75, 50, 10), 3375)
         self.assertEqual(compute_job_material_quantity(18, 50, 10), 810)
-        self.assertEqual(compute_job_material_quantity(1, 50, 10), 45)
+
+    def test_compute_job_material_quantity_keeps_one_material_per_run(self) -> None:
+        self.assertEqual(compute_job_material_quantity(1, 50, 10), 50)
+        self.assertEqual(compute_job_material_quantity(1, 60, 3), 60)
 
     def test_base_item_efficiency_exemption_matches_t1_to_t2_upgrade(self) -> None:
         self.assertTrue(is_base_item_material_efficiency_exempt(2, 6, 1, 6))

@@ -125,6 +125,21 @@
 {% endblock extra_script %}
 
 {% block header_nav_brand %}
+    {% get_current_language as indy_hub_language %}
+    <script>
+        window.INDY_HUB_LOCALE = "{{ indy_hub_language|escapejs }}";
+        window.getIndyHubLocale = function () {
+            return window.INDY_HUB_LOCALE || "en";
+        };
+        document.documentElement.lang = window.getIndyHubLocale();
+        document.documentElement.setAttribute("translate", "no");
+        if (!document.head.querySelector('meta[name="google"]')) {
+            var indyHubTranslationMeta = document.createElement("meta");
+            indyHubTranslationMeta.name = "google";
+            indyHubTranslationMeta.content = "notranslate";
+            document.head.appendChild(indyHubTranslationMeta);
+        }
+    </script>
     {% block indy_hub_nav_brand %}
         <a href="{% url 'indy_hub:index' %}" class="indy-hub-navbar-brand d-inline-flex align-items-center text-nowrap text-decoration-none fw-semibold">
             {% trans "Indy Hub" %}

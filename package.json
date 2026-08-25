@@ -20,6 +20,7 @@
         "lint:js:fix": "npm run lint:js -- --fix",
         "lint:css": "stylelint \"indy_hub/static/indy_hub/css/**/*.css\"",
         "lint:css:fix": "npm run lint:css -- --fix",
+        "test:sell-paste-parser": "node scripts/test_material_exchange_sell_paste_parser.js",
         "test": "npm run lint"
     },
     "keywords": [

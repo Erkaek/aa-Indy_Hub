@@ -436,6 +436,19 @@ class IndustryStructureCalculationTests(TestCase):
         self.assertIn("Hybrid Polymer", supported_types)
         self.assertIn("Molecular-Forged Material", supported_types)
 
+    def test_hybrid_reaction_rigs_cover_live_hybrid_polymer_groups(self) -> None:
+        # rigReactionHybMatBonus/rigReactionHybTimeBonus are the actual live rig
+        # effect names granted by "Standup M-Set Hybrid Reactor" rigs; the live
+        # SDE has no "Polymer Reaction" effect, so Hybrid Polymer / Molecular-Forged
+        # Material items must be recognized under the "hybrid_reactions" family,
+        # not only the unused "polymer_reactions" family (issue: Molecular-Forged
+        # Materials not matching applicable structure ME bonuses).
+        supported_types = _supported_type_names_for_effect("rigreactionhybmatbonus")
+
+        self.assertIn("Hybrid Reaction", supported_types)
+        self.assertIn("Hybrid Polymer", supported_types)
+        self.assertIn("Molecular-Forged Material", supported_types)
+
     @patch("indy_hub.services.industry_structures.resolve_solar_system_reference")
     @patch("indy_hub.services.industry_structures.resolve_item_type_reference")
     @patch("indy_hub.services.industry_structures.get_type_snapshot")

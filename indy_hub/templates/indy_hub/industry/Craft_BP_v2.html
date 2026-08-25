@@ -8,7 +8,7 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'indy_hub/css/page_headers.css' %}">
 <link rel="stylesheet" href="{% static 'indy_hub/css/blueprints.css' %}">
-<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260801-output-price-sync">
+<link rel="stylesheet" href="{% static 'indy_hub/css/craft_bp.css' %}?v=20260820-pending-refresh-below-navbar">
 {% endblock extra_css %}
 
 {% block content %}
@@ -20,9 +20,9 @@
         {% include "indy_hub/partials/page_header.html" with icon_class="fas fa-tools" title=bp_name subtitle=_("Production workspace") back_url=back_url back_label=_("Back") header_controls=craft_header_controls %}
     {% endif %}
 
-    <div id="craftPendingRefreshNotice" class="small text-danger fw-semibold mb-3 d-none" role="status" aria-live="polite">
+    <div id="craftPendingRefreshNotice" class="craft-pending-refresh-banner d-none" role="status" aria-live="polite">
         <i class="fas fa-circle-exclamation me-1"></i>
-        Changes pending. Switch tabs to refresh calculations.
+        {% trans "Changes pending. Switch tabs to refresh calculations." %}
     </div>
 
     {% if sde_snapshot_has_changed %}
@@ -68,10 +68,6 @@
                 <h3 class="h6 fw-semibold mb-1 text-uppercase">{% trans "Active development" %}</h3>
                 <p class="mb-0 small">{% trans "This crafting workspace is under active development. Please don't rely on the displayed data for production decisions yet." %}</p>
             </div>
-        </div>
-
-        <div class="d-flex justify-content-end mb-3">
-            <span id="simulationStatus" class="badge bg-secondary d-none"></span>
         </div>
 
     {% with current_tab=active_tab|default:'materials' %}
@@ -1346,8 +1342,8 @@
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260804-pr154-review-fixes"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260801-functional-fixes-v3"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260820-pending-refresh-banner"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260820-status-badge-flash"></script>
 <script src="{% static 'indy_hub/js/craft_bp_project_rename.js' %}?v=20260523-project-rename-status"></script>
 {% endif %}
 {% endblock extra_javascript %}

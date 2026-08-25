@@ -365,6 +365,24 @@ def _get_table_columns(table_name: str) -> frozenset[str]:
     return frozenset(column.name for column in description)
 
 
+@lru_cache(maxsize=32)
+def _sde_english_name_expression(table_name: str) -> str:
+    """Build a SQL expression that always resolves the English `name` column.
+
+    `django-modeltranslation` registers `name` as a translated field on several
+    `eve_sde` models, so the plain ORM `.name` attribute silently resolves to
+    `name_<active Django locale>` instead of the raw column. EVE item/blueprint
+    names must stay in English regardless of the request's active language, so
+    raw SQL bypasses that proxy and reads `name_en` (falling back to `name`).
+    """
+    columns = _get_table_columns(table_name)
+    if "name_en" in columns and "name" in columns:
+        return "COALESCE(name_en, name)"
+    if "name_en" in columns:
+        return "name_en"
+    return "name"
+
+
 def _resolve_sde_location_name(location_id: int) -> str | None:
     """Resolve location names directly from SDE map data when possible.
 
@@ -414,7 +432,13 @@ def _resolve_sde_location_name(location_id: int) -> str | None:
 
 
 def get_type_name(type_id: int | None) -> str:
-    """Return the display name for a type ID, falling back to the ID string."""
+    """Return the display name for a type ID, falling back to the ID string.
+
+    Always returns the English name: `eve_sde.ItemType.name` is registered with
+    `django-modeltranslation`, which makes `.name` resolve to `name_<active locale>`
+    instead of a plain column, so EVE item/blueprint names must be read from
+    `name_en` directly to stay English regardless of the request's active language.
+    """
     if not type_id:
         return ""
 
@@ -428,18 +452,23 @@ def get_type_name(type_id: int | None) -> str:
         if cached_value and cached_value != str(type_id):
             return cached_value
 
-    item_type_model = _get_item_type_model()
-
-    if item_type_model is None:
+    if _get_item_type_model() is None:
         value = str(type_id)
     else:
+        name_expr = _sde_english_name_expression("eve_sde_itemtype")
         try:
-            value = item_type_model.objects.only("name").get(id=type_id).name
-        except item_type_model.DoesNotExist:  # type: ignore[attr-defined]
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT {name_expr} FROM eve_sde_itemtype WHERE id = %s",
+                    [type_id],
+                )
+                row = cursor.fetchone()
+        except Exception:
             logger.debug(
-                "EveType %s introuvable, retour de l'identifiant brut", type_id
+                "Failed to resolve English name for type %s", type_id, exc_info=True
             )
-            value = str(type_id)
+            row = None
+        value = str(row[0]) if row and row[0] else str(type_id)
 
     if value != str(type_id):
         _TYPE_NAME_CACHE[type_id] = value
@@ -559,22 +588,30 @@ def get_character_name(character_id: int | None) -> str:
 
 
 def batch_cache_type_names(type_ids: Iterable[int]) -> Mapping[int, str]:
-    """Fetch and cache type names in batch, returning the mapping."""
+    """Fetch and cache type names in batch, returning the mapping.
+
+    Always resolves the English name (see `get_type_name` docstring for why).
+    """
     ids = {int(pk) for pk in type_ids if pk}
     if not ids:
         return {}
 
-    item_type_model = _get_item_type_model()
-
-    if item_type_model is None:
+    if _get_item_type_model() is None:
         return {pk: str(pk) for pk in ids}
 
     result: dict[int, str] = {}
-    for eve_type in item_type_model.objects.filter(id__in=ids, published=True).only(
-        "id", "name"
-    ):
-        _TYPE_NAME_CACHE[eve_type.id] = eve_type.name
-        result[eve_type.id] = eve_type.name
+    name_expr = _sde_english_name_expression("eve_sde_itemtype")
+    placeholders = ", ".join(["%s"] * len(ids))
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"SELECT id, {name_expr} FROM eve_sde_itemtype "
+            f"WHERE id IN ({placeholders}) AND COALESCE(published, 0) = 1",
+            sorted(ids),
+        )
+        for type_id, name in cursor.fetchall():
+            name = str(name or "")
+            _TYPE_NAME_CACHE[int(type_id)] = name
+            result[int(type_id)] = name
 
     missing = ids - result.keys()
     for pk in missing:

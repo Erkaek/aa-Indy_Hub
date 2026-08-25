@@ -204,14 +204,12 @@ INDY_HUB_NOTIFICATION_DISPATCH_MODE = (
 INDY_HUB_NOTIFICATION_IDEMPOTENCY_TTL_SECONDS = 300  # Default: 300s
 INDY_HUB_DISCORD_ACTION_TOKEN_MAX_AGE = 86400  # Default: 24 hours
 
-# ESI task staggering (rate-limit friendly scheduling)
+# ESI task dispatch budgets (rate-limit friendly scheduling)
 INDY_HUB_ESI_TASK_STAGGER_THRESHOLD = 0  # Default: 0
 INDY_HUB_ESI_TASK_TARGET_PER_MIN_BLUEPRINTS = 90  # Default: 90
 INDY_HUB_ESI_TASK_TARGET_PER_MIN_JOBS = 60  # Default: 60
 INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS = 80  # Default: 80
 INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES = 60  # Default: 60
-INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES = 0  # Default: 0
-INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES = 0  # Default: 0
 
 # Stale refresh thresholds (hours)
 INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS = 24  # Default: 24
@@ -258,7 +256,15 @@ Notification dispatch modes:
 
 - `indy-hub-update-all-blueprints` → Daily at 03:30 UTC
 - `indy-hub-update-all-industry-jobs` → Every 2 hours
+- `indy-hub-dispatch-pending-industry-bulk-updates` → Every minute while bulk work is pending
 - `indy-hub-refresh-stale-snapshots` → Hourly (skills/roles/structures)
+
+Blueprint and industry-job bulk refreshes keep their pending state in the shared
+Django cache and release only the configured per-minute task budget. They do not
+publish hours of Celery ETA/countdown messages. The older
+`INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES` and
+`INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES` settings are retained for
+configuration compatibility but no longer control these two bulk refreshes.
 
 ______________________________________________________________________
 

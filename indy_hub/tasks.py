@@ -23,6 +23,7 @@ from .tasks.housekeeping import refresh_stale_snapshots  # noqa: F401
 # Import all tasks from specialized modules
 from .tasks.industry import (  # noqa: F401
     cleanup_old_jobs,
+    dispatch_pending_industry_bulk_updates,
     update_all_blueprints,
     update_all_industry_jobs,
     update_blueprints_for_user,

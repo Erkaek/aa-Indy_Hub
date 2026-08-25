@@ -111,6 +111,16 @@
                 : buildManualPricesFromLegacyPrices(state.custom_prices),
             simulationName: String(state.simulationName || state.simulation_name || state.project_name || ''),
             decisionBuyTolerance: String(state.decisionBuyTolerance || ''),
+            extraCostRows: Array.isArray(state.extraCostRows)
+                ? state.extraCostRows
+                    .map((entry) => ({
+                        name: String(entry?.name || '').trim(),
+                        type: (String(entry?.type || '').trim().toLowerCase() === 'revenue') ? 'revenue' : 'expense',
+                        quantity: Math.max(0, Number(entry?.quantity) || 0),
+                        unitPrice: Math.max(0, Number(entry?.unitPrice) || 0),
+                    }))
+                    .filter((entry) => entry.name || entry.quantity > 0 || entry.unitPrice > 0)
+                : [],
             revenueMode: (String(state.revenueMode || '').trim().toLowerCase() === 'total') ? 'total' : 'per_unit',
             revenueTotalOverride: (() => {
                 const v = Number.parseFloat(state.revenueTotalOverride);
@@ -201,6 +211,7 @@
             meTeConfig: normalizedState.meTeConfig,
             copyRequests: normalizedState.copyRequests,
             structure: normalizedState.structure,
+            extraCostRows: normalizedState.extraCostRows,
             revenueMode: normalizedState.revenueMode,
             revenueTotalOverride: normalizedState.revenueTotalOverride,
             pendingWorkspaceRefresh: normalizedState.pendingWorkspaceRefresh,
@@ -323,6 +334,12 @@
                 badge.classList.add('bg-info');
                 break;
         }
+
+        // Restart the flash animation on every update, even if the variant/text
+        // are unchanged, so the badge keeps drawing the eye each time it fires.
+        badge.classList.remove('page-header-status--flash');
+        void badge.offsetWidth;
+        badge.classList.add('page-header-status--flash');
 
         if (badge.dataset.timeoutId) {
             window.clearTimeout(Number(badge.dataset.timeoutId));
@@ -496,7 +513,7 @@
         const runsValue = runsInput ? Number(runsInput.value) || 1 : 1;
         const runsSummary = document.getElementById('summaryRuns');
         if (runsSummary) {
-            runsSummary.textContent = runsValue.toLocaleString();
+            runsSummary.textContent = runsValue.toLocaleString(window.getIndyHubLocale());
         }
 
         const items = gatherProductionItems();
@@ -505,10 +522,10 @@
         const prodSummary = document.getElementById('summaryProdItems');
         const buySummary = document.getElementById('summaryBuyItems');
         if (prodSummary) {
-            prodSummary.textContent = prodItems.toLocaleString();
+            prodSummary.textContent = prodItems.toLocaleString(window.getIndyHubLocale());
         }
         if (buySummary) {
-            buySummary.textContent = buyItems.toLocaleString();
+            buySummary.textContent = buyItems.toLocaleString(window.getIndyHubLocale());
         }
 
         const profitSummary = document.getElementById('summaryProfit');
@@ -695,7 +712,7 @@
             const title = simulation.simulation_name || simulation.display_name || `${__('Runs')} x${simulation.runs}`;
             const runsLabel = formatRunsLabel(simulation.runs);
             const subtitle = simulation.blueprint_name ? `${simulation.blueprint_name} · ${runsLabel}` : runsLabel;
-            const profit = Number(simulation.estimated_profit || 0).toLocaleString();
+            const profit = Number(simulation.estimated_profit || 0).toLocaleString(window.getIndyHubLocale());
             const updated = simulation.updated_at ? simulation.updated_at : '—';
 
             button.innerHTML = `
@@ -979,6 +996,8 @@
             const editableTarget = target.closest(
                 '#runsInput, .mat-switch, .real-price, .sale-price-unit, .craft-final-output-quantity, '
                 + '.bp-me-input, .bp-te-input, #decisionBuyToleranceInput, '
+                + '.financial-extra-name, .financial-extra-type, .financial-extra-qty, .financial-extra-price, '
+                + '#addFinancialExtraCostRowBtn, .financial-extra-remove, '
                 + 'input[data-type-id], select[data-type-id], textarea[data-type-id]'
             );
             if (!editableTarget) {
@@ -990,6 +1009,7 @@
 
         document.addEventListener('input', markUserInteraction, true);
         document.addEventListener('change', markUserInteraction, true);
+        document.addEventListener('click', markUserInteraction, true);
 
         if (isProjectWorkspace && blueprintData.workspace_state) {
             const normalizedState = normalizeWorkspaceStateForSession(blueprintData.workspace_state);

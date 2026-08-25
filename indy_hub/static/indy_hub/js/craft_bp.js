@@ -152,7 +152,7 @@ function runCraftTabRefresh(tabName, label, refreshFn) {
 
 function formatInteger(value) {
     const num = Number(value) || 0;
-    return num.toLocaleString();
+    return num.toLocaleString(window.getIndyHubLocale());
 }
 
 function mapLikeToMap(source) {
@@ -946,7 +946,16 @@ function updatePendingWorkspaceRefreshNotice() {
     const hasPendingRefresh = Boolean(
         window.craftBPFlags?.hasPendingWorkspaceRefresh || window.craftBPFlags?.hasPendingMETEChanges
     );
+    const wasHidden = notice.classList.contains('d-none');
     notice.classList.toggle('d-none', !hasPendingRefresh);
+
+    // Flash once when the banner transitions from hidden to visible so it
+    // catches the eye without blinking continuously while it stays up.
+    if (hasPendingRefresh && wasHidden) {
+        notice.classList.remove('craft-pending-refresh-banner--flash');
+        void notice.offsetWidth;
+        notice.classList.add('craft-pending-refresh-banner--flash');
+    }
 }
 
 function markPendingWorkspaceRefresh(options = {}) {
@@ -1313,10 +1322,11 @@ function computeStructureAdjustedNodeQuantity(node, fallbackQuantity, materialBo
         );
         const blueprintMultiplier = 1 - (blueprintME / 100);
         const structureMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
-        return Math.max(
-            0,
-            Math.ceil(baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier)
-        ) || 0;
+        const adjustedQuantity = Math.ceil(
+            baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier
+        );
+        // EVE requires at least one unit of every listed material per run.
+        return Math.max(jobRuns, adjustedQuantity) || 0;
     }
 
     const fallbackMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
@@ -2804,7 +2814,7 @@ function getCraftStockCharacterBreakdownForLocations(typeId, locationKeys = []) 
             const leftName = String(left.characterName || '').toLowerCase();
             const rightName = String(right.characterName || '').toLowerCase();
             if (leftName !== rightName) {
-                return leftName.localeCompare(rightName);
+                return leftName.localeCompare(rightName, window.getIndyHubLocale());
             }
             return left.characterId - right.characterId;
         });
@@ -2840,12 +2850,12 @@ function getCraftStockCharacterLocationBreakdownForLocations(typeId, locationKey
         const leftCharacter = String(left.characterName || '').toLowerCase();
         const rightCharacter = String(right.characterName || '').toLowerCase();
         if (leftCharacter !== rightCharacter) {
-            return leftCharacter.localeCompare(rightCharacter);
+            return leftCharacter.localeCompare(rightCharacter, window.getIndyHubLocale());
         }
         const leftLocation = String(left.locationName || '').toLowerCase();
         const rightLocation = String(right.locationName || '').toLowerCase();
         if (leftLocation !== rightLocation) {
-            return leftLocation.localeCompare(rightLocation);
+            return leftLocation.localeCompare(rightLocation, window.getIndyHubLocale());
         }
         return right.quantity - left.quantity;
     });
@@ -3127,11 +3137,11 @@ function getCraftSourceRequirementRows() {
             return itemIdxA - itemIdxB;
         }
 
-        const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
+        const groupCmp = String(groupA).localeCompare(String(groupB), window.getIndyHubLocale(), { sensitivity: 'base' });
         if (groupCmp !== 0) {
             return groupCmp;
         }
-        return String(a.typeName).localeCompare(String(b.typeName), undefined, { sensitivity: 'base' });
+        return String(a.typeName).localeCompare(String(b.typeName), window.getIndyHubLocale(), { sensitivity: 'base' });
     });
 }
 
@@ -4900,7 +4910,7 @@ async function computeCraftDecisionAnalysis(options = {}) {
             } else if (leftHasGroup !== rightHasGroup) {
                 return leftHasGroup ? -1 : 1;
             } else {
-                const groupCmp = String(leftGroup).localeCompare(String(rightGroup), undefined, { sensitivity: 'base' });
+                const groupCmp = String(leftGroup).localeCompare(String(rightGroup), window.getIndyHubLocale(), { sensitivity: 'base' });
                 if (groupCmp !== 0) {
                     return groupCmp;
                 }
@@ -5946,7 +5956,7 @@ if (document.getElementById('bpTabs-loading') && window.CraftBPLoading && typeof
  * @returns {string} Formatted price string
  */
 function formatPrice(num) {
-    return num.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ISK';
+    return num.toLocaleString(window.getIndyHubLocale(), {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ISK';
 }
 
 /**
@@ -5955,7 +5965,7 @@ function formatPrice(num) {
  * @returns {string} Formatted number string
  */
 function formatNumber(num) {
-    return num.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    return num.toLocaleString(window.getIndyHubLocale(), {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 
 function formatPercent(value, digits = 2) {
@@ -6234,17 +6244,17 @@ function getAlphabetizedStructureOptions(item, typeId) {
                 return left.isFav ? -1 : 1;
             }
 
-            const nameCmp = left.sortText.name.localeCompare(right.sortText.name, undefined, { sensitivity: 'base', numeric: true });
+            const nameCmp = left.sortText.name.localeCompare(right.sortText.name, window.getIndyHubLocale(), { sensitivity: 'base', numeric: true });
             if (nameCmp !== 0) {
                 return nameCmp;
             }
 
-            const systemCmp = left.sortText.systemName.localeCompare(right.sortText.systemName, undefined, { sensitivity: 'base', numeric: true });
+            const systemCmp = left.sortText.systemName.localeCompare(right.sortText.systemName, window.getIndyHubLocale(), { sensitivity: 'base', numeric: true });
             if (systemCmp !== 0) {
                 return systemCmp;
             }
 
-            const labelCmp = left.sortText.label.localeCompare(right.sortText.label, undefined, { sensitivity: 'base', numeric: true });
+            const labelCmp = left.sortText.label.localeCompare(right.sortText.label, window.getIndyHubLocale(), { sensitivity: 'base', numeric: true });
             if (labelCmp !== 0) {
                 return labelCmp;
             }
@@ -6694,7 +6704,7 @@ function computeStructureInstallationSummary() {
         });
     });
 
-    summary.rows.sort((a, b) => String(a.typeName).localeCompare(String(b.typeName), undefined, { sensitivity: 'base' }));
+    summary.rows.sort((a, b) => String(a.typeName).localeCompare(String(b.typeName), window.getIndyHubLocale(), { sensitivity: 'base' }));
     return summary;
 }
 
@@ -7026,7 +7036,7 @@ function renderStructureCategoryAssignments(items) {
             .sort((a, b) => {
                 const nameA = String(a.name || '');
                 const nameB = String(b.name || '');
-                return nameA.localeCompare(nameB, undefined, { sensitivity: 'base', numeric: true });
+                return nameA.localeCompare(nameB, window.getIndyHubLocale(), { sensitivity: 'base', numeric: true });
             })
             .map((opt) => {
                 const sid = Number(opt.structure_id || opt.structureId || 0);
@@ -7197,6 +7207,12 @@ function renderStructurePlanner(options = {}) {
             const decoratedOption = getStructurePlannerOption(typeId, structureId) || option;
             return `<option value="${structureId}" ${structureId === selectedStructureId ? 'selected' : ''}>${escapeHtml(buildStructureOptionLabel(decoratedOption))}</option>`;
         }).join('');
+        const recommendedIdForApply = nearestOption
+            ? (Number(nearestOption.structureId || nearestOption.structure_id || 0) || 0)
+            : recommendedStructureId;
+        const hasRecommendation = recommendedIdForApply > 0
+            && options.some((option) => (Number(option.structureId || option.structure_id || 0) || 0) === recommendedIdForApply);
+        const isAlreadyRecommended = hasRecommendation && recommendedIdForApply === selectedStructureId;
 
         return `
             <tr>
@@ -7209,9 +7225,14 @@ function renderStructurePlanner(options = {}) {
                     <div class="small text-muted">${escapeHtml(recommendedDistanceLabel)}</div>
                 </td>
                 <td>
-                    <select class="form-select form-select-sm structure-assignment-select" data-type-id="${typeId}">
-                        ${optionMarkup}
-                    </select>
+                    <div class="d-flex align-items-center gap-1">
+                        <button type="button" class="btn btn-outline-primary btn-sm structure-assign-recommended-btn" data-type-id="${typeId}" data-recommended-structure-id="${recommendedIdForApply}" title="${escapeHtml(__('Reset to recommended structure'))}" aria-label="${escapeHtml(__('Reset to recommended structure'))}" ${hasRecommendation ? '' : 'disabled'} ${isAlreadyRecommended ? 'disabled' : ''}>
+                            <i class="fas fa-undo"></i>
+                        </button>
+                        <select class="form-select form-select-sm structure-assignment-select" data-type-id="${typeId}">
+                            ${optionMarkup}
+                        </select>
+                    </div>
                 </td>
                 <td class="text-end fw-semibold">${renderStructureMetricCell(selectedOption, 'material', { item })}</td>
                 <td class="text-end fw-semibold">${renderStructureMetricCell(selectedOption, 'time', { item })}</td>
@@ -7221,23 +7242,38 @@ function renderStructurePlanner(options = {}) {
         `;
     }).join('');
 
+    const applyStructureAssignment = (typeId, structureId) => {
+        if (!typeId || !structureId || !window.SimulationAPI || typeof window.SimulationAPI.setStructureAssignment !== 'function') {
+            return;
+        }
+        window.SimulationAPI.setStructureAssignment(typeId, structureId);
+        refreshPlanTreeAfterStructureAssignment();
+        renderStructurePlanner();
+        markPendingWorkspaceRefresh({ sourceTabName: 'structure' });
+        persistCraftPageSessionState();
+    };
+
     rowsContainer.querySelectorAll('.structure-assignment-select').forEach((select) => {
         if (select.dataset.boundChange === 'true') {
             return;
         }
         select.addEventListener('change', () => {
-            const typeId = Number(select.getAttribute('data-type-id')) || 0;
-            const structureId = Number(select.value) || 0;
-            if (!typeId || !structureId || !window.SimulationAPI || typeof window.SimulationAPI.setStructureAssignment !== 'function') {
-                return;
-            }
-            window.SimulationAPI.setStructureAssignment(typeId, structureId);
-            refreshPlanTreeAfterStructureAssignment();
-            renderStructurePlanner();
-            markPendingWorkspaceRefresh({ sourceTabName: 'structure' });
-            persistCraftPageSessionState();
+            applyStructureAssignment(Number(select.getAttribute('data-type-id')) || 0, Number(select.value) || 0);
         });
         select.dataset.boundChange = 'true';
+    });
+
+    rowsContainer.querySelectorAll('.structure-assign-recommended-btn').forEach((button) => {
+        if (button.dataset.boundClick === 'true') {
+            return;
+        }
+        button.addEventListener('click', () => {
+            applyStructureAssignment(
+                Number(button.getAttribute('data-type-id')) || 0,
+                Number(button.getAttribute('data-recommended-structure-id')) || 0
+            );
+        });
+        button.dataset.boundClick = 'true';
     });
 }
 
@@ -8213,16 +8249,16 @@ function recalcFinancials() {
     applyFinancialPlannerFilters();
 
     const now = new Date();
-    const formattedTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const formattedTime = now.toLocaleTimeString(window.getIndyHubLocale(), { hour: '2-digit', minute: '2-digit' });
 
     if (summaryUpdatedEl) {
         summaryUpdatedEl.textContent = formattedTime;
-        summaryUpdatedEl.setAttribute('title', now.toLocaleString());
+        summaryUpdatedEl.setAttribute('title', now.toLocaleString(window.getIndyHubLocale()));
     }
 
     if (heroUpdatedEl) {
         heroUpdatedEl.textContent = formattedTime;
-        heroUpdatedEl.setAttribute('title', now.toLocaleString());
+        heroUpdatedEl.setAttribute('title', now.toLocaleString(window.getIndyHubLocale()));
     }
 }
 
@@ -8354,10 +8390,10 @@ function sortFuzzworkColumnKeys(keys) {
         .map(k => ({ k, r: keyRank(k) }))
         .sort((a, b) => {
             if (a.r.gIdx !== b.r.gIdx) return a.r.gIdx - b.r.gIdx;
-            if (a.r.group !== b.r.group) return a.r.group.localeCompare(b.r.group);
+            if (a.r.group !== b.r.group) return a.r.group.localeCompare(b.r.group, window.getIndyHubLocale());
             if (a.r.sIdx !== b.r.sIdx) return a.r.sIdx - b.r.sIdx;
-            if (a.r.sub !== b.r.sub) return a.r.sub.localeCompare(b.r.sub);
-            return a.r.full.localeCompare(b.r.full);
+            if (a.r.sub !== b.r.sub) return a.r.sub.localeCompare(b.r.sub, window.getIndyHubLocale());
+            return a.r.full.localeCompare(b.r.full, window.getIndyHubLocale());
         })
         .map(x => x.k);
 }
@@ -8460,11 +8496,11 @@ function updateMaterialsTabFromState() {
         return;
     }
 
-    const sortedGroups = Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: 'base' }));
+    const sortedGroups = Array.from(groups.entries()).sort((a, b) => a[0].localeCompare(b[0], window.getIndyHubLocale(), { sensitivity: 'base' }));
     container.innerHTML = '';
 
     sortedGroups.forEach(([groupName, groupItems]) => {
-        groupItems.sort((a, b) => a.typeName.localeCompare(b.typeName, undefined, { sensitivity: 'base' }));
+        groupItems.sort((a, b) => a.typeName.localeCompare(b.typeName, window.getIndyHubLocale(), { sensitivity: 'base' }));
         const rowsHtml = groupItems.map(item => `
             <tr data-type-id="${item.typeId}">
                 <td class="fw-semibold">
@@ -8828,7 +8864,7 @@ function renderCraftStockManagement() {
     const syncEl = document.getElementById('stockSummaryUpdated');
     if (syncEl) {
         syncEl.textContent = getCraftCharacterStockSnapshot().synced_at
-            ? new Date(getCraftCharacterStockSnapshot().synced_at).toLocaleString()
+            ? new Date(getCraftCharacterStockSnapshot().synced_at).toLocaleString(window.getIndyHubLocale())
             : __('No asset sync yet');
     }
 
@@ -9252,7 +9288,7 @@ function sortBuildCycleEntries(entries) {
         } else if (hasA !== hasB) {
             return hasA ? -1 : 1;
         } else {
-            const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
+            const groupCmp = String(groupA).localeCompare(String(groupB), window.getIndyHubLocale(), { sensitivity: 'base' });
             if (groupCmp !== 0) {
                 return groupCmp;
             }
@@ -9266,7 +9302,7 @@ function sortBuildCycleEntries(entries) {
             return itemIdxA - itemIdxB;
         }
 
-        return String(a?.type_name || a?.typeName || '').localeCompare(String(b?.type_name || b?.typeName || ''), undefined, { sensitivity: 'base' });
+        return String(a?.type_name || a?.typeName || '').localeCompare(String(b?.type_name || b?.typeName || ''), window.getIndyHubLocale(), { sensitivity: 'base' });
     });
 }
 
@@ -9593,7 +9629,7 @@ function getCraftProductionTimeRows() {
             if (right.elapsedSeconds !== left.elapsedSeconds) {
                 return right.elapsedSeconds - left.elapsedSeconds;
             }
-            return String(left.typeName).localeCompare(String(right.typeName), undefined, { sensitivity: 'base' });
+            return String(left.typeName).localeCompare(String(right.typeName), window.getIndyHubLocale(), { sensitivity: 'base' });
         });
 }
 
@@ -9643,7 +9679,7 @@ function buildCraftProductionSteps(rows) {
                 if ((right.elapsedSeconds || right.totalSeconds) !== (left.elapsedSeconds || left.totalSeconds)) {
                     return (right.elapsedSeconds || right.totalSeconds) - (left.elapsedSeconds || left.totalSeconds);
                 }
-                return String(left.typeName).localeCompare(String(right.typeName), undefined, { sensitivity: 'base' });
+                return String(left.typeName).localeCompare(String(right.typeName), window.getIndyHubLocale(), { sensitivity: 'base' });
             });
             const timedRows = orderedRows.filter((row) => row.hasBaseTime);
             return {
@@ -9966,7 +10002,7 @@ function sortBuildCyclesTable() {
             return hasA ? -1 : 1;
         } else {
             // Neither group exists in the dashboard list -> sort groups alphabetically.
-            const groupCmp = String(groupA).localeCompare(String(groupB), undefined, { sensitivity: 'base' });
+            const groupCmp = String(groupA).localeCompare(String(groupB), window.getIndyHubLocale(), { sensitivity: 'base' });
             if (groupCmp !== 0) {
                 return groupCmp;
             }
@@ -9981,7 +10017,7 @@ function sortBuildCyclesTable() {
             return itemIdxA - itemIdxB;
         }
 
-        return nameForRow(a).localeCompare(nameForRow(b), undefined, { sensitivity: 'base' });
+        return nameForRow(a).localeCompare(nameForRow(b), window.getIndyHubLocale(), { sensitivity: 'base' });
     });
 
     // Re-append in desired order.

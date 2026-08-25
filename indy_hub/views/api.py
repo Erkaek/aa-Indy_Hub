@@ -127,6 +127,33 @@ def _sanitize_production_workspace_state(
             return 0.0
         return max(0.0, num)
 
+    def sanitize_extra_cost_rows(value):
+        if not isinstance(value, list):
+            return []
+        normalized = []
+        for raw_entry in value:
+            if not isinstance(raw_entry, dict):
+                continue
+            name = str(raw_entry.get("name") or "").strip()
+            row_type = (
+                "revenue"
+                if str(raw_entry.get("type") or "").strip().lower() == "revenue"
+                else "expense"
+            )
+            quantity = sanitize_positive_float(raw_entry.get("quantity"))
+            unit_price = sanitize_positive_float(raw_entry.get("unitPrice"))
+            if not name and quantity <= 0 and unit_price <= 0:
+                continue
+            normalized.append(
+                {
+                    "name": name,
+                    "type": row_type,
+                    "quantity": quantity,
+                    "unitPrice": unit_price,
+                }
+            )
+        return normalized
+
     existing_workspace_state = strip_project_workspace_cache(
         getattr(project, "workspace_state", None)
     )
@@ -178,6 +205,7 @@ def _sanitize_production_workspace_state(
         ),
         "meTeConfig": sanitize_dict(data.get("meTeConfig")),
         "copyRequests": sanitize_list(data.get("copyRequests")),
+        "extraCostRows": sanitize_extra_cost_rows(data.get("extraCostRows")),
         "finalOutputQuantities": sanitize_final_output_quantities(
             data.get("finalOutputQuantities")
         ),

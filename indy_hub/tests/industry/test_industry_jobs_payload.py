@@ -16,6 +16,7 @@ from allianceauth.eveonline.models import EveCharacter
 # AA Example App
 from indy_hub.tasks.industry import (
     _is_user_active,
+    dispatch_pending_industry_bulk_updates,
     queue_blueprint_update_for_user,
     queue_industry_job_update_for_user,
     request_manual_refresh,
@@ -23,6 +24,30 @@ from indy_hub.tasks.industry import (
     update_all_industry_jobs,
     update_industry_jobs_for_user,
 )
+
+
+class _FakeCache:
+    def __init__(self) -> None:
+        self.values = {}
+
+    def add(self, key, value, timeout=None):
+        if key in self.values:
+            return False
+        self.values[key] = value
+        return True
+
+    def get(self, key, default=None):
+        return self.values.get(key, default)
+
+    def set(self, key, value, timeout=None):
+        self.values[key] = value
+        return True
+
+    def touch(self, key, timeout=None):
+        return key in self.values
+
+    def delete(self, key):
+        return bool(self.values.pop(key, None))
 
 
 class _FakeTokenQuerySet:
@@ -301,11 +326,12 @@ class IndustryJobsPayloadTests(TestCase):
             "Expected warning about unexpected job item type",
         )
 
-    def test_bulk_job_updates_are_staggered_per_character(self) -> None:
+    def test_bulk_job_updates_release_a_bounded_immediate_batch(self) -> None:
+        fake_cache = _FakeCache()
         with (
             patch(
-                "indy_hub.tasks.industry._select_industry_job_sync_user_ids",
-                return_value=[101, 202, 303],
+                "indy_hub.tasks.industry._select_industry_job_sync_user_page",
+                return_value=([101, 202, 303], 303, True),
             ),
             patch(
                 "indy_hub.tasks.industry._select_character_job_targets_for_users",
@@ -315,160 +341,140 @@ class IndustryJobsPayloadTests(TestCase):
                 "indy_hub.tasks.industry._select_corporation_job_user_ids_for_users",
                 return_value=[202, 303],
             ),
+            patch("indy_hub.tasks.industry.cache", fake_cache),
+            patch("indy_hub.tasks.industry._get_target_per_min", return_value=3),
             patch(
-                "indy_hub.tasks.industry._queue_staggered_industry_job_character_tasks"
-            ) as queue_characters,
-            patch(
-                "indy_hub.tasks.industry._queue_staggered_industry_job_corporation_tasks"
-            ) as queue_corporations,
+                "indy_hub.tasks.industry.queue_industry_job_update_for_user",
+                return_value=True,
+            ) as queue_target,
             patch("indy_hub.tasks.industry.emit_analytics_event"),
-            patch("indy_hub.tasks.industry.update_all_industry_jobs.apply_async"),
-            patch("indy_hub.tasks.industry.cache.add", return_value=True) as cache_add,
-            patch("indy_hub.tasks.industry.cache.get") as cache_get,
         ):
-            cache_get.side_effect = lambda key, _cache_add=cache_add: (
-                _cache_add.call_args.args[1] if _cache_add.call_args else None
-            )
-            queue_characters.return_value = 3
-            queue_corporations.return_value = 2
             result = update_all_industry_jobs(batch_size=100)
+            throttled = dispatch_pending_industry_bulk_updates()
+            fake_cache.values["indy_hub:industry_jobs_bulk:state"][
+                "last_dispatch_timestamp"
+            ] = 0
+            resumed = dispatch_pending_industry_bulk_updates()
 
-        queue_characters.assert_called_once()
-        args, kwargs = queue_characters.call_args
-        self.assertEqual(kwargs["window_minutes"], 120)
-        self.assertEqual(kwargs["priority"], 7)
-        self.assertEqual(args[0], [(101, 1001), (101, 1002), (202, 2001)])
-        queue_corporations.assert_called_once_with(
-            [202, 303],
-            window_minutes=120,
-            priority=7,
-        )
         self.assertEqual(result["characters_queued"], 3)
-        self.assertEqual(result["corporation_users_queued"], 2)
+        self.assertEqual(result["corporation_users_queued"], 0)
+        self.assertEqual(result["targets_pending"], 2)
+        self.assertFalse(result["done"])
+        self.assertEqual(throttled["jobs"]["reason"], "dispatch_interval")
+        self.assertEqual(resumed["jobs"]["corporation_users_queued"], 2)
+        self.assertTrue(resumed["jobs"]["done"])
+        self.assertEqual(queue_target.call_count, 5)
+        for call in queue_target.call_args_list:
+            self.assertNotIn("countdown", call.kwargs)
+            self.assertEqual(call.kwargs["priority"], 7)
+        self.assertNotIn("indy_hub:industry_jobs_bulk:state", fake_cache.values)
+        self.assertNotIn("indy_hub:industry_jobs_bulk:lock", fake_cache.values)
 
-    def test_bulk_job_updates_delay_next_batch_until_window_ends(self) -> None:
+    def test_bulk_job_updates_resume_from_cache_without_eta_continuation(self) -> None:
+        fake_cache = _FakeCache()
         with (
             patch(
-                "indy_hub.tasks.industry._select_industry_job_sync_user_ids",
-                return_value=[101, 202],
-            ),
+                "indy_hub.tasks.industry._select_industry_job_sync_user_page",
+                side_effect=[([101, 202], 202, False), ([303], 303, True)],
+            ) as select_page,
             patch(
                 "indy_hub.tasks.industry._select_character_job_targets_for_users",
-                return_value=[(101, 1001), (202, 2001)],
+                side_effect=lambda user_ids: [
+                    (user_id, user_id * 10) for user_id in user_ids
+                ],
             ),
             patch(
                 "indy_hub.tasks.industry._select_corporation_job_user_ids_for_users",
                 return_value=[],
             ),
+            patch("indy_hub.tasks.industry.cache", fake_cache),
+            patch("indy_hub.tasks.industry._get_target_per_min", return_value=60),
             patch(
-                "indy_hub.tasks.industry._queue_staggered_industry_job_character_tasks",
-                return_value=2,
-            ),
-            patch(
-                "indy_hub.tasks.industry._queue_staggered_industry_job_corporation_tasks",
-                return_value=0,
-            ),
+                "indy_hub.tasks.industry.queue_industry_job_update_for_user",
+                return_value=True,
+            ) as queue_target,
             patch("indy_hub.tasks.industry.emit_analytics_event"),
-            patch("indy_hub.tasks.industry.cache.add", return_value=True) as cache_add,
-            patch("indy_hub.tasks.industry.cache.get") as cache_get,
             patch(
                 "indy_hub.tasks.industry.update_all_industry_jobs.apply_async"
             ) as requeue,
         ):
-            cache_get.side_effect = lambda key, _cache_add=cache_add: (
-                _cache_add.call_args.args[1] if _cache_add.call_args else None
-            )
-            update_all_industry_jobs(batch_size=2)
+            first = update_all_industry_jobs(batch_size=2)
+            fake_cache.values["indy_hub:industry_jobs_bulk:state"][
+                "last_dispatch_timestamp"
+            ] = 0
+            second = dispatch_pending_industry_bulk_updates()["jobs"]
 
-        requeue.assert_called_once()
-        kwargs = requeue.call_args.kwargs["kwargs"]
-        self.assertEqual(kwargs["last_user_id"], 202)
-        self.assertEqual(kwargs["batch_size"], 2)
-        self.assertTrue(kwargs["lock_token"])
-        self.assertEqual(requeue.call_args.kwargs["countdown"], 7200)
+        requeue.assert_not_called()
+        self.assertFalse(first["done"])
+        self.assertEqual(first["last_user_id"], 202)
+        self.assertTrue(second["done"])
+        self.assertEqual(second["last_user_id"], 303)
+        self.assertEqual(select_page.call_args_list[1].kwargs["last_user_id"], 202)
+        self.assertEqual(queue_target.call_count, 3)
+        for call in queue_target.call_args_list:
+            self.assertNotIn("countdown", call.kwargs)
 
-    def test_bulk_blueprint_updates_are_staggered_per_character(self) -> None:
+    def test_bulk_blueprint_updates_release_a_bounded_immediate_batch(self) -> None:
+        fake_cache = _FakeCache()
         with (
             patch(
-                "indy_hub.tasks.industry._select_blueprint_sync_user_ids",
-                return_value=[101, 202, 303],
+                "indy_hub.tasks.industry._select_blueprint_sync_user_page",
+                return_value=([101, 202, 303], 303, True),
             ),
             patch(
                 "indy_hub.tasks.industry._select_character_blueprint_targets_for_users",
                 return_value=[(101, 1001), (101, 1002), (202, 2001)],
             ),
             patch(
-                "indy_hub.tasks.industry._select_corporation_blueprint_user_ids_for_users",
+                "indy_hub.tasks.industry."
+                "_select_corporation_blueprint_user_ids_for_users",
                 return_value=[202, 303],
             ),
+            patch("indy_hub.tasks.industry.cache", fake_cache),
+            patch("indy_hub.tasks.industry._get_target_per_min", return_value=4),
             patch(
-                "indy_hub.tasks.industry._queue_staggered_blueprint_character_tasks"
-            ) as queue_characters,
-            patch(
-                "indy_hub.tasks.industry._queue_staggered_blueprint_corporation_tasks"
-            ) as queue_corporations,
+                "indy_hub.tasks.industry.queue_blueprint_update_for_user",
+                return_value=True,
+            ) as queue_target,
             patch("indy_hub.tasks.industry.emit_analytics_event"),
-            patch("indy_hub.tasks.industry.update_all_blueprints.apply_async"),
-            patch("indy_hub.tasks.industry.cache.add", return_value=True) as cache_add,
-            patch("indy_hub.tasks.industry.cache.get") as cache_get,
         ):
-            cache_get.side_effect = lambda key, _cache_add=cache_add: (
-                _cache_add.call_args.args[1] if _cache_add.call_args else None
-            )
-            queue_characters.return_value = 3
-            queue_corporations.return_value = 2
             result = update_all_blueprints(batch_size=100)
+            fake_cache.values["indy_hub:blueprints_bulk:state"][
+                "last_dispatch_timestamp"
+            ] = 0
+            resumed = dispatch_pending_industry_bulk_updates()
 
-        queue_characters.assert_called_once()
-        args, kwargs = queue_characters.call_args
-        self.assertEqual(kwargs["window_minutes"], 240)
-        self.assertEqual(kwargs["priority"], 7)
-        self.assertEqual(args[0], [(101, 1001), (101, 1002), (202, 2001)])
-        queue_corporations.assert_called_once_with(
-            [202, 303],
-            window_minutes=240,
-            priority=7,
-        )
         self.assertEqual(result["characters_queued"], 3)
-        self.assertEqual(result["corporation_users_queued"], 2)
+        self.assertEqual(result["corporation_users_queued"], 1)
+        self.assertEqual(result["targets_pending"], 1)
+        self.assertFalse(result["done"])
+        self.assertEqual(resumed["blueprints"]["corporation_users_queued"], 1)
+        self.assertTrue(resumed["blueprints"]["done"])
+        self.assertEqual(queue_target.call_count, 5)
+        for call in queue_target.call_args_list:
+            self.assertNotIn("countdown", call.kwargs)
 
-    def test_bulk_blueprint_updates_delay_next_batch_until_window_ends(self) -> None:
+    def test_bulk_dispatcher_discards_state_when_owner_lock_is_lost(self) -> None:
+        fake_cache = _FakeCache()
+        fake_cache.set(
+            "indy_hub:blueprints_bulk:state",
+            {
+                "kind": "blueprints",
+                "lock_token": "stale-token",
+                "last_user_id": None,
+                "batch_size": 500,
+                "pending_targets": [
+                    {"user_id": 101, "scope": "character", "character_id": 1001}
+                ],
+                "source_exhausted": True,
+            },
+        )
         with (
-            patch(
-                "indy_hub.tasks.industry._select_blueprint_sync_user_ids",
-                return_value=[101, 202],
-            ),
-            patch(
-                "indy_hub.tasks.industry._select_character_blueprint_targets_for_users",
-                return_value=[(101, 1001), (202, 2001)],
-            ),
-            patch(
-                "indy_hub.tasks.industry._select_corporation_blueprint_user_ids_for_users",
-                return_value=[],
-            ),
-            patch(
-                "indy_hub.tasks.industry._queue_staggered_blueprint_character_tasks",
-                return_value=2,
-            ),
-            patch(
-                "indy_hub.tasks.industry._queue_staggered_blueprint_corporation_tasks",
-                return_value=0,
-            ),
-            patch("indy_hub.tasks.industry.emit_analytics_event"),
-            patch("indy_hub.tasks.industry.cache.add", return_value=True) as cache_add,
-            patch("indy_hub.tasks.industry.cache.get") as cache_get,
-            patch(
-                "indy_hub.tasks.industry.update_all_blueprints.apply_async"
-            ) as requeue,
+            patch("indy_hub.tasks.industry.cache", fake_cache),
+            patch("indy_hub.tasks.industry.queue_blueprint_update_for_user") as queue,
         ):
-            cache_get.side_effect = lambda key, _cache_add=cache_add: (
-                _cache_add.call_args.args[1] if _cache_add.call_args else None
-            )
-            update_all_blueprints(batch_size=2)
+            result = dispatch_pending_industry_bulk_updates()["blueprints"]
 
-        requeue.assert_called_once()
-        kwargs = requeue.call_args.kwargs["kwargs"]
-        self.assertEqual(kwargs["last_user_id"], 202)
-        self.assertEqual(kwargs["batch_size"], 2)
-        self.assertTrue(kwargs["lock_token"])
-        self.assertEqual(requeue.call_args.kwargs["countdown"], 14400)
+        self.assertEqual(result["reason"], "lock_lost")
+        queue.assert_not_called()
+        self.assertNotIn("indy_hub:blueprints_bulk:state", fake_cache.values)

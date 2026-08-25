@@ -369,7 +369,7 @@ function formatOrderTotal(rawValue) {
     if (!Number.isFinite(numeric)) {
         return String(rawValue);
     }
-    return new Intl.NumberFormat('fr-FR', {
+    return new Intl.NumberFormat(window.getIndyHubLocale(), {
         minimumFractionDigits: 0,
         maximumFractionDigits: 0
     }).format(Math.ceil(numeric));

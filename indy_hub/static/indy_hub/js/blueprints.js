@@ -214,8 +214,8 @@ class BlueprintManager {
 
             if (typeof aVal === 'string') {
                 return this.sortDirection === 'asc'
-                    ? aVal.localeCompare(bVal)
-                    : bVal.localeCompare(aVal);
+                    ? aVal.localeCompare(bVal, window.getIndyHubLocale())
+                    : bVal.localeCompare(aVal, window.getIndyHubLocale());
             } else {
                 return this.sortDirection === 'asc'
                     ? aVal - bVal

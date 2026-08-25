@@ -290,14 +290,14 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     });
 
     function formatNumber(num) {
-        return new Intl.NumberFormat('en-US', {
+        return new Intl.NumberFormat(window.getIndyHubLocale(), {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }).format(num);
     }
 
     function formatWholeISK(num) {
-        return new Intl.NumberFormat('en-US', {
+        return new Intl.NumberFormat(window.getIndyHubLocale(), {
             minimumFractionDigits: 0,
             maximumFractionDigits: 0
         }).format(num);
@@ -308,7 +308,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     }
 
     function normalizePasteName(value) {
-        return collapseWhitespace(value).toLocaleLowerCase();
+        return collapseWhitespace(value).toLocaleLowerCase(window.getIndyHubLocale());
     }
 
     function parseQuantityToken(value) {
@@ -322,6 +322,23 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         }
         const quantity = Number.parseInt(digits, 10);
         return Number.isFinite(quantity) && quantity > 0 ? quantity : null;
+    }
+
+    function parseLeadingTabNameQuantity(rawLine) {
+        const tabColumns = String(rawLine || '')
+            .split('\t')
+            .map(column => collapseWhitespace(column))
+            .filter(Boolean);
+        if (tabColumns.length < 2 || parseQuantityToken(tabColumns[0]) !== null) {
+            return null;
+        }
+
+        const quantity = parseQuantityToken(tabColumns[1]);
+        if (quantity === null) {
+            return null;
+        }
+
+        return { name: tabColumns[0], quantity };
     }
 
     function extractQuantityCandidates(value) {
@@ -361,6 +378,14 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
     function isCatalogBoundaryCharacter(value) {
         return !value || /[^\p{L}\p{N}]/u.test(value);
+    }
+
+    function catalogRemainderHasItemNameWords(value) {
+        const allowedMetadataWords = new Set(['isk', 'm3', 'm³', 'x']);
+        const words = String(value || '').match(/\p{L}[\p{L}\p{N}³]*/gu) || [];
+        return words.some(word => (
+            !allowedMetadataWords.has(word.toLocaleLowerCase(window.getIndyHubLocale()))
+        ));
     }
 
     function findCatalogEntryInText(value) {
@@ -406,6 +431,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             + ' '
             + normalizedLine.slice(catalogMatch.matchIndex + catalogMatch.key.length)
         );
+        if (catalogRemainderHasItemNameWords(remainder)) {
+            return null;
+        }
         const quantityCandidate = pickBestQuantityCandidate(extractQuantityCandidates(remainder));
         if (!quantityCandidate) {
             if (!remainder) {
@@ -427,6 +455,11 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         const normalizedLine = collapseWhitespace(rawLine);
         if (!normalizedLine) {
             return null;
+        }
+
+        const leadingTabLine = parseLeadingTabNameQuantity(rawLine);
+        if (leadingTabLine) {
+            return leadingTabLine;
         }
 
         const knownCatalogLine = parseKnownCatalogPasteLine(rawLine);
@@ -916,7 +949,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                     catalogItem = resolvedItem;
                 } else if (resolvedItem === null) {
                     unknownItems.push({
-                        label: `${entry.label} x ${entry.quantity.toLocaleString()}`,
+                        label: `${entry.label} x ${entry.quantity.toLocaleString(window.getIndyHubLocale())}`,
                         detail: sellPasteMessages.unknown
                     });
                     return;
@@ -928,7 +961,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
             if (!catalogItem) {
                 unknownItems.push({
-                    label: `${entry.label} x ${entry.quantity.toLocaleString()}`,
+                    label: `${entry.label} x ${entry.quantity.toLocaleString(window.getIndyHubLocale())}`,
                     detail: sellPasteMessages.unknown
                 });
                 return;
@@ -936,7 +969,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
             if (catalogItem.status === 'rejected') {
                 rejectedItems.push({
-                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
+                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString(window.getIndyHubLocale())}`,
                     detail: catalogItem.reason === 'no_reliable_price'
                         ? sellPasteMessages.noReliablePrice
                         : sellPasteMessages.notBought
@@ -948,9 +981,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             if (isUnavailable) {
                 const totalOwned = Number.parseInt(catalogItem.total_available_qty || '0', 10) || 0;
                 unavailableItems.push({
-                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
+                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString(window.getIndyHubLocale())}`,
                     detail: totalOwned > 0
-                        ? `${sellPasteMessages.notOnCharacter} (${totalOwned.toLocaleString()})`
+                        ? `${sellPasteMessages.notOnCharacter} (${totalOwned.toLocaleString(window.getIndyHubLocale())})`
                         : sellPasteMessages.notOnCharacter
                 });
                 return;
@@ -960,8 +993,8 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             const availableQty = Number.parseInt(catalogItem.available_qty, 10) || 0;
             if (enforceAvailableQty && entry.quantity > availableQty) {
                 rejectedItems.push({
-                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString()}`,
-                    detail: `${sellPasteMessages.insufficient} (${availableQty.toLocaleString()})`
+                    label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString(window.getIndyHubLocale())}`,
+                    detail: `${sellPasteMessages.insufficient} (${availableQty.toLocaleString(window.getIndyHubLocale())})`
                 });
                 return;
             }
@@ -1007,28 +1040,28 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         const acceptedValueNode = query('#sellPasteAcceptedValue');
 
         if (acceptedCountNode) {
-            acceptedCountNode.textContent = acceptedItems.length.toLocaleString();
+            acceptedCountNode.textContent = acceptedItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (rejectedCountNode) {
-            rejectedCountNode.textContent = rejectedItems.length.toLocaleString();
+            rejectedCountNode.textContent = rejectedItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (unavailableCountNode) {
-            unavailableCountNode.textContent = unavailableItems.length.toLocaleString();
+            unavailableCountNode.textContent = unavailableItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (unknownCountNode) {
-            unknownCountNode.textContent = unknownItems.length.toLocaleString();
+            unknownCountNode.textContent = unknownItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (acceptedBadgeNode) {
-            acceptedBadgeNode.textContent = acceptedItems.length.toLocaleString();
+            acceptedBadgeNode.textContent = acceptedItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (rejectedBadgeNode) {
-            rejectedBadgeNode.textContent = rejectedItems.length.toLocaleString();
+            rejectedBadgeNode.textContent = rejectedItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (unavailableBadgeNode) {
-            unavailableBadgeNode.textContent = unavailableItems.length.toLocaleString();
+            unavailableBadgeNode.textContent = unavailableItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (unknownBadgeNode) {
-            unknownBadgeNode.textContent = unknownItems.length.toLocaleString();
+            unknownBadgeNode.textContent = unknownItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (acceptedValueNode) {
             acceptedValueNode.textContent = formatWholeISK(Math.ceil(acceptedTotalCents / 100)) + ' ISK';
@@ -1052,7 +1085,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 <div class="me-paste-line-main">
                     <div class="me-paste-line-inline">
                         <span class="me-paste-line-title">${item.label}</span>
-                        <span class="me-paste-line-meta me-paste-line-meta-inline">${item.quantity.toLocaleString()} × ${formatNumber(item.unitPrice)} ISK</span>
+                        <span class="me-paste-line-meta me-paste-line-meta-inline">${item.quantity.toLocaleString(window.getIndyHubLocale())} × ${formatNumber(item.unitPrice)} ISK</span>
                     </div>
                     ${item.warning ? `<div class="me-paste-line-meta text-info">${item.warning}</div>` : ''}
                 </div>
@@ -1203,7 +1236,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                             <span class="text-success fw-semibold">${formatNumber(item.subtotal)} ISK</span>
                         </div>
                         <div class="d-flex justify-content-between small text-muted">
-                            <span>${item.qty.toLocaleString()} × ${formatNumber(item.unitPrice)} ISK</span>
+                            <span>${item.qty.toLocaleString(window.getIndyHubLocale())} × ${formatNumber(item.unitPrice)} ISK</span>
                         </div>
                     </div>
                 `;
@@ -1323,7 +1356,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             if (Number.isNaN(date.getTime())) {
                 return;
             }
-            const formatted = new Intl.DateTimeFormat(undefined, {
+            const formatted = new Intl.DateTimeFormat(window.getIndyHubLocale(), {
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',

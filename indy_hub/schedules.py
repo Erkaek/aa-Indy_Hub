@@ -20,6 +20,11 @@ INDY_HUB_BEAT_SCHEDULE = {
         "options": {"priority": 7},  # Slightly higher priority for jobs
         "apply_offset": True,
     },
+    "indy-hub-dispatch-pending-industry-bulk-updates": {
+        "task": "indy_hub.tasks.industry.dispatch_pending_industry_bulk_updates",
+        "schedule": crontab(minute="*"),
+        "options": {"priority": 7},
+    },
     "indy-hub-update-system-cost-indices": {
         "task": "indy_hub.tasks.system_cost_indices.sync_industry_system_cost_indices",
         "schedule": crontab(minute=15, hour="*/2"),  # Every 2 hours
