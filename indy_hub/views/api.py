@@ -23,6 +23,7 @@ from django.views.decorators.http import require_http_methods
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
+from .. import app_settings
 from ..decorators import indy_hub_access_required, indy_hub_permission_required
 
 # Local
@@ -180,7 +181,10 @@ def _sanitize_production_workspace_state(
         else existing_workspace_state.get("use_corp_blueprints", False)
     )
     # Explicit parse: reject truthy strings like "false" or "0"
-    use_corp_blueprints = raw_corp is True or raw_corp == 1
+    use_corp_blueprints = bool(
+        app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP
+        and (raw_corp is True or raw_corp == 1)
+    )
 
     return {
         "blueprint_type_id": blueprint_type_id,
@@ -548,7 +552,9 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
     )
     if "use_corp_blueprints" in data:
         raw = data["use_corp_blueprints"]
-        workspace_state["use_corp_blueprints"] = raw is True or raw == 1
+        workspace_state["use_corp_blueprints"] = bool(
+            app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP and (raw is True or raw == 1)
+        )
     temp_state["workspace_state"] = workspace_state
     set_temporary_project_workspace(temp_project_ref, temp_state)
 

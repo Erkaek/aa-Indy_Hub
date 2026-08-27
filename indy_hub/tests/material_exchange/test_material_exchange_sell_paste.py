@@ -832,6 +832,100 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertEqual(azariel["item"]["reason"], "no_reliable_price")
         self.assertTrue(azariel["item"]["enforce_available_qty"])
 
+    def _resolve_sparse_market_test_item(
+        self,
+        *,
+        jita_buy: Decimal,
+        jita_sell: Decimal,
+        configured_price: Decimal | None = None,
+    ) -> dict:
+        type_id = 28617
+        self.config.sell_price_overrides = (
+            {str(type_id): format(configured_price, ".2f")}
+            if configured_price is not None
+            else {}
+        )
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell_resolve_paste_items"),
+                data=json.dumps(
+                    {
+                        "names": ["Banidine"],
+                        "character_id": self.character.character_id,
+                    }
+                ),
+                content_type="application/json",
+                HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_location_ids",
+                return_value=[self.config.structure_id],
+            ),
+            patch(
+                "indy_hub.views.material_exchange._resolve_sde_item_types_by_name",
+                return_value={
+                    "banidine": {
+                        "type_id": type_id,
+                        "type_name": "Banidine",
+                        "group_name": "Ores",
+                    }
+                },
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
+                return_value=(
+                    {type_id: 100},
+                    {self.character.character_id: {type_id: 100}},
+                    False,
+                ),
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={type_id},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={type_id: {"buy": jita_buy, "sell": jita_sell}},
+            ),
+        ):
+            response = material_exchange_sell_resolve_paste_items(request)
+
+        self.assertEqual(response.status_code, 200)
+        return json.loads(response.content)["items"]["banidine"]["item"]
+
+    def test_resolve_paste_items_rejects_missing_buy_price(self) -> None:
+        item = self._resolve_sparse_market_test_item(
+            jita_buy=Decimal("0"),
+            jita_sell=Decimal("50"),
+        )
+
+        self.assertEqual(item["status"], "rejected")
+        self.assertEqual(item["reason"], "no_reliable_price")
+
+    def test_resolve_paste_items_accepts_fixed_price_without_market_sides(
+        self,
+    ) -> None:
+        item = self._resolve_sparse_market_test_item(
+            jita_buy=Decimal("0"),
+            jita_sell=Decimal("0"),
+            configured_price=Decimal("42.50"),
+        )
+
+        self.assertEqual(item["status"], "accepted")
+        self.assertEqual(item["unit_price"], "42.50")
+
     def test_resolve_paste_items_keeps_db_found_item_out_of_unknown(self) -> None:
         request = self._prepare_request(
             self.factory.post(

@@ -24,6 +24,7 @@ from allianceauth.services.hooks import get_extension_logger
 # Alliance Auth (External Libs)
 from eve_sde.models import EveSDE
 
+from .. import app_settings
 from ..models import (
     PROJECT_REF_BASE36_ALPHABET,
     PROJECT_REF_LENGTH,
@@ -116,7 +117,7 @@ SUBSYSTEM_GROUP_KEYWORDS = ("subsystem", "strategic cruiser")
 SERVICE_GROUP_KEYWORDS = ("service",)
 EFT_DRONE_CATEGORY_INDEX = 6
 PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
-PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION = 5
+PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION = 6
 PROJECT_WORKSPACE_SDE_SIGNATURE_KEY = "cachedProjectSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY = "cachedProjectScopedSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION = 1
@@ -766,6 +767,18 @@ def cached_project_workspace_payload_matches_state(
 
     normalized_workspace_state = strip_project_workspace_cache(workspace_state)
     if normalized_workspace_state.get("pendingWorkspaceRefresh"):
+        return False
+
+    effective_use_corp_blueprints = bool(
+        app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP
+        and normalized_workspace_state.get("use_corp_blueprints", False)
+    )
+    cached_workspace_state = cached_payload.get("workspace_state")
+    cached_use_corp_blueprints = bool(
+        isinstance(cached_workspace_state, dict)
+        and cached_workspace_state.get("use_corp_blueprints", False)
+    )
+    if cached_use_corp_blueprints != effective_use_corp_blueprints:
         return False
 
     if not _cached_payload_includes_blueprint_configs(
@@ -1695,7 +1708,11 @@ def build_project_workspace_payload(
         _extract_workspace_final_output_quantity_overrides(workspace_state),
         final_output_quantity_overrides,
     )
-    use_corp_blueprints = bool(workspace_state.get("use_corp_blueprints", False))
+    use_corp_blueprints = bool(
+        app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP
+        and workspace_state.get("use_corp_blueprints", False)
+    )
+    workspace_state["use_corp_blueprints"] = use_corp_blueprints
     is_eft_project = project.source_kind == ProductionProject.SourceKind.EFT
     owned_blueprint_inventory_map: dict[int, dict[str, object]] = {}
     owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}
@@ -3393,18 +3410,10 @@ def _resolve_user_blueprint_inventory(
             )
             _accumulate(entry, bp_me, bp_te, bp_type, runs, prefix="corp_")
             if tid not in personal_type_ids:
-                # No personal BP: use corp directly
+                # Personal blueprints always take precedence. Corporation
+                # blueprints are an explicit fallback when no personal source
+                # exists for this type.
                 _accumulate(entry, bp_me, bp_te, bp_type, runs)
-            else:
-                # Personal BP exists: use corp only if it improves ME (or same ME + better TE)
-                personal_best, _ = _select_best_owned_blueprint_entry(entry)
-                p_me = int(personal_best.get("me") or 0) if personal_best else 0
-                p_te = int(personal_best.get("te") or 0) if personal_best else 0
-                c_me = int(bp_me or 0)
-                c_te = int(bp_te or 0)
-                if c_me > p_me or (c_me == p_me and c_te > p_te):
-                    _accumulate(entry, bp_me, bp_te, bp_type, runs)
-                    entry["corp_source"] = True
 
     return user_bp_map
 

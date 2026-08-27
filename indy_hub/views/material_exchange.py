@@ -61,7 +61,10 @@ from ..tasks.material_exchange import (
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import batch_cache_type_names, get_type_name
 from ..utils.material_exchange_contract_check import normalize_text
-from ..utils.material_exchange_pricing import compute_buy_price_from_member
+from ..utils.material_exchange_pricing import (
+    compute_buy_price_from_member,
+    get_sell_price_override,
+)
 from ..utils.material_exchange_transactions import upsert_material_exchange_transaction
 from .navigation import build_nav_context
 
@@ -1008,14 +1011,18 @@ def material_exchange_sell_resolve_paste_items(request):
         fuzz_prices = price_data.get(type_id, {})
         jita_buy = fuzz_prices.get("buy") or Decimal(0)
         jita_sell = fuzz_prices.get("sell") or Decimal(0)
+        configured_price = get_sell_price_override(config=config, type_id=type_id)
         if not _has_reliable_sell_reference_price(
-            jita_buy=jita_buy, jita_sell=jita_sell
+            jita_buy=jita_buy,
+            jita_sell=jita_sell,
+            configured_price=configured_price,
         ):
             rejected_reason_by_type_id[int(type_id)] = "no_reliable_price"
             continue
 
         buy_price = compute_buy_price_from_member(
             config=config,
+            type_id=type_id,
             jita_buy=jita_buy,
             jita_sell=jita_sell,
         )
@@ -1217,7 +1224,10 @@ def _fetch_fuzzwork_prices(type_ids: list[int]) -> dict[int, dict[str, Decimal]]
 
 
 def _has_reliable_sell_reference_price(
-    *, jita_buy: Decimal, jita_sell: Decimal
+    *,
+    jita_buy: Decimal,
+    jita_sell: Decimal,
+    configured_price: Decimal | None = None,
 ) -> bool:
     """Return True when market data looks reliable enough for sell-side pricing.
 
@@ -1225,7 +1235,10 @@ def _has_reliable_sell_reference_price(
     visible sell side, because that produces absurd values on thin/non-market items.
     """
 
-    return Decimal(jita_buy or 0) > 0 and Decimal(jita_sell or 0) > 0
+    return bool(
+        Decimal(configured_price or 0) > 0
+        or (Decimal(jita_buy or 0) > 0 and Decimal(jita_sell or 0) > 0)
+    )
 
 
 def _extract_submitted_sell_quantities(request) -> dict[int, int]:
@@ -1498,10 +1511,14 @@ def material_exchange_index(request):
                 fuzz_prices = price_data.get(type_id, {})
                 jita_buy = fuzz_prices.get("buy") or Decimal(0)
                 jita_sell = fuzz_prices.get("sell") or Decimal(0)
-                base = jita_sell if config.sell_markup_base == "sell" else jita_buy
-                if base <= 0:
+                unit_price = compute_buy_price_from_member(
+                    config=config,
+                    type_id=type_id,
+                    jita_buy=jita_buy,
+                    jita_sell=jita_sell,
+                )
+                if unit_price <= 0:
                     continue
-                unit_price = base * (1 + (config.sell_markup_percent / Decimal(100)))
                 item_value = unit_price * user_qty
                 total_value += item_value
                 visible_items += 1
@@ -1851,8 +1868,11 @@ def material_exchange_sell(request, tokens=None):
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
+            configured_price = get_sell_price_override(config=config, type_id=type_id)
             if not _has_reliable_sell_reference_price(
-                jita_buy=jita_buy, jita_sell=jita_sell
+                jita_buy=jita_buy,
+                jita_sell=jita_sell,
+                configured_price=configured_price,
             ):
                 type_name = get_type_name(type_id)
                 errors.append(_(f"{type_name} has no reliable market price."))
@@ -1860,6 +1880,7 @@ def material_exchange_sell(request, tokens=None):
 
             unit_price = compute_buy_price_from_member(
                 config=config,
+                type_id=type_id,
                 jita_buy=jita_buy,
                 jita_sell=jita_sell,
             )
@@ -2022,8 +2043,11 @@ def material_exchange_sell(request, tokens=None):
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
+            configured_price = get_sell_price_override(config=config, type_id=type_id)
             if not _has_reliable_sell_reference_price(
-                jita_buy=jita_buy, jita_sell=jita_sell
+                jita_buy=jita_buy,
+                jita_sell=jita_sell,
+                configured_price=configured_price,
             ):
                 no_reliable_price_count += 1
                 if len(no_reliable_price_samples) < 10:
@@ -2032,6 +2056,7 @@ def material_exchange_sell(request, tokens=None):
 
             buy_price = compute_buy_price_from_member(
                 config=config,
+                type_id=type_id,
                 jita_buy=jita_buy,
                 jita_sell=jita_sell,
             )

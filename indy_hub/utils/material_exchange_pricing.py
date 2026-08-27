@@ -23,6 +23,21 @@ def _to_decimal(value) -> Decimal:
         return Decimal("0")
 
 
+def get_sell_price_override(*, config, type_id: int | None) -> Decimal | None:
+    """Return the administrator-defined member sell price for one exact type."""
+
+    if not config or not type_id:
+        return None
+    raw_overrides = getattr(config, "sell_price_overrides", {}) or {}
+    if not isinstance(raw_overrides, dict):
+        return None
+    raw_value = raw_overrides.get(str(int(type_id)))
+    if raw_value is None:
+        raw_value = raw_overrides.get(int(type_id))
+    value = _to_decimal(raw_value)
+    return value if value.is_finite() and value > 0 else None
+
+
 def apply_markup_with_jita_bounds(
     *,
     jita_buy: Decimal,
@@ -71,9 +86,17 @@ def compute_sell_price_to_member(
 
 
 def compute_buy_price_from_member(
-    *, config, jita_buy: Decimal, jita_sell: Decimal
+    *,
+    config,
+    jita_buy: Decimal,
+    jita_sell: Decimal,
+    type_id: int | None = None,
 ) -> Decimal:
     """Price when member sells TO hub (uses config.sell_markup_*)."""
+
+    configured_price = get_sell_price_override(config=config, type_id=type_id)
+    if configured_price is not None:
+        return configured_price
 
     return apply_markup_with_jita_bounds(
         jita_buy=jita_buy,

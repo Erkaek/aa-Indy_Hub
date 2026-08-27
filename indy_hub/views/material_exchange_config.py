@@ -231,6 +231,80 @@ def _resolve_specific_type_ids(raw_tokens: list[str]) -> tuple[list[int], list[s
     return sorted(resolved_ids), unresolved
 
 
+def _parse_sell_price_overrides(raw_value: str) -> dict[str, str]:
+    """Parse exact item-name/type-id price overrides from the admin form."""
+
+    overrides: dict[str, str] = {}
+    for line_number, raw_line in enumerate(str(raw_value or "").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "=" not in line:
+            raise ValueError(
+                f"Sell price override line {line_number} must use Item = Price"
+            )
+
+        item_token, raw_price = (part.strip() for part in line.rsplit("=", 1))
+        if not item_token or not raw_price:
+            raise ValueError(
+                f"Sell price override line {line_number} must include an item and price"
+            )
+
+        try:
+            price = Decimal(raw_price.replace(" ", "").replace(",", "."))
+            price = price.quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError):
+            raise ValueError(
+                f"Invalid sell price on line {line_number}: {raw_price}"
+            ) from None
+        if not price.is_finite() or price <= 0:
+            raise ValueError(
+                f"Sell price on line {line_number} must be greater than zero"
+            )
+        if price > Decimal("999999999999999999.99"):
+            raise ValueError(f"Sell price on line {line_number} is too large")
+
+        resolved_ids, unresolved = _resolve_specific_type_ids([item_token])
+        if unresolved or len(resolved_ids) != 1:
+            raise ValueError(f"Unknown or unsupported SELL item: {item_token}")
+
+        type_id = str(int(resolved_ids[0]))
+        if type_id in overrides:
+            raise ValueError(f"Duplicate sell price override: {item_token}")
+        overrides[type_id] = format(price, ".2f")
+
+    return overrides
+
+
+def _format_sell_price_overrides(config: MaterialExchangeConfig | None) -> str:
+    raw_overrides = getattr(config, "sell_price_overrides", {}) or {}
+    if not isinstance(raw_overrides, dict):
+        return ""
+
+    type_ids: list[int] = []
+    for raw_type_id in raw_overrides:
+        try:
+            type_ids.append(int(raw_type_id))
+        except (TypeError, ValueError):
+            continue
+    names_by_id = {
+        int(choice["id"]): str(choice["name"])
+        for choice in _get_selected_type_choices(type_ids)
+    }
+
+    lines: list[str] = []
+    for type_id in sorted(set(type_ids), key=lambda value: names_by_id.get(value, "")):
+        raw_price = raw_overrides.get(str(type_id), raw_overrides.get(type_id))
+        try:
+            price = Decimal(str(raw_price)).quantize(Decimal("0.01"))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if not price.is_finite() or price <= 0:
+            continue
+        lines.append(f"{names_by_id.get(type_id, str(type_id))} = {price:.2f}")
+    return "\n".join(lines)
+
+
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_request_divisions_token(request):
@@ -509,6 +583,7 @@ def material_exchange_config(request, tokens):
         "allowed_type_ids_sell_text": "\n".join(
             choice["name"] for choice in selected_type_choices_sell
         ),
+        "sell_price_overrides_text": _format_sell_price_overrides(config),
         "market_group_search_index": market_group_search_index,
     }
 
@@ -1563,6 +1638,7 @@ def _handle_config_save(request, existing_config):
     sell_markup_base = request.POST.get("sell_markup_base", "buy")
     buy_markup_percent = request.POST.get("buy_markup_percent", "5")
     buy_markup_base = request.POST.get("buy_markup_base", "buy")
+    sell_price_overrides_text = request.POST.get("sell_price_overrides_text", "")
     accepted_locations_json = (
         request.POST.get("accepted_locations_json") or ""
     ).strip()
@@ -1670,6 +1746,14 @@ def _handle_config_save(request, existing_config):
         corporation_id = int(corporation_id)
         sell_markup_percent = _parse_decimal(sell_markup_percent, "0")
         buy_markup_percent = _parse_decimal(buy_markup_percent, "5")
+        if "sell_price_overrides_text" in request.POST or existing_config is None:
+            sell_price_overrides = _parse_sell_price_overrides(
+                sell_price_overrides_text
+            )
+        else:
+            sell_price_overrides = dict(
+                getattr(existing_config, "sell_price_overrides", {}) or {}
+            )
 
         allowed_ids = _get_industry_market_group_choice_ids(depth_from_root=2)
 
@@ -1810,6 +1894,7 @@ def _handle_config_save(request, existing_config):
             config_obj.buy_markup_percent = buy_markup_percent
             config_obj.buy_markup_base = buy_markup_base
             config_obj.enforce_jita_price_bounds = enforce_jita_price_bounds
+            config_obj.sell_price_overrides = sell_price_overrides
             config_obj.notify_admins_on_sell_anomaly = notify_admins_on_sell_anomaly
             config_obj.allowed_market_groups_buy = allowed_market_groups_buy
             config_obj.allowed_market_groups_sell = allowed_market_groups_sell
@@ -1844,6 +1929,7 @@ def _handle_config_save(request, existing_config):
                 buy_markup_percent=buy_markup_percent,
                 buy_markup_base=buy_markup_base,
                 enforce_jita_price_bounds=enforce_jita_price_bounds,
+                sell_price_overrides=sell_price_overrides,
                 notify_admins_on_sell_anomaly=notify_admins_on_sell_anomaly,
                 allowed_market_groups_buy=allowed_market_groups_buy,
                 allowed_market_groups_sell=allowed_market_groups_sell,

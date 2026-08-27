@@ -114,6 +114,17 @@ class IndyHubLocalizationTests(TestCase):
 
                 self.assertEqual(translation.gettext("Buy Orders"), expected)
 
+    def test_new_issue_guidance_has_french_translations(self) -> None:
+        with translation.override("fr-fr"):
+            self.assertEqual(
+                translation.gettext("Recognized, price unavailable"),
+                "Reconnu, prix indisponible",
+            )
+            self.assertEqual(
+                translation.gettext("Check the services available at this NPC Station"),
+                "Vérifiez les services disponibles dans cette station PNJ",
+            )
+
     def test_no_indy_hub_specific_language_middleware_is_configured(self) -> None:
         self.assertNotIn(
             "indy_hub.middleware.IndyHubLanguageMiddleware",

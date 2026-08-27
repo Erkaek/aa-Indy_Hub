@@ -10,6 +10,7 @@ from django.test import TestCase
 
 # AA Example App
 from indy_hub.models import MaterialExchangeConfig, MaterialExchangeStock
+from indy_hub.views.material_exchange import _has_reliable_sell_reference_price
 
 
 class MaterialExchangePricingTests(TestCase):
@@ -72,6 +73,42 @@ class MaterialExchangePricingTests(TestCase):
         expected = Decimal("6.30")
         actual = self.stock.buy_price_from_member
         self.assertAlmostEqual(float(actual), float(expected), places=2)
+
+    def test_member_sell_fixed_price_override_bypasses_missing_jita_data(self):
+        self.config.sell_price_overrides = {str(self.stock.type_id): "42.50"}
+        self.stock.jita_buy_price = Decimal("0")
+        self.stock.jita_sell_price = Decimal("0")
+
+        self.assertEqual(self.stock.buy_price_from_member, Decimal("42.50"))
+
+    def test_member_sell_fixed_price_override_is_scoped_to_exact_type(self):
+        self.config.sell_price_overrides = {"74534": "4500.00"}
+
+        self.assertEqual(self.stock.buy_price_from_member, Decimal("5.25"))
+
+    def test_reliable_sell_reference_price_matrix(self):
+        self.assertFalse(
+            _has_reliable_sell_reference_price(
+                jita_buy=Decimal("0"), jita_sell=Decimal("6")
+            )
+        )
+        self.assertFalse(
+            _has_reliable_sell_reference_price(
+                jita_buy=Decimal("5"), jita_sell=Decimal("0")
+            )
+        )
+        self.assertTrue(
+            _has_reliable_sell_reference_price(
+                jita_buy=Decimal("5"), jita_sell=Decimal("6")
+            )
+        )
+        self.assertTrue(
+            _has_reliable_sell_reference_price(
+                jita_buy=Decimal("0"),
+                jita_sell=Decimal("0"),
+                configured_price=Decimal("42.50"),
+            )
+        )
 
     def test_zero_markup_on_buy_base(self):
         """Test that 0% markup returns base price exactly."""

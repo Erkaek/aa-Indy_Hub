@@ -230,7 +230,7 @@
                                         placeholder="{% trans 'Example: Tritanium x 25000 or Tritanium<TAB>25000' %}"></textarea>
                                     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-2">
                                         <div class="form-text me-0">
-                                            {% trans "Accepted items are added automatically. Not bought and unknown lines are ignored for order creation." %}
+                                            {% trans "Accepted items are added automatically. Not bought, unpriced, and unknown lines are ignored for order creation." %}
                                         </div>
                                         <button type="button" class="btn btn-outline-light btn-sm me-paste-clear-btn" id="sellPasteClearButton">
                                             <i class="fas fa-eraser me-1"></i>{% trans "Clear" %}
@@ -264,6 +264,16 @@
                                     <button
                                         type="button"
                                         class="me-paste-tab-btn"
+                                        id="sellPasteTabNoPrice"
+                                        data-sell-paste-tab="no_price"
+                                        role="tab"
+                                        aria-selected="false">
+                                        <span>{% trans "Recognized, price unavailable" %}</span>
+                                        <span class="badge rounded-pill text-bg-danger me-paste-tab-count" id="sellPasteNoPriceBadge">0</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="me-paste-tab-btn"
                                         id="sellPasteTabUnavailable"
                                         data-sell-paste-tab="unavailable"
                                         role="tab"
@@ -289,6 +299,9 @@
                                     </section>
                                     <section class="me-paste-result-card me-paste-result-card-rejected d-none" id="sellPasteRejectedCard" data-sell-paste-pane="rejected" role="tabpanel">
                                         <div class="me-paste-result-list" id="sellPasteRejectedList"></div>
+                                    </section>
+                                    <section class="me-paste-result-card me-paste-result-card-rejected d-none" id="sellPasteNoPriceCard" data-sell-paste-pane="no_price" role="tabpanel">
+                                        <div class="me-paste-result-list" id="sellPasteNoPriceList"></div>
                                     </section>
                                     <section class="me-paste-result-card me-paste-result-card-unavailable d-none" id="sellPasteUnavailableCard" data-sell-paste-pane="unavailable" role="tabpanel">
                                         <div class="me-paste-result-list" id="sellPasteUnavailableList"></div>

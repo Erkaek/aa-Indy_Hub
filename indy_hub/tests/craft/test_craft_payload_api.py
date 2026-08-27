@@ -545,7 +545,11 @@ class UpdateTemporaryProjectWorkspaceStateTests(TestCase):
         mock_emit.return_value = None
         mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
 
-        response = self._call("abc123", {"use_corp_blueprints": True})
+        with patch(
+            "indy_hub.views.api.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            True,
+        ):
+            response = self._call("abc123", {"use_corp_blueprints": True})
 
         self.assertEqual(response.status_code, 200)
         saved = mock_set.call_args[0][1]
@@ -561,7 +565,28 @@ class UpdateTemporaryProjectWorkspaceStateTests(TestCase):
         mock_emit.return_value = None
         mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
 
-        response = self._call("abc123", {"use_corp_blueprints": "false"})
+        with patch(
+            "indy_hub.views.api.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            True,
+        ):
+            response = self._call("abc123", {"use_corp_blueprints": "false"})
+
+        self.assertEqual(response.status_code, 200)
+        saved = mock_set.call_args[0][1]
+        self.assertIs(saved["workspace_state"]["use_corp_blueprints"], False)
+
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_global_setting_blocks_corp_blueprints(self, mock_emit, mock_get, mock_set):
+        mock_emit.return_value = None
+        mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
+
+        with patch(
+            "indy_hub.views.api.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            False,
+        ):
+            response = self._call("abc123", {"use_corp_blueprints": True})
 
         self.assertEqual(response.status_code, 200)
         saved = mock_set.call_args[0][1]

@@ -1,380 +1,280 @@
 # Indy Hub for Alliance Auth
 
-A modern industry and material‑exchange management module for [Alliance Auth](https://allianceauth.org/), focused on blueprint sharing, job tracking, and corp trading workflows for EVE Online alliances and corporations.
+Indy Hub is an industry and Material Exchange application for
+[Alliance Auth](https://allianceauth.org/). It helps EVE Online corporations and
+alliances manage blueprints, industry jobs, copy requests, production projects,
+and internal material trading.
 
-______________________________________________________________________
+## Features
 
-## Table of Contents
+- Personal and corporation blueprint libraries
+- Manufacturing, research, invention, and reaction job tracking
+- Blueprint copy requests, offers, chat, and delivery tracking
+- Crafting projects with structure, stock, blueprint, and financial planning
+- Industry structure registry and corporation sharing controls
+- Material Exchange buy and sell orders
+- In-app and optional Discord notifications
+- Superuser administration page with account health and usage statistics
+- Responsive interface compatible with Alliance Auth 5 themes
 
-- [About](#about)
-  - [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-  - [Bare Metal](#bare-metal)
-  - [Docker](#docker)
-  - [Common](#common)
-- [Permissions](#permissions)
-  - [Base Access (Required for all users)](#base-access-required-for-all-users)
-  - [Corporation Management (Optional)](#corporation-management-optional)
-  - [Material Exchange Administration (Optional)](#material-exchange-administration-optional)
-- [Settings](#settings)
-- [Updating](#updating)
-- [Usage](#usage)
-- [Screenshots](#screenshots)
-- [Contributing](#contributing)
-
-______________________________________________________________________
-
-## About
-
-### Current Highlights
-
-- **Industry Jobs refresh behavior**: live ESI skill refresh is now explicit on the jobs page (`Force Refresh`) instead of running on every render.
-- **Jobs freshness visibility**: the jobs header now shows `Last update` to clarify current data recency.
-- **Settings render performance**: settings hub uses a lightweight context path to reduce page render latency.
-- **Token Management safety/perf**: render paths avoid live token refresh side effects and use passive validity filtering for scope coverage.
-- **User activity gating**: manual refresh gating now uses Corptools `last_known_login` when available, and falls back permissively when Corptools is absent or has no usable login data.
-- **Industry Structures performance**: resolved structure bonuses are cached persistently and invalidated only when relevant structure/rig signature fields change.
-
-### Features
-
-- **Blueprint Library**: Browse, search, and manage personal and corporation blueprints.
-- **Industry Jobs**: Track active and completed manufacturing, research, and invention jobs.
-- **Blueprint Copy Requests**: Create requests, receive offers, chat with builders, and follow delivery status.
-- **Sharing Controls**: Configure who can see and fulfill blueprint copy requests.
-- **Material Exchange**: Submit buy/sell orders and follow validation/processing from one hub.
-- **Order Tracking**: View clear statuses, timelines, and history for your requests and orders.
-- **Notifications**: Receive in-app updates for key events (offers, deliveries, job updates).
-- **Analytics Hooks**: Emits Alliance Auth analytics events for key Material Exchange lifecycle transitions.
-- **Admin Tools**: Manage corp blueprint workflows and Material Exchange operations with dedicated admin views.
-- **Admin User Oversight**: `Settings > User admin` gives superusers a private read-only view of users, including health score, scope coverage, and usage analytics.
-- **Modern UI**: Responsive, theme-friendly interface designed for daily operational use.
+For the complete list of changes in each release, see
+[CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
-- **Alliance Auth v5.x**
-- **Python 3.12+**
-- **Django 5.2**
-- **django-esi 9.x**
-- **django-eveonline-sde 0.0.1+** (base SDE data)
-- **Celery** (for background sync and notifications)
-- *(Optional)* Director characters for corporate dashboards
-- *(Optional)* Corptools, to provide `corptools_characteraudit.last_known_login` for activity-aware refresh gating. If absent, Indy Hub falls back to permissive behavior.
-- *(Optional)* [`aa-charlink`](https://apps.allianceauth.org/apps/detail/aa-charlink) to let users authorize Indy Hub scopes through CharLink
-- *(Optional)* [`aadiscordbot`](https://apps.allianceauth.org/apps/detail/allianceauth-discordbot) (preferred) or [`discordnotify`](https://apps.allianceauth.org/apps/detail/aa-discordnotify) for Discord notifications
+- Alliance Auth 5
+- Python 3.12 or newer recommended
+- Celery workers and Celery Beat
+- A shared Django cache, normally Redis
+- `django-eveonline-sde` with its base SDE data loaded
 
-______________________________________________________________________
+Optional integrations:
+
+- [aa-charlink](https://apps.allianceauth.org/apps/detail/aa-charlink) for guided
+  ESI authorization
+- [aadiscordbot](https://apps.allianceauth.org/apps/detail/allianceauth-discordbot)
+  or [discordnotify](https://apps.allianceauth.org/apps/detail/aa-discordnotify)
+  for direct Discord notifications
+- Corptools for activity-aware automatic refreshes
 
 ## Installation
 
-### Bare Metal
+### Bare metal
 
-```text
+Install the packages:
+
+```bash
 pip install django-eveonline-sde indy-hub
 ```
 
-Add to your `local.py`:
+Add both applications to `local.py`:
 
 ```python
 INSTALLED_APPS = [
+    # Existing applications...
     "eve_sde",
     "indy_hub",
 ]
 ```
 
-Ensure the base `eve_sde` data is already loaded by following the official
-`django-eveonline-sde` setup process before using Indy Hub.
+Load the base `eve_sde` data by following the `django-eveonline-sde` setup
+instructions, then finish the installation:
 
-Run migrations and collect static files:
-
-```text
+```bash
 python manage.py migrate
 python manage.py collectstatic --noinput
-```
-
-Restart services:
-
-```text
-systemctl restart allianceauth
+# Restart gunicorn, Celery Beat, and Celery workers.
 ```
 
 ### Docker
 
+Add Indy Hub to `conf/requirements.txt`:
+
 ```text
-docker compose exec allianceauth_gunicorn bash
-pip install django-eveonline-sde indy-hub
-exit
+indy-hub==1.18.3
 ```
 
-Add to your `conf/local.py`:
+Add the applications to `conf/local.py`:
 
 ```python
 INSTALLED_APPS = [
+    # Existing applications...
     "eve_sde",
     "indy_hub",
 ]
 ```
 
-Add to your `conf/requirements.txt` (Always use current versions)
+Rebuild the containers, then run migrations and collect static files using the
+commands provided by your Alliance Auth stack. A common setup uses:
 
-```text
-indy-hub==1.18.2
-```
-
-Ensure the base `eve_sde` data is already loaded in your stack by following
-the official `django-eveonline-sde` setup process before using Indy Hub.
-
-Run migrations and collect static files:
-
-```text
-docker compose exec allianceauth_gunicorn bash
-auth migrate
-auth collectstatic --noinput
-exit
-```
-
-Restart Auth:
-
-```text
+```bash
 docker compose build
-docker compose down
 docker compose up -d
+docker compose exec allianceauth_gunicorn auth migrate
+docker compose exec allianceauth_gunicorn auth collectstatic --noinput
+docker compose restart
 ```
 
-### Common
+Make sure the base `eve_sde` data is loaded before using Indy Hub.
 
-- Set permissions in Alliance Auth (see [Permissions](#permissions)).
-- Authorize ESI tokens for blueprints and industry jobs.
-- If `aa-charlink` is installed, Indy Hub is auto-discovered by CharLink and exposes three login options: personal Indy Hub scopes, corporation admin scopes, and Material Exchange scopes. The two admin options are intentionally not selected by default because they request broader corporation access.
+### After installation
 
-______________________________________________________________________
+1. Assign the required permissions in Alliance Auth.
+1. Ask users to authorize their personal Indy Hub ESI scopes.
+1. Ask corporation managers to authorize the additional corporation scopes they
+   need.
+1. Restart gunicorn, Celery Beat, and Celery workers.
+
+If `aa-charlink` is installed, it automatically offers separate authorization
+options for personal access, corporation administration, and Material Exchange.
 
 ## Permissions
 
-Assign permissions in Alliance Auth to control access levels:
+Most users only need the base access permission. Administrative permissions
+should be assigned only to trusted corporation managers.
 
-### Base Access (Required for all users)
+| Permission shown in Django Admin | Recommended for                  | Access granted                                     |
+| -------------------------------- | -------------------------------- | -------------------------------------------------- |
+| `can access Indy_Hub`            | All Indy Hub users               | Personal blueprints, jobs, requests, and orders    |
+| `can admin Corp`                 | Corporation blueprint managers   | Corporation blueprints, jobs, and sharing settings |
+| `can admin MatExchange`          | Material Exchange administrators | Hub configuration, stock, orders, and transactions |
 
-- **Visible in admin:** "indy_hub | can access Indy_Hub"
-  - View and manage personal blueprints
-  - Create and manage blueprint copy requests
-  - Use Material Exchange (buy/sell orders)
-  - View personal industry jobs
-  - Configure personal settings and notifications
+Corporation administration also requires suitable EVE corporation roles and
+authorized corporation tokens.
 
-### Corporation Management (Optional)
+The `Settings → User admin` page is available only to superusers and is
+read-only.
 
-- **Visible in admin:** "indy_hub | can admin Corp"
-  - View and manage corporation blueprints (director only)
-  - Handle corporation blueprint copy requests (accept/reject corp BP copy sharing)
-  - Access corporation industry jobs
-  - Configure corporation sharing settings
-  - This role is **not** meant for everyone — only for people who manage corp BPs (they can handle contracts for corpmates)
-  - Requires ESI director roles for the corporation
+## Configuration
 
-### Material Exchange Administration (Optional)
+The default settings are suitable for most installations. Add only the options
+you need to `local.py`.
 
-- **Visible in admin:** "indy_hub | can admin MatExchange"
-  - Configure Material Exchange settings
-  - Manage stock availability
-  - View all transactions
-  - This role is **not** meant for everyone — only for people who manage the hub (they accept/reject buy and sell orders made to the corp)
-  - Admin panel access
-
-**Note**: Permissions are independent and can be combined. Most users only need `can access Indy_Hub`.
-
-______________________________________________________________________
-
-## Settings
-
-### User Admin Page
-
-- `Settings > User admin` is a private read-only page for Indy Hub user administration.
-- Visibility is superuser-only.
-- The page surfaces personal sharing, job-notification state, scope completeness, recent usage, and a health score per visible user.
-
-Customize Indy Hub behavior in `local.py`:
+### Notifications
 
 ```python
-# Discord notifications
-INDY_HUB_DISCORD_DM_ENABLED = True  # Default: True
-INDY_HUB_NOTIFICATION_DISPATCH_MODE = (
-    "discord_direct_only"  # aa_only | discord_direct_only | both
-)
-INDY_HUB_NOTIFICATION_IDEMPOTENCY_TTL_SECONDS = 300  # Default: 300s
-INDY_HUB_DISCORD_ACTION_TOKEN_MAX_AGE = 86400  # Default: 24 hours
+# Enable or disable direct Discord messages.
+INDY_HUB_DISCORD_DM_ENABLED = True
 
-# ESI task dispatch budgets (rate-limit friendly scheduling)
-INDY_HUB_ESI_TASK_STAGGER_THRESHOLD = 0  # Default: 0
-INDY_HUB_ESI_TASK_TARGET_PER_MIN_BLUEPRINTS = 90  # Default: 90
-INDY_HUB_ESI_TASK_TARGET_PER_MIN_JOBS = 60  # Default: 60
-INDY_HUB_ESI_TASK_TARGET_PER_MIN_SKILLS = 80  # Default: 80
-INDY_HUB_ESI_TASK_TARGET_PER_MIN_ROLES = 60  # Default: 60
-
-# Stale refresh thresholds (hours)
-INDY_HUB_SKILL_SNAPSHOT_STALE_HOURS = 24  # Default: 24
-INDY_HUB_ROLE_SNAPSHOT_STALE_HOURS = 24  # Default: 24
-INDY_HUB_STRUCTURE_NAME_STALE_HOURS = 24  # Default: 24
-
-# Optional: global usage tracking middleware (explicit opt-in)
-INDY_HUB_USAGE_MIDDLEWARE_ENABLED = False  # Default: False
-INDY_HUB_USAGE_MIDDLEWARE_ALLOWED_APP_NAMES = ("indy_hub",)  # Default scope
+# aa_only | discord_direct_only | both
+INDY_HUB_NOTIFICATION_DISPATCH_MODE = "discord_direct_only"
 ```
 
-### Optional Global Usage Tracking Middleware
+Use `aa_only` when another Alliance Auth service already forwards notifications
+to Discord. This avoids duplicate messages.
 
-- By default, Indy Hub usage tracking is performed by Indy Hub view decorators.
-- To track Indy Hub requests globally, explicitly enable the middleware below.
-- The middleware records only allowlisted app routes and stores normalized route keys (`route:app:view`) instead of raw URL paths.
+### Large crafting projects
 
-Add to `MIDDLEWARE` in `local.py` (after authentication/session middleware):
+The defaults support large forms and project files. Increase these values only
+if users still reach upload limits:
+
+```python
+INDY_HUB_MAX_FORM_FIELDS = 50000
+INDY_HUB_MAX_REQUEST_BODY_BYTES = 52428800  # 50 MB
+```
+
+### Corporation blueprints in personal projects
+
+Personal projects use personal blueprints only by default. To let users choose
+authorized corporation blueprints as a fallback, add this setting:
+
+```python
+INDY_HUB_PERSONAL_PROJECTS_ALLOW_CORP_BP = True
+```
+
+The `Corp BPs` switch then appears in Crafting Projects. Personal blueprints
+remain preferred, and users only see corporation blueprints they are permitted
+to access.
+
+### Fixed prices for sparse Material Exchange items
+
+If an item has incomplete Jita market data, a Material Exchange administrator
+can give that exact item a fixed member-sale price in
+`Material Exchange → Settings`. Enter one item and unit price per line, for
+example `Ducinium II-Grade = 4500.00`. No `local.py` change is required.
+
+### Optional global usage tracking
+
+Normal Indy Hub pages already record the usage statistics shown to superusers.
+Global middleware tracking is optional.
+
+To enable it, add the middleware after Django's authentication and session
+middleware:
 
 ```python
 MIDDLEWARE = [
-    # ... existing middleware ...
+    # Existing middleware...
     "indy_hub.middleware.IndyHubUsageTrackingMiddleware",
 ]
-```
 
-Recommended scope configuration:
-
-```python
-# Keep scope explicit; default tracks Indy Hub routes only.
 INDY_HUB_USAGE_MIDDLEWARE_ENABLED = True
 INDY_HUB_USAGE_MIDDLEWARE_ALLOWED_APP_NAMES = ("indy_hub",)
 ```
 
-If you broaden `INDY_HUB_USAGE_MIDDLEWARE_ALLOWED_APP_NAMES`, only include app names you intentionally want in usage analytics.
+Keep the allowed application list limited to applications you intentionally want
+to include in Indy Hub usage statistics.
 
-Notification dispatch modes:
+### Background tasks
 
-- `aa_only`: persist Alliance Auth notifications only (recommended when a proxy already relays AA notifications to Discord).
-- `discord_direct_only`: send direct Discord DM first; fallback to Alliance Auth notifications when direct delivery fails.
-- `both`: persist Alliance Auth notifications and send direct Discord DMs (explicit opt-in).
+Indy Hub creates and repairs its background schedules automatically during
+migrations and service restarts. No manual schedule setup is required.
 
-**Scheduled Tasks** (auto-created):
-
-- `indy-hub-update-all-blueprints` → Daily at 03:30 UTC
-- `indy-hub-update-all-industry-jobs` → Every 2 hours
-- `indy-hub-dispatch-pending-industry-bulk-updates` → Every minute while bulk work is pending
-- `indy-hub-refresh-stale-snapshots` → Hourly (skills/roles/structures)
-
-Blueprint and industry-job bulk refreshes keep their pending state in the shared
-Django cache and release only the configured per-minute task budget. They do not
-publish hours of Celery ETA/countdown messages. The older
-`INDY_HUB_BLUEPRINTS_BULK_WINDOW_MINUTES` and
-`INDY_HUB_INDUSTRY_JOBS_BULK_WINDOW_MINUTES` settings are retained for
-configuration compatibility but no longer control these two bulk refreshes.
-
-______________________________________________________________________
+After installation or an update, always restart Celery Beat and Celery workers.
 
 ## Updating
 
-For release-specific operational notes, see [docs/UPGRADE_NOTES.md](docs/UPGRADE_NOTES.md).
+Read [docs/UPGRADE_NOTES.md](docs/UPGRADE_NOTES.md) first if you are upgrading
+from an older release.
 
-### Bare Metal Update
+### Bare metal
 
-```text
-# Update the package
+```bash
 pip install --upgrade indy-hub
-
-# Apply migrations
 python manage.py migrate
-
-# Collect static files
 python manage.py collectstatic --noinput
-
-# Restart services
-systemctl restart allianceauth
+# Restart gunicorn, Celery Beat, and Celery workers.
 ```
 
-### Docker Update
+### Docker
 
-Update Versions in `conf/requirements.txt` (Always use current versions)
+Update the version in `conf/requirements.txt`:
 
 ```text
-indy-hub==1.18.2
+indy-hub==1.18.3
 ```
 
-Update the Package:
+Then rebuild, migrate, collect static files, and restart the containers:
 
-```text
-# Exec Into the Container
-docker compose exec allianceauth_gunicorn bash
-
-# Update the package
-pip install -U indy-hub
-
-# Apply Migrations
-auth migrate
-
-# Collect static files
-auth collectstatic --no-input
-
-# Restart Services
-exit
+```bash
 docker compose build
-docker compose down
 docker compose up -d
+docker compose exec allianceauth_gunicorn auth migrate
+docker compose exec allianceauth_gunicorn auth collectstatic --noinput
+docker compose restart
 ```
 
-If Celery runs in dedicated containers/services in your stack, also restart worker and beat/scheduler containers.
+## Getting started
 
-______________________________________________________________________
+1. Open Indy Hub from the Alliance Auth dashboard.
+1. Authorize your personal ESI scopes from Indy Hub settings or CharLink.
+1. Open the blueprint library or Industry Jobs page to load your data.
+1. Configure blueprint sharing or Material Exchange only if your corporation uses
+   those features.
 
-## Usage
-
-1. **Navigate** to Indy Hub in the Alliance Auth dashboard
-1. **Authorize ESI** for blueprints and jobs via the settings
-1. **View Your Data**:
-
-- Personal blueprints and industry jobs
-- Corporation blueprints (if director)
-- Pending blueprint copy requests
-- Material Exchange buy/sell orders and transaction history
-
-1. **Share Blueprints**: Set sharing scopes and send copy offers to alliance members
-1. **Receive Notifications**: View job completions and copy request updates in the notification feed
-
-______________________________________________________________________
+Corporation data is available only to users with the appropriate permission,
+corporation role, and authorized token.
 
 ## Screenshots
 
-Below are a few UI highlights from the current release.
-
-### Dashboard Overview
+### Dashboard
 
 ![Dashboard overview](docs/screenshots/Dashboard_1.13.11.png)
 
-### Blueprint Library
+### Blueprint library
 
 ![Blueprint library filters and list](docs/screenshots/bp_all_1.13.11.png)
 
-### Blueprint Copy Requests
+### Blueprint copy requests
 
 ![Copy request workflow](docs/screenshots/bp-copy_request_1.13.11.png)
 
-### Material Exchange Hub
+### Material Exchange
 
 ![Material exchange overview](docs/screenshots/mat_hub_1.13.11.png)
 
-### Order Requests
+### Order requests
 
 ![Order request details](docs/screenshots/order_request_1.13.11.png)
 
-### Discord Notifications
+### Discord notifications
 
 ![Discord notification example](docs/screenshots/notif_request_1.13.11.png)
 
-### User Settings
+### User settings
 
 ![User settings and preferences](docs/screenshots/user_settings_1.13.11.png)
 
-______________________________________________________________________
+## Support and contributing
 
-## Contributing
-
-- Open an issue or pull request on GitHub for help or to contribute
-  Or contact me on discord: `erkaek`
-
-______________________________________________________________________
+Open a GitHub issue or pull request for help, bug reports, or contributions. You
+can also contact `erkaek` on Discord.

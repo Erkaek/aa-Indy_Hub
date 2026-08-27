@@ -44,6 +44,7 @@ from indy_hub.forms.industry_structures import (
 )
 from indy_hub.models import CharacterSettings, CorporationSharingSetting
 
+from .. import app_settings
 from ..decorators import indy_hub_access_required, indy_hub_permission_required
 from ..models import (
     Blueprint,
@@ -183,6 +184,7 @@ from ..services.industry_structure_import import (
 from ..services.industry_structure_sync import get_available_structure_sync_targets
 from ..services.industry_structures import (
     COPYING_JOB_COST_BASE_PERCENT,
+    NPC_STATION_STRUCTURE_TYPE_ID,
     build_structure_activity_previews,
     build_structure_rig_advisor_rows,
     calculate_installation_cost,
@@ -2326,6 +2328,7 @@ def craft_project(request, project_ref):
         "project": project,
         "sde_snapshot_has_changed": sde_has_changed,
         "sde_refresh_url": sde_refresh_url,
+        "allow_corp_blueprints": app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP,
     }
     context.update(build_nav_context(request.user, active_tab="industry"))
     return render(request, "indy_hub/industry/Craft_BP_v2.html", context)
@@ -2509,6 +2512,7 @@ def craft_temp_project(request, temp_project_ref):
         "project": None,
         "sde_snapshot_has_changed": False,
         "sde_refresh_url": "",
+        "allow_corp_blueprints": app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP,
     }
     context.update(build_nav_context(request.user, active_tab="industry"))
     return render(request, "indy_hub/industry/Craft_BP_v2.html", context)
@@ -6481,6 +6485,13 @@ def _build_next_personal_structure_tag(
 
 
 def _build_structure_add_page_context(request, structure_form, rig_formset):
+    try:
+        selected_structure_type_id = int(
+            structure_form["structure_type_id"].value() or 0
+        )
+    except (TypeError, ValueError):
+        selected_structure_type_id = 0
+
     context = {
         "structure_form": structure_form,
         "rig_formset": rig_formset,
@@ -6488,6 +6499,10 @@ def _build_structure_add_page_context(request, structure_form, rig_formset):
         "rig_option_catalog_json": json.dumps(get_industry_rig_catalog()),
         "structure_registry_url": reverse("indy_hub:industry_structure_registry"),
         "back_to_industry_url": reverse("indy_hub:personnal_job_list"),
+        "npc_station_structure_type_id": NPC_STATION_STRUCTURE_TYPE_ID,
+        "is_npc_station_selected": (
+            selected_structure_type_id == NPC_STATION_STRUCTURE_TYPE_ID
+        ),
     }
     context.update(build_nav_context(request.user, active_tab="industry"))
     return context

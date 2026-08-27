@@ -583,11 +583,70 @@ class IndustryStructureRegistryViewTests(TestCase):
         self.assertIn("Deduce Rigs", content)
         self.assertIn("Select one activity", content)
         self.assertIn("NPC Station", content)
+        self.assertIn('id="npc-station-activity-guidance"', content)
+        self.assertIn("Indy Hub cannot detect an NPC Station", content)
+        self.assertIn("industry services automatically", content)
+        self.assertIn("Craft Structure Planner", content)
+        self.assertIn("For a lowsec NPC Station", content)
+        self.assertIn("alert alert-info small mb-4 d-none", content)
         self.assertIn('"supports_rigs": false', content)
         self.assertIn('name="rigs-0-rig_type_id"', content)
         self.assertIn('name="rigs-1-rig_type_id"', content)
         self.assertIn('name="rigs-2-rig_type_id"', content)
         self.assertNotIn('name="rigs-3-rig_type_id"', content)
+
+    @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
+    def test_npc_station_guidance_is_scoped_to_npc_station_edit(
+        self, _mock_sde_loaded
+    ) -> None:
+        npc_station = IndustryStructure.objects.create(
+            name="Lowsec NPC Factory",
+            structure_type_id=NPC_STATION_STRUCTURE_TYPE_ID,
+            structure_type_name="NPC Station",
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            system_security_band=IndustryStructure.SecurityBand.LOWSEC,
+            enable_manufacturing=True,
+        )
+        player_structure = IndustryStructure.objects.create(
+            name="Player Raitaru",
+            structure_type_id=35825,
+            structure_type_name="Raitaru",
+            solar_system_id=30000142,
+            solar_system_name="Jita",
+            system_security_band=IndustryStructure.SecurityBand.HIGHSEC,
+            enable_manufacturing=True,
+        )
+
+        npc_response = self._edit_view(
+            self._prepare_request(
+                self.factory.get(
+                    reverse("indy_hub:industry_structure_edit", args=[npc_station.id])
+                )
+            ),
+            npc_station.id,
+        )
+        player_response = self._edit_view(
+            self._prepare_request(
+                self.factory.get(
+                    reverse(
+                        "indy_hub:industry_structure_edit", args=[player_structure.id]
+                    )
+                )
+            ),
+            player_structure.id,
+        )
+
+        self.assertContains(
+            npc_response,
+            'class="alert alert-info small mb-4"',
+            html=False,
+        )
+        self.assertContains(
+            player_response,
+            'class="alert alert-info small mb-4 d-none"',
+            html=False,
+        )
 
     @patch(
         "indy_hub.services.industry_structure_import.structure_type_supports_rigs",

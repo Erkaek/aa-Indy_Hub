@@ -173,7 +173,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
     const sellPasteMessages = {
         notBought: '{% trans "Not bought by the hub" %}',
-        noReliablePrice: '{% trans "No coherent price was found for this item. Contact the admins to discuss a sale through another path." %}',
+        noReliablePrice: '{% trans "This item is recognized, but its market reference price is incomplete. An administrator can configure a fixed member-sale price for this exact item." %}',
         notOnCharacter: '{% trans "Not available on this character" %}',
         contractOnly: '{% trans "Item not found on your characters: contract validation will verify the delivered items directly." %}',
         insufficient: '{% trans "Quantity exceeds what is available on the selected character" %}',
@@ -611,6 +611,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         const tabConfig = [
             { key: 'accepted', tabId: 'sellPasteTabAccepted', paneId: 'sellPasteAcceptedCard' },
             { key: 'rejected', tabId: 'sellPasteTabRejected', paneId: 'sellPasteRejectedCard' },
+            { key: 'no_price', tabId: 'sellPasteTabNoPrice', paneId: 'sellPasteNoPriceCard' },
             { key: 'unavailable', tabId: 'sellPasteTabUnavailable', paneId: 'sellPasteUnavailableCard' },
             { key: 'unknown', tabId: 'sellPasteTabUnknown', paneId: 'sellPasteUnknownCard' }
         ];
@@ -912,7 +913,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             if (sellPasteSubmitWrapper) {
                 sellPasteSubmitWrapper.classList.add('d-none');
             }
-            ['Accepted', 'Rejected', 'Unavailable', 'Unknown'].forEach(prefix => {
+            ['Accepted', 'Rejected', 'NoPrice', 'Unavailable', 'Unknown'].forEach(prefix => {
                 const countNode = query('#sellPaste' + prefix + 'Count');
                 const badgeNode = query('#sellPaste' + prefix + 'Badge');
                 if (countNode) {
@@ -932,6 +933,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         const parsed = buildPasteEntries(rawText);
         const acceptedItems = [];
         const rejectedItems = [];
+        const noPriceItems = [];
         const unavailableItems = [];
         const unknownItems = parsed.parseErrors.map(line => ({
             label: line,
@@ -968,7 +970,10 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             }
 
             if (catalogItem.status === 'rejected') {
-                rejectedItems.push({
+                const targetItems = catalogItem.reason === 'no_reliable_price'
+                    ? noPriceItems
+                    : rejectedItems;
+                targetItems.push({
                     label: `${catalogItem.type_name} x ${entry.quantity.toLocaleString(window.getIndyHubLocale())}`,
                     detail: catalogItem.reason === 'no_reliable_price'
                         ? sellPasteMessages.noReliablePrice
@@ -1031,10 +1036,12 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
         const acceptedCountNode = query('#sellPasteAcceptedCount');
         const rejectedCountNode = query('#sellPasteRejectedCount');
+        const noPriceCountNode = query('#sellPasteNoPriceCount');
         const unavailableCountNode = query('#sellPasteUnavailableCount');
         const unknownCountNode = query('#sellPasteUnknownCount');
         const acceptedBadgeNode = query('#sellPasteAcceptedBadge');
         const rejectedBadgeNode = query('#sellPasteRejectedBadge');
+        const noPriceBadgeNode = query('#sellPasteNoPriceBadge');
         const unavailableBadgeNode = query('#sellPasteUnavailableBadge');
         const unknownBadgeNode = query('#sellPasteUnknownBadge');
         const acceptedValueNode = query('#sellPasteAcceptedValue');
@@ -1044,6 +1051,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         }
         if (rejectedCountNode) {
             rejectedCountNode.textContent = rejectedItems.length.toLocaleString(window.getIndyHubLocale());
+        }
+        if (noPriceCountNode) {
+            noPriceCountNode.textContent = noPriceItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (unavailableCountNode) {
             unavailableCountNode.textContent = unavailableItems.length.toLocaleString(window.getIndyHubLocale());
@@ -1056,6 +1066,9 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         }
         if (rejectedBadgeNode) {
             rejectedBadgeNode.textContent = rejectedItems.length.toLocaleString(window.getIndyHubLocale());
+        }
+        if (noPriceBadgeNode) {
+            noPriceBadgeNode.textContent = noPriceItems.length.toLocaleString(window.getIndyHubLocale());
         }
         if (unavailableBadgeNode) {
             unavailableBadgeNode.textContent = unavailableItems.length.toLocaleString(window.getIndyHubLocale());
@@ -1073,6 +1086,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         const visibleCardCount = syncPasteResultTabs({
             accepted: acceptedItems.length,
             rejected: rejectedItems.length,
+            no_price: noPriceItems.length,
             unavailable: unavailableItems.length,
             unknown: unknownItems.length
         });
@@ -1093,6 +1107,14 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             </article>
         `);
         renderPasteList('sellPasteRejectedList', null, rejectedItems, item => `
+            <article class="me-paste-line me-paste-line-rejected">
+                <div>
+                    <div class="me-paste-line-title">${item.label}</div>
+                    <div class="me-paste-line-meta">${item.detail}</div>
+                </div>
+            </article>
+        `);
+        renderPasteList('sellPasteNoPriceList', null, noPriceItems, item => `
             <article class="me-paste-line me-paste-line-rejected">
                 <div>
                     <div class="me-paste-line-title">${item.label}</div>

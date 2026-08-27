@@ -1,265 +1,201 @@
 # Indy Hub — Upgrade Notes
 
-Per-version **extra** steps to run **in addition to** the standard cycle:
+This guide lists the actions required to upgrade to Indy Hub 1.18.3. You only
+need basic Alliance Auth administration commands; no manual database editing is
+required.
 
-```
+> Indy Hub 1.18.3 requires Alliance Auth 5.
+
+## Standard upgrade
+
+Run this cycle once after completing any extra steps for your current version:
+
+```bash
 pip install --upgrade indy-hub
 python manage.py migrate
 python manage.py collectstatic --noinput
-# restart Alliance Auth (gunicorn + celery beat + celery workers)
+# Restart gunicorn, Celery Beat, and Celery workers.
 ```
 
-Docker equivalent: prefix commands with `docker compose exec allianceauth_gunicorn auth …`
-(or `bash -c "…"` when chaining with `pip`).
+For Docker installations, run the equivalent commands in the Alliance Auth
+gunicorn container. Depending on your stack, the Django command may be named
+`auth` instead of `python manage.py`.
 
-> Indy Hub now targets **Alliance Auth 5** only.
-> Upgrade Alliance Auth and django-esi as part of your stack upgrade, then upgrade Indy Hub.
+Version 1.18.3 automatically restores missing background schedules during the
+normal upgrade and restart. No additional Indy Hub command is required.
 
-______________________________________________________________________
+If your installation previously used manual file merges and an upgrade leaves
+old files behind, follow [PROCESS_RESOLUTION_INSTALL.md](PROCESS_RESOLUTION_INSTALL.md).
 
-## How to use this document
+## Choose your current version
 
-1. Find the section that matches **your current Indy Hub version** below.
-1. Run the steps **in order, top to bottom** — every section is cumulative and includes all intermediate releases up to 1.18.2.
-1. The standard cycle (`pip install` / `migrate` / `collectstatic` / restart) is run **once at the end** of the merged step list, unless an intermediate step explicitly says otherwise (e.g. "stop workers before `migrate`").
+Complete the section matching the version currently installed, then run the
+standard upgrade once.
 
-Quick map:
+| Current version   | Instructions                                              |
+| ----------------- | --------------------------------------------------------- |
+| `1.18.2`          | [Upgrade from 1.18.2](#upgrade-from-1182)                 |
+| `1.17.x`          | [Upgrade from 1.17.x](#upgrade-from-117x)                 |
+| `1.16.x`          | [Upgrade from 1.16.x](#upgrade-from-116x)                 |
+| `1.15.x`          | [Upgrade from 1.15.x](#upgrade-from-115x)                 |
+| `1.14.x`          | [Upgrade from 1.14.x](#upgrade-from-114x)                 |
+| `1.13.x`          | [Upgrade from 1.13.x](#upgrade-from-113x)                 |
+| `1.12.x`          | [Upgrade from 1.12.x](#upgrade-from-112x)                 |
+| `1.11.x`          | [Upgrade from 1.11.x](#upgrade-from-111x)                 |
+| `1.10.x`          | [Upgrade from 1.10.x](#upgrade-from-110x)                 |
+| `1.9.x` and older | [Upgrade from 1.9.x or older](#upgrade-from-19x-or-older) |
 
-| Current version   | Section                                                         |
-| ----------------- | --------------------------------------------------------------- |
-| `1.17.x`          | [Upgrading from 1.17.x to 1.18.2](#upgrading-from-117x-to-1182) |
-| `1.16.x`          | [Upgrading from 1.16.x to 1.18.2](#upgrading-from-116x-to-1182) |
-| `1.15.x`          | [Upgrading from 1.15.x to 1.18.2](#upgrading-from-115x-to-1182) |
-| `1.14.x`          | [Upgrading from 1.14.x to 1.18.2](#upgrading-from-114x-to-1182) |
-| `1.13.x`          | [Upgrading from 1.13.x to 1.18.2](#upgrading-from-113x-to-1182) |
-| `1.12.x`          | [Upgrading from 1.12.x to 1.18.2](#upgrading-from-112x-to-1182) |
-| `1.11.x`          | [Upgrading from 1.11.x to 1.18.2](#upgrading-from-111x-to-1182) |
-| `1.10.x`          | [Upgrading from 1.10.x to 1.18.2](#upgrading-from-110x-to-1182) |
-| `1.9.x` and older | [Upgrading from 1.9.x to 1.18.2](#upgrading-from-19x-to-1182)   |
+## Upgrade from 1.18.2
 
-If your previous deployment path involved manual merge-based installs and you hit leftover package-file issues after upgrade, follow the recovery process in [PROCESS_RESOLUTION_INSTALL.md](PROCESS_RESOLUTION_INSTALL.md).
+There are no extra commands. Run the standard upgrade.
 
-______________________________________________________________________
+After restart, the new administration statistics are prepared automatically
+and may take a few minutes to appear.
 
-## Upgrading from 1.17.x to 1.18.2
+Personal crafting projects continue to use personal blueprints only. If you
+want users to be able to choose authorized corporation blueprints as a fallback,
+add this optional setting to `local.py`:
 
-1. `pip install --upgrade indy-hub`
-1. `python manage.py migrate`
-1. `python manage.py collectstatic --noinput`
-1. Restart gunicorn + celery beat + workers.
-1. If you previously automated `sync_sde_compat`/`indy_sde_compat`, remove it from your runbooks: 1.18.2 no longer uses that compatibility cache flow. The old periodic refresh task (`indy-hub-refresh-production-items`) is legacy and is automatically cleaned up by Indy Hub periodic-task setup, so no manual beat-task deletion is normally required.
-1. Migration `0107_industrystructure_resolved_bonus_cache` adds persistent structure bonus cache fields. No manual data backfill is required; cache rows are generated lazily during normal structure usage.
-1. Migration `0108_remove_character_online_status` drops the obsolete Indy Hub online-status snapshot table. No manual data migration is required.
-1. Jobs page behavior changed: live ESI skill refresh now runs only when users click `Force Refresh`. Normal page loads use cached snapshot data and display a `Last update` timestamp.
-1. Token Management and Settings views no longer trigger live token refresh while rendering. Expired tokens are still excluded from coverage checks through passive validity filtering.
-1. Activity-aware manual refresh gating now uses Corptools `corptools_characteraudit.last_known_login` when available. If Corptools is absent, the table is missing, or the login value is empty, Indy Hub falls back to permissive behavior and does not block refreshes.
-1. Personal Indy Hub authorization no longer requires `esi-location.read_online.v1`; users do not need to re-link characters for that scope on this release.
-1. If your stack proxies Alliance Auth notifications to Discord, explicitly review `INDY_HUB_NOTIFICATION_DISPATCH_MODE` in `local.py` before restart:
-   - `aa_only` when the proxy already relays Alliance Auth notifications to Discord (prevents duplicate Discord DMs).
-   - `discord_direct_only` for direct Discord delivery with Alliance Auth fallback.
-   - `both` only when duplicate channel delivery is intentional.
-1. (Optional) Set `INDY_HUB_DISCORD_DM_ENABLED = False` to fully disable direct Discord DMs.
-
-______________________________________________________________________
-
-## Upgrading from 1.16.x to 1.18.2
-
-1. **Before `migrate`** — stop celery beat and workers. Migration `0100_repair_blueprint_bp_type_classification` rewrites `bp_type` for legacy BPO/BPC rows and can take a few minutes on a large fleet.
-1. `pip install --upgrade indy-hub`
-1. `python manage.py migrate`
-1. `python manage.py collectstatic --noinput`
-1. Restart gunicorn + celery beat + workers.
-1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` (default `50000`) and `INDY_HUB_MAX_REQUEST_BODY_BYTES` (default 50 MB) in `local.py` if your users push very large catalogues / craft workspaces.
-
-______________________________________________________________________
-
-## Upgrading from 1.15.x to 1.18.2
-
-This path crosses the 1.16.0 Crafting Projects rewrite.
-
-1. **Backup the database** (the legacy simulation → project data migration is reversible but slow).
-1. Stop celery beat and workers (data migrations `0096` for 1.16, `0100` for 1.17, and the 1.18 migration chain all run during the same `migrate`).
-1. `pip install --upgrade indy-hub`
-1. `python manage.py migrate`
-1. `python manage.py collectstatic --noinput`
-1. Restart gunicorn + celery beat + workers.
-1. Update internal links / bookmarks: deprecated `simulation*` endpoints now return `410 Gone`.
-1. In `Django Admin`, assign the new Industry Structures / Crafting Project permissions to the relevant groups.
-1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
-
-______________________________________________________________________
-
-## Upgrading from 1.14.x to 1.18.2
-
-This path crosses the 1.15.0 SDE backend swap and the 1.16.0 Crafting Projects rewrite.
-
-1. **Backup the database.**
-1. **Install the new SDE backend first**:
-   ```
-   pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
-   ```
-1. Stop celery beat and workers.
-1. `pip install --upgrade indy-hub`
-1. `python manage.py migrate` (chains periodic-task bootstrap, project migration `0096`, structure constraint cleanup, and BPC repair `0100`).
-1. `python manage.py collectstatic --noinput`
-1. Restart gunicorn + celery beat + workers.
-1. Update internal links / bookmarks: deprecated `simulation*` endpoints now return `410 Gone`.
-1. In `Django Admin`, assign the new Industry Structures / Crafting Project permissions to the relevant groups.
-1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
-1. (Optional) `django-eveuniverse` is no longer used by Indy Hub — uninstall once you confirm no other AA module depends on it.
-
-______________________________________________________________________
-
-## Upgrading from 1.13.x to 1.18.2
-
-This path crosses the 1.14.0 Material Exchange refactor, the 1.15.0 SDE backend swap and the 1.16.0 Crafting Projects rewrite.
-
-1. **Backup the database.**
-1. If you rely on Discord DMs, make sure one of the providers is still installed (they became optional extras in 1.13.12):
-   - `pip install "indy-hub[aadiscordbot]"` *or* `pip install "indy-hub[discordnotify]"`.
-1. Install the new SDE backend (introduced in 1.15.0):
-   ```
-   pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
-   ```
-1. Stop celery beat and workers.
-1. `pip install --upgrade indy-hub`
-1. `python manage.py migrate`
-1. `python manage.py collectstatic --noinput`
-1. Restart gunicorn + celery beat + workers (mandatory beat restart — new schedules from `0083`, plus the updated 1.10.2 timers if you skipped them earlier).
-1. In `Material Exchange → Settings`, tick `enabled` to turn the module on (disabled by default since 1.14.0).
-1. Ask corporation directors using Material Exchange to re-link their corp tokens. New scopes since 1.14.0: `esi-corporations.read_divisions.v1`, `esi-contracts.read_corporation_contracts.v1`. Removed: corp wallet scope.
-1. Update internal links / bookmarks: deprecated `simulation*` endpoints now return `410 Gone`.
-1. In `Django Admin`, assign the new Industry Structures / Crafting Project permissions to the relevant groups.
-1. (Optional) Configure Discord notification webhooks in `Django Admin → Indy Hub → Notification Webhooks` (introduced in 1.13.4).
-1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
-
-______________________________________________________________________
-
-## Upgrading from 1.12.x to 1.18.2
-
-This path crosses the 1.13.0 Material Exchange order-reference rule, then all of the 1.13.x → 1.18.2 steps.
-
-1. **Backup the database.**
-1. Notify Material Exchange users in advance: since 1.13.0, ESI contract titles **must** include the order reference (e.g. `INDY-123`). Open contracts created before the upgrade should be closed or amended.
-1. If you rely on Discord DMs, install the right provider extra (optional since 1.13.12):
-   - `pip install "indy-hub[aadiscordbot]"` *or* `pip install "indy-hub[discordnotify]"`.
-1. Install the new SDE backend (1.15.0):
-   ```
-   pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
-   ```
-1. Stop celery beat and workers.
-1. `pip install --upgrade indy-hub`
-1. `python manage.py migrate`
-1. `python manage.py collectstatic --noinput`
-1. Restart gunicorn + celery beat + workers.
-1. (Optional) Configure Discord notification webhooks in `Django Admin → Indy Hub → Notification Webhooks` (1.13.4).
-1. In `Material Exchange → Settings`, tick `enabled`.
-1. Ask corp directors using Material Exchange to re-link their corp tokens (new scopes from 1.14.0).
-1. Update bookmarks: deprecated `simulation*` endpoints now return `410 Gone`.
-1. Assign the new Industry Structures / Crafting Project permissions in `Django Admin`.
-1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
-
-______________________________________________________________________
-
-## Upgrading from 1.11.x to 1.18.2
-
-The 1.11→1.12 step itself has no extra requirement, so this path matches the 1.12.x section.
-
-Apply the steps from [Upgrading from 1.12.x to 1.18.2](#upgrading-from-112x-to-1182).
-
-______________________________________________________________________
-
-## Upgrading from 1.10.x to 1.18.2
-
-This path crosses the 1.11.0 corporation blueprints / permissions overhaul.
-
-1. **Backup the database.**
-1. Same advance communication as above (Material Exchange order references since 1.13.0).
-1. Install the Discord provider extra if needed, and the new SDE backend (1.15.0):
-   ```
-   pip install "indy-hub[aadiscordbot]"   # or [discordnotify], optional
-   pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
-   ```
-1. Stop celery beat and workers.
-1. `pip install --upgrade indy-hub`
-1. `python manage.py migrate` (backfills `owner_kind` on blueprints/jobs from the 1.11.0 migration, then chains 1.13–1.18 migrations).
-1. `python manage.py collectstatic --noinput`
-1. Restart gunicorn + celery beat + workers.
-1. In `Django Admin → Auth → Groups` (or per user) assign the new Indy Hub permissions introduced in 1.11.0:
-   - `can_manage_corporate_assets`
-   - copy-manager / corporate-director permissions (see README for the full mapping).
-1. Ask corporation directors to re-link their tokens — since 1.11.0 the corp roles scope is validated up front and incomplete tokens are rejected.
-1. (Optional) Configure corp token allow-lists in Token Management.
-1. In `Material Exchange → Settings`, tick `enabled`.
-1. Ask corp directors using Material Exchange to re-link again if scopes were rejected (1.14.0 scope changes).
-1. (Optional) Configure Discord notification webhooks (1.13.4).
-1. Update bookmarks: `simulation*` endpoints return `410 Gone`.
-1. Assign the new Industry Structures / Crafting Project permissions in `Django Admin`.
-1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
-
-______________________________________________________________________
-
-## Upgrading from 1.9.x to 1.18.2
-
-Same as [Upgrading from 1.10.x to 1.18.2](#upgrading-from-110x-to-1182), with one addition: the 1.10.2 release rewrote the existing `PeriodicTask` rows (daily bulk blueprint sync at 03:00 UTC, jobs every 2 h, with staggering). The chained `migrate` applies that change too — **just make sure celery beat is restarted after the upgrade** so it reloads the rewritten schedules.
-
-Steps:
-
-1. **Backup the database.**
-1. Same advance communications (Material Exchange order references from 1.13.0).
-1. Optional Discord provider extra + new SDE backend (1.15.0):
-   ```
-   pip install "indy-hub[aadiscordbot]"   # or [discordnotify], optional
-   pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
-   ```
-1. Stop celery beat and workers.
-1. `pip install --upgrade indy-hub`
-1. `python manage.py migrate`
-1. `python manage.py collectstatic --noinput`
-1. Restart gunicorn + celery beat (mandatory — rewritten schedules) + workers.
-1. (Optional) Choose notification dispatch mode in `local.py`:
-   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "aa_only"` when a proxy already relays Alliance Auth notifications to Discord (prevents duplicate Discord DMs).
-   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "discord_direct_only"` for direct Discord delivery with Alliance Auth fallback.
-   - `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "both"` only when duplicate channel delivery is intentional.
-1. (Optional) Keep `INDY_HUB_DISCORD_DM_ENABLED = False` to fully disable direct Discord DMs.
-1. Assign the 1.11.0 corporation/copy-manager permissions in `Django Admin → Auth → Groups`.
-1. Ask corp directors to re-link their tokens for the corp roles scope (1.11.0) and the new Material Exchange scopes (1.14.0).
-1. (Optional) Configure corp token allow-lists in Token Management.
-1. In `Material Exchange → Settings`, tick `enabled`.
-1. (Optional) Configure Discord notification webhooks (1.13.4).
-1. Update bookmarks: `simulation*` endpoints return `410 Gone`.
-1. Assign the new Industry Structures / Crafting Project permissions in `Django Admin`.
-1. (Optional) Tune `INDY_HUB_MAX_FORM_FIELDS` / `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
-
-______________________________________________________________________
-
-## Reusable cheat sheet
-
-```
-# 0. Backup DB
-pg_dump / mysqldump …
-
-# 1. Stop workers (and beat for any release with data migrations: 0096, 0100, etc.)
-supervisorctl stop auth_celery_beat auth_celery_worker
-
-# 2. Install / update the SDE backend if jumping over 1.15.0
-pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
-
-# 3. Upgrade Indy Hub (never touches your AA / django-esi version)
-pip install --upgrade indy-hub
-
-# 4. Migrate
-python manage.py migrate
-
-# 5. Static files
-python manage.py collectstatic --noinput
-
-# 6. Restart everything
-supervisorctl restart auth_gunicorn auth_celery_beat auth_celery_worker
-
-# 7. If your stack proxies AA notifications to Discord, review before restart:
-# INDY_HUB_NOTIFICATION_DISPATCH_MODE = "aa_only"
-# INDY_HUB_DISCORD_DM_ENABLED = False  # optional hard disable of direct DMs
+```python
+INDY_HUB_PERSONAL_PROJECTS_ALLOW_CORP_BP = True
 ```
 
-When in doubt, the per-version `### Update from X.Y.Z` blocks of `CHANGELOG.md` are authoritative.
+Material Exchange administrators can now set a fixed member-sale price for an
+exact item when its Jita market data is incomplete. This is available directly
+in `Material Exchange → Settings`; no server setting is needed.
+
+The Structure Registry now explains which activities to review when an NPC
+Station is added or edited. Existing saved activities are not changed.
+
+## Upgrade from 1.17.x
+
+Before upgrading:
+
+- Remove any automation that runs `sync_sde_compat` or `indy_sde_compat`; these
+  commands are no longer used.
+- If another Alliance Auth service already forwards notifications to Discord,
+  set `INDY_HUB_NOTIFICATION_DISPATCH_MODE = "aa_only"` in `local.py` to avoid
+  duplicate messages.
+
+Then run the standard upgrade. Existing users do not need to re-link characters
+for the removed online-location scope.
+
+## Upgrade from 1.16.x
+
+Before running `migrate`, stop Celery Beat and Celery workers. Keep them stopped
+until the standard upgrade is complete, then restart all Alliance Auth services.
+
+Optional: if users work with very large catalogues or crafting projects, review
+`INDY_HUB_MAX_FORM_FIELDS` and `INDY_HUB_MAX_REQUEST_BODY_BYTES` in `local.py`.
+
+## Upgrade from 1.15.x
+
+Before upgrading:
+
+- Back up the database.
+- Stop Celery Beat and Celery workers until the upgrade is complete.
+
+After upgrading:
+
+- Update bookmarks that still use old `simulation*` pages; those pages are no
+  longer available.
+- Assign the Industry Structures and Crafting Projects permissions to the
+  appropriate groups in Django Admin.
+
+## Upgrade from 1.14.x
+
+Before upgrading:
+
+- Back up the database.
+
+- Install the current SDE backend:
+
+  ```bash
+  pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
+  ```
+
+- Stop Celery Beat and Celery workers until the upgrade is complete.
+
+After upgrading:
+
+- Update bookmarks that still use old `simulation*` pages.
+- Assign the Industry Structures and Crafting Projects permissions to the
+  appropriate groups in Django Admin.
+- Optionally uninstall `django-eveuniverse` after confirming that no other
+  Alliance Auth application uses it.
+
+## Upgrade from 1.13.x
+
+Before upgrading:
+
+- Back up the database.
+
+- If you use direct Discord messages, install one supported provider:
+
+  ```bash
+  pip install "indy-hub[aadiscordbot]"
+  # or
+  pip install "indy-hub[discordnotify]"
+  ```
+
+- Install the current SDE backend:
+
+  ```bash
+  pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
+  ```
+
+- Stop Celery Beat and Celery workers until the upgrade is complete.
+
+After upgrading:
+
+- Enable Material Exchange in `Material Exchange → Settings` if you use it.
+- Ask corporation directors using Material Exchange to re-link their corporation
+  tokens for the division and corporation-contract scopes.
+- Update bookmarks that still use old `simulation*` pages.
+- Assign the Industry Structures and Crafting Projects permissions to the
+  appropriate groups in Django Admin.
+- Optionally configure Discord notification webhooks in
+  `Django Admin → Indy Hub → Notification Webhooks`.
+
+## Upgrade from 1.12.x
+
+Follow all steps in [Upgrade from 1.13.x](#upgrade-from-113x).
+
+Before upgrading, also notify Material Exchange users that contract titles must
+contain the order reference, for example `INDY-123`. Existing open contracts
+without a reference should be closed or corrected.
+
+## Upgrade from 1.11.x
+
+Follow all steps in [Upgrade from 1.12.x](#upgrade-from-112x). There are no
+additional steps specific to 1.11.x.
+
+## Upgrade from 1.10.x
+
+Follow all steps in [Upgrade from 1.12.x](#upgrade-from-112x).
+
+After upgrading, also:
+
+- Assign the corporation asset and blueprint-copy management permissions to the
+  appropriate groups in Django Admin.
+- Ask corporation directors to re-link their tokens so Indy Hub can validate
+  corporation roles and Material Exchange access.
+- Optionally configure corporation token allow-lists in Token Management.
+
+## Upgrade from 1.9.x or older
+
+Follow all steps in [Upgrade from 1.10.x](#upgrade-from-110x). The standard
+service restart also reloads all current background schedules; no separate
+schedule repair is required.
+
+## After the upgrade
+
+Check that:
+
+- the Indy Hub pages open normally;
+- gunicorn, Celery Beat, and Celery workers are running;
+- Material Exchange is enabled if your installation uses it;
+- the expected groups still have access to Industry Structures and Crafting
+  Projects.
+
+For a user-facing summary of changes, see [CHANGELOG.md](../CHANGELOG.md).
