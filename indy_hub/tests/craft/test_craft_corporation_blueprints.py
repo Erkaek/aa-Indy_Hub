@@ -9,7 +9,11 @@ from django.test import TestCase
 
 # AA Example App
 from indy_hub.models import Blueprint
-from indy_hub.services.production_projects import _resolve_user_blueprint_inventory
+from indy_hub.services.production_projects import (
+    PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY,
+    _resolve_user_blueprint_inventory,
+    cached_project_workspace_payload_matches_corp_authorization,
+)
 
 
 class CraftCorporationBlueprintInventoryTests(TestCase):
@@ -156,3 +160,67 @@ class CraftCorporationBlueprintInventoryTests(TestCase):
         self.assertEqual(entry["original"], {"me": 3, "te": 6})
         self.assertEqual(entry["corp_original"], {"me": 10, "te": 20})
         self.assertFalse(entry["corp_source"])
+
+
+class CraftCorporationBlueprintCacheAuthorizationTests(TestCase):
+    def setUp(self) -> None:
+        self.user = User.objects.create_user("corp-cache-user", password="secret")
+        self.corporation_id = 2_000_001
+        self.workspace_state = {"use_corp_blueprints": True}
+
+    def _cached_payload(self, fingerprint=None) -> dict[str, object]:
+        payload: dict[str, object] = {"workspace_state": {"use_corp_blueprints": True}}
+        if fingerprint is not None:
+            payload[PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY] = fingerprint
+        return payload
+
+    def test_matches_unchanged_corporation_visibility(self) -> None:
+        with (
+            patch(
+                "indy_hub.services.production_projects.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+                True,
+            ),
+            patch(
+                "indy_hub.services.production_projects.get_viewable_corporation_ids",
+                return_value={self.corporation_id},
+            ),
+        ):
+            matches = cached_project_workspace_payload_matches_corp_authorization(
+                self._cached_payload([self.corporation_id]),
+                self.workspace_state,
+                user=self.user,
+            )
+
+        self.assertTrue(matches)
+
+    def test_rejects_cache_after_corporation_visibility_is_revoked(self) -> None:
+        with (
+            patch(
+                "indy_hub.services.production_projects.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+                True,
+            ),
+            patch(
+                "indy_hub.services.production_projects.get_viewable_corporation_ids",
+                return_value=set(),
+            ),
+        ):
+            matches = cached_project_workspace_payload_matches_corp_authorization(
+                self._cached_payload([self.corporation_id]),
+                self.workspace_state,
+                user=self.user,
+            )
+
+        self.assertFalse(matches)
+
+    def test_rejects_legacy_corp_cache_without_authorization_fingerprint(self) -> None:
+        with patch(
+            "indy_hub.services.production_projects.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            True,
+        ):
+            matches = cached_project_workspace_payload_matches_corp_authorization(
+                self._cached_payload(),
+                self.workspace_state,
+                user=self.user,
+            )
+
+        self.assertFalse(matches)

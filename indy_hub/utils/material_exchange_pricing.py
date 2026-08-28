@@ -11,10 +11,11 @@ Prices are based on Jita buy/sell plus a configurable markup, with an optional
 from __future__ import annotations
 
 # Standard Library
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 MATERIAL_EXCHANGE_PRICE_MAX = Decimal("999999999999999999.99")
 MATERIAL_EXCHANGE_ORDER_TOTAL_MAX = Decimal("99999999999999999999")
+MATERIAL_EXCHANGE_PRICE_QUANTUM = Decimal("0.01")
 
 
 def _to_decimal(value) -> Decimal:
@@ -38,7 +39,13 @@ def get_sell_price_override(*, config, type_id: int | None) -> Decimal | None:
     if raw_value is None:
         raw_value = raw_overrides.get(int(type_id))
     value = _to_decimal(raw_value)
-    return value if value.is_finite() and value > 0 else None
+    if not value.is_finite():
+        return None
+    try:
+        value = value.quantize(MATERIAL_EXCHANGE_PRICE_QUANTUM)
+    except InvalidOperation:
+        return None
+    return value if 0 < value <= MATERIAL_EXCHANGE_PRICE_MAX else None
 
 
 def apply_markup_with_jita_bounds(

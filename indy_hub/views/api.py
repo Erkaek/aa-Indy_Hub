@@ -52,6 +52,7 @@ from ..services.production_projects import (
     build_project_workspace_payload,
     build_temporary_project_payload,
     build_temporary_project_workspace_state,
+    cached_project_workspace_payload_matches_corp_authorization,
     create_project_from_entries,
     create_temporary_project_workspace,
     delete_temporary_project_workspace,
@@ -444,7 +445,13 @@ def temporary_production_project_payload(request, temp_project_ref: str):
         cached_payload = (temp_state.get("workspace_state") or {}).get(
             PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY
         )
-        if isinstance(cached_payload, dict):
+        if isinstance(
+            cached_payload, dict
+        ) and cached_project_workspace_payload_matches_corp_authorization(
+            cached_payload,
+            temp_state.get("workspace_state"),
+            user=request.user,
+        ):
             payload = dict(cached_payload)
 
     if payload is None:
@@ -545,6 +552,8 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
         data = json.loads(request.body or "{}")
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON data"}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "JSON body must be an object"}, status=400)
 
     # Patch only allowed fields into the existing workspace_state, stripping cached payload
     workspace_state = strip_project_workspace_cache(
@@ -594,6 +603,8 @@ def update_production_project_workspace_state(request, project_ref: str):
         data = json.loads(request.body or "{}")
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON data"}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "JSON body must be an object"}, status=400)
 
     workspace_state = strip_project_workspace_cache(dict(project.workspace_state or {}))
     if "use_corp_blueprints" in data:

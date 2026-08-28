@@ -134,6 +134,61 @@ class CraftBlueprintPayloadApiTests(TestCase):
             ]
         )
 
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.build_temporary_project_payload")
+    @patch(
+        "indy_hub.views.api.cached_project_workspace_payload_matches_corp_authorization",
+        return_value=False,
+    )
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_temporary_payload_rebuilds_revoked_corporation_cache(
+        self,
+        mock_emit_view_analytics_event,
+        mock_get_temporary_project_workspace,
+        mock_cache_matches_authorization,
+        mock_build_temporary_project_payload,
+        mock_set_temporary_project_workspace,
+    ) -> None:
+        cached_payload = {
+            "workspace_state": {"use_corp_blueprints": True},
+            "corpBlueprintAuthorizationFingerprint": [2_000_001],
+        }
+        temp_state = {
+            "workspace_state": {
+                "use_corp_blueprints": True,
+                "cachedProjectPayload": cached_payload,
+            }
+        }
+        fresh_payload = {
+            "workspace_state": {"use_corp_blueprints": True},
+            "corpBlueprintAuthorizationFingerprint": [],
+        }
+        mock_get_temporary_project_workspace.return_value = temp_state
+        mock_build_temporary_project_payload.return_value = fresh_payload
+
+        request = self.factory.get(
+            "/indy_hub/api/temp-production-projects/test-temp/payload/"
+        )
+        request.user = self.user
+        view = temporary_production_project_payload
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+
+        response = view(request, "test-temp")
+
+        self.assertEqual(response.status_code, 200)
+        mock_cache_matches_authorization.assert_called_once_with(
+            cached_payload,
+            temp_state["workspace_state"],
+            user=self.user,
+        )
+        mock_build_temporary_project_payload.assert_called_once()
+        saved_state = mock_set_temporary_project_workspace.call_args.args[1]
+        self.assertEqual(
+            saved_state["workspace_state"]["cachedProjectPayload"], fresh_payload
+        )
+
     @patch("indy_hub.views.api.build_craft_time_map")
     @patch("indy_hub.views.api.emit_view_analytics_event")
     @patch("indy_hub.views.api.build_craft_structure_planner")
@@ -622,6 +677,25 @@ class UpdateTemporaryProjectWorkspaceStateTests(TestCase):
         self.assertNotIn("cachedProjectPayload", saved["workspace_state"])
         self.assertEqual(saved["workspace_state"]["runs"], 5)
 
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_rejects_non_object_json_payloads(
+        self, mock_emit, mock_get, mock_set
+    ) -> None:
+        mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
+
+        for body in (None, [], "use_corp_blueprints"):
+            with self.subTest(body=body):
+                response = self._call("abc123", body)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    json.loads(response.content),
+                    {"error": "JSON body must be an object"},
+                )
+
+        mock_set.assert_not_called()
+
 
 class UpdateProductionProjectWorkspaceStateTests(TestCase):
     def setUp(self) -> None:
@@ -678,3 +752,19 @@ class UpdateProductionProjectWorkspaceStateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.project.refresh_from_db()
         self.assertIs(self.project.workspace_state["use_corp_blueprints"], False)
+
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_rejects_non_object_json_payloads(self, mock_emit) -> None:
+        original_workspace_state = dict(self.project.workspace_state)
+
+        for body in (None, [], "use_corp_blueprints"):
+            with self.subTest(body=body):
+                response = self._call(body)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    json.loads(response.content),
+                    {"error": "JSON body must be an object"},
+                )
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.workspace_state, original_workspace_state)

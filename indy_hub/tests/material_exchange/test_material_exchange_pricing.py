@@ -13,6 +13,7 @@ from django.test import RequestFactory, TestCase
 
 # AA Example App
 from indy_hub.models import MaterialExchangeConfig, MaterialExchangeStock
+from indy_hub.utils.material_exchange_pricing import get_sell_price_override
 from indy_hub.views.material_exchange import (
     _has_reliable_sell_reference_price,
     material_exchange_index,
@@ -91,6 +92,30 @@ class MaterialExchangePricingTests(TestCase):
         self.config.sell_price_overrides = {"74534": "4500.00"}
 
         self.assertEqual(self.stock.buy_price_from_member, Decimal("5.25"))
+
+    def test_member_sell_fixed_price_override_normalizes_admin_json_precision(self):
+        self.config.sell_price_overrides = {str(self.stock.type_id): "0.006"}
+
+        self.assertEqual(
+            get_sell_price_override(config=self.config, type_id=self.stock.type_id),
+            Decimal("0.01"),
+        )
+
+    def test_member_sell_fixed_price_override_rejects_value_rounded_to_zero(self):
+        self.config.sell_price_overrides = {str(self.stock.type_id): "0.001"}
+
+        self.assertIsNone(
+            get_sell_price_override(config=self.config, type_id=self.stock.type_id)
+        )
+
+    def test_member_sell_fixed_price_override_rejects_database_overflow(self):
+        self.config.sell_price_overrides = {
+            str(self.stock.type_id): "999999999999999999.999"
+        }
+
+        self.assertIsNone(
+            get_sell_price_override(config=self.config, type_id=self.stock.type_id)
+        )
 
     def test_reliable_sell_reference_price_matrix(self):
         self.assertFalse(

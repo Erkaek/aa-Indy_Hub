@@ -30,6 +30,7 @@ from indy_hub.models import (
 )
 from indy_hub.services.production_projects import (
     LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
+    PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY,
     PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
     PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT,
     PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY,
@@ -1207,6 +1208,68 @@ class LegacySimulationUnificationTests(TestCase):
         )
 
         payload, sde_has_changed = get_cached_project_workspace_payload(project)
+
+        self.assertIsNone(payload)
+        self.assertFalse(sde_has_changed)
+
+    def test_get_cached_project_workspace_payload_rejects_revoked_corp_access(self):
+        corporation_id = 2_000_001
+        cached_payload = {
+            "cache_version": 6,
+            "num_runs": 1,
+            "workspace_state": {"use_corp_blueprints": True},
+            PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY: [corporation_id],
+        }
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Revoked Corp Cache",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            workspace_state={
+                "runs": 1,
+                "use_corp_blueprints": True,
+                PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY: cached_payload,
+            },
+        )
+
+        with (
+            patch(
+                "indy_hub.services.production_projects.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+                True,
+            ),
+            patch(
+                "indy_hub.services.production_projects.get_viewable_corporation_ids",
+                return_value=set(),
+            ),
+        ):
+            payload, sde_has_changed = get_cached_project_workspace_payload(project)
+
+        self.assertIsNone(payload)
+        self.assertFalse(sde_has_changed)
+
+    def test_get_cached_project_workspace_payload_rejects_legacy_corp_cache(self):
+        cached_payload = {
+            "cache_version": 6,
+            "num_runs": 1,
+            "workspace_state": {"use_corp_blueprints": True},
+        }
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Legacy Corp Cache",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.MANUAL,
+            workspace_state={
+                "runs": 1,
+                "use_corp_blueprints": True,
+                PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY: cached_payload,
+            },
+        )
+
+        with patch(
+            "indy_hub.services.production_projects.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            True,
+        ):
+            payload, sde_has_changed = get_cached_project_workspace_payload(project)
 
         self.assertIsNone(payload)
         self.assertFalse(sde_has_changed)

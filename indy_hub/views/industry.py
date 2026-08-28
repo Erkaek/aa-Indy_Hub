@@ -218,6 +218,7 @@ from ..services.production_projects import (
     build_project_workspace_payload,
     build_temporary_project_payload,
     build_temporary_project_workspace_state,
+    cached_project_workspace_payload_matches_corp_authorization,
     create_temporary_project_workspace,
     get_cached_project_workspace_payload,
     get_temporary_project_workspace,
@@ -2379,7 +2380,13 @@ def craft_temp_project(request, temp_project_ref):
         cached_payload = (temp_state.get("workspace_state") or {}).get(
             PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY
         )
-        if isinstance(cached_payload, dict):
+        if isinstance(
+            cached_payload, dict
+        ) and cached_project_workspace_payload_matches_corp_authorization(
+            cached_payload,
+            temp_state.get("workspace_state"),
+            user=request.user,
+        ):
             payload = dict(cached_payload)
 
     if payload is None:
