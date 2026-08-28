@@ -569,6 +569,52 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
 @indy_hub_access_required
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
+@require_http_methods(["POST"])
+def update_production_project_workspace_state(request, project_ref: str):
+    """Patch fields that must take effect before reloading a saved project."""
+    emit_view_analytics_event(
+        view_name="api.update_production_project_workspace_state",
+        request=request,
+    )
+
+    try:
+        normalized_project_ref = normalize_production_project_ref(project_ref)
+    except ValueError:
+        return JsonResponse(
+            {"error": "Invalid production project reference"}, status=400
+        )
+
+    project = get_object_or_404(
+        ProductionProject,
+        project_ref=normalized_project_ref,
+        user=request.user,
+    )
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+
+    workspace_state = strip_project_workspace_cache(dict(project.workspace_state or {}))
+    if "use_corp_blueprints" in data:
+        raw = data["use_corp_blueprints"]
+        workspace_state["use_corp_blueprints"] = bool(
+            app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP and (raw is True or raw == 1)
+        )
+    project.workspace_state = workspace_state
+    project.save(update_fields=["workspace_state", "updated_at"])
+
+    return JsonResponse(
+        {
+            "success": True,
+            "message": "Production project workspace state updated successfully",
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
 @require_http_methods(["GET"])
 def production_project_payload(request, project_ref: str):
     emit_view_analytics_event(

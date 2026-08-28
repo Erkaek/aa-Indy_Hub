@@ -40,6 +40,7 @@ from ..services.asset_cache import (
 from ..services.esi_client import ESIUnmodifiedError
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import PLACEHOLDER_PREFIX
+from ..utils.material_exchange_pricing import MATERIAL_EXCHANGE_PRICE_MAX
 
 esi = esi_provider
 logger = get_extension_logger(__name__)
@@ -261,7 +262,7 @@ def _parse_sell_price_overrides(raw_value: str) -> dict[str, str]:
             raise ValueError(
                 f"Sell price on line {line_number} must be greater than zero"
             )
-        if price > Decimal("999999999999999999.99"):
+        if price > MATERIAL_EXCHANGE_PRICE_MAX:
             raise ValueError(f"Sell price on line {line_number} is too large")
 
         resolved_ids, unresolved = _resolve_specific_type_ids([item_token])

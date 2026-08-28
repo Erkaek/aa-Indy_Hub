@@ -830,7 +830,7 @@
 
         const corpToggle = document.getElementById('useCorpBlueprintsToggle');
         if (corpToggle) {
-            corpToggle.addEventListener('change', function () {
+            corpToggle.addEventListener('change', async function () {
                 const useCorpBps = corpToggle.checked;
 
                 function applyCorpBPVisualState(enabled) {
@@ -853,50 +853,58 @@
                     window.BLUEPRINT_DATA?.is_temporary_project || window.BLUEPRINT_DATA?.temp_project_ref
                 );
 
-                const doReload = () => {
+                const persistAndReload = async () => {
                     // Persist toggle state in session storage
                     if (typeof persistCraftPageSessionState === 'function') {
                         persistCraftPageSessionState();
                     }
 
-                    // For temporary projects only: save to cache before reload
-                    if (isTemporaryProject) {
-                        try {
-                            const updateUrl = window.BLUEPRINT_DATA?.urls?.update_workspace_state;
-                            if (updateUrl) {
-                                fetch(updateUrl, {
-                                    method: 'POST',
-                                    keepalive: true,
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '',
-                                    },
-                                    credentials: 'same-origin',
-                                    body: JSON.stringify({ use_corp_blueprints: useCorpBps }),
-                                }).catch((error) => {
-                                    craftBPDebugLog('[CorpBPToggle] Cache save error:', error);
-                                });
-                            }
-                        } catch (error) {
-                            craftBPDebugLog('[CorpBPToggle] Cache save preparation error:', error);
+                    corpToggle.disabled = true;
+                    try {
+                        const updateUrl = window.BLUEPRINT_DATA?.urls?.update_workspace_state;
+                        if (!updateUrl) {
+                            throw new Error('Missing project workspace update URL');
                         }
-                    }
 
-                    // Reload after a short delay
-                    setTimeout(() => {
+                        const response = await fetch(updateUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': document.querySelector('[name="csrfmiddlewaretoken"]')?.value || '',
+                            },
+                            credentials: 'same-origin',
+                            body: JSON.stringify({ use_corp_blueprints: useCorpBps }),
+                        });
+                        if (!response.ok) {
+                            throw new Error(`Workspace update failed (${response.status})`);
+                        }
+
                         window.location.reload();
-                    }, 300);
+                    } catch (error) {
+                        craftBPDebugLog('[CorpBPToggle] Workspace save error:', error);
+                        corpToggle.checked = !useCorpBps;
+                        corpToggle.disabled = false;
+                        applyCorpBPVisualState(!useCorpBps);
+                        if (typeof persistCraftPageSessionState === 'function') {
+                            persistCraftPageSessionState();
+                        }
+                        showToast(
+                            __('Could not update Corp BP usage. Please try again.') ||
+                            'Could not update Corp BP usage. Please try again.',
+                            false
+                        );
+                    }
                 };
 
                 if (isTemporaryProject) {
-                    // Temp projects: reload immediately (with cache save)
-                    doReload();
+                    // Temporary projects persist their cache entry before reload.
+                    await persistAndReload();
                 } else {
-                    // Permanent projects: show confirmation before reload (no cache save)
+                    // Permanent projects persist only this toggle before rebuilding.
                     const msg = __('Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?') ||
                                 'Changing Corp BP usage requires recalculating materials and financials. Unsaved changes will be lost. Continue?';
                     if (window.confirm(msg)) {
-                        doReload();
+                        await persistAndReload();
                     } else {
                         // Revert both the checkbox and the visual state on cancel
                         corpToggle.checked = !useCorpBps;

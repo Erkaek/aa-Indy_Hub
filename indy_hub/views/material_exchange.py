@@ -62,6 +62,8 @@ from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import batch_cache_type_names, get_type_name
 from ..utils.material_exchange_contract_check import normalize_text
 from ..utils.material_exchange_pricing import (
+    MATERIAL_EXCHANGE_ORDER_TOTAL_MAX,
+    MATERIAL_EXCHANGE_PRICE_MAX,
     compute_buy_price_from_member,
     get_sell_price_override,
 )
@@ -1511,6 +1513,15 @@ def material_exchange_index(request):
                 fuzz_prices = price_data.get(type_id, {})
                 jita_buy = fuzz_prices.get("buy") or Decimal(0)
                 jita_sell = fuzz_prices.get("sell") or Decimal(0)
+                configured_price = get_sell_price_override(
+                    config=config, type_id=type_id
+                )
+                if not _has_reliable_sell_reference_price(
+                    jita_buy=jita_buy,
+                    jita_sell=jita_sell,
+                    configured_price=configured_price,
+                ):
+                    continue
                 unit_price = compute_buy_price_from_member(
                     config=config,
                     type_id=type_id,
@@ -1837,6 +1848,7 @@ def material_exchange_sell(request, tokens=None):
         items_to_create: list[dict] = []
         errors: list[str] = []
         total_payout = Decimal("0")
+        max_sell_quantity = connection.ops.integer_field_range("BigIntegerField")[1]
 
         price_data = _fetch_fuzzwork_prices(list(submitted_quantities.keys()))
 
@@ -1865,6 +1877,11 @@ def material_exchange_sell(request, tokens=None):
                 errors.append(_(f"{type_name} is not accepted by this hub."))
                 continue
 
+            type_name = get_type_name(type_id)
+            if max_sell_quantity is not None and qty > max_sell_quantity:
+                errors.append(_(f"{type_name} has a quantity that is too large."))
+                continue
+
             fuzz_prices = price_data.get(type_id, {})
             jita_buy = fuzz_prices.get("buy") or Decimal(0)
             jita_sell = fuzz_prices.get("sell") or Decimal(0)
@@ -1885,13 +1902,17 @@ def material_exchange_sell(request, tokens=None):
                 jita_sell=jita_sell,
             )
             if unit_price <= 0:
-                type_name = get_type_name(type_id)
                 errors.append(_(f"{type_name} has no valid market price."))
                 continue
+            if unit_price > MATERIAL_EXCHANGE_PRICE_MAX:
+                errors.append(_(f"{type_name} has a unit price that is too large."))
+                continue
             total_price = unit_price * qty
+            if total_price > MATERIAL_EXCHANGE_PRICE_MAX:
+                errors.append(_(f"{type_name} has a line total that is too large."))
+                continue
             total_payout += total_price
 
-            type_name = get_type_name(type_id)
             items_to_create.append(
                 {
                     "type_id": type_id,
@@ -1910,6 +1931,18 @@ def material_exchange_sell(request, tokens=None):
             return redirect("indy_hub:material_exchange_sell")
 
         if items_to_create:
+            rounded_total_payout = total_payout.quantize(
+                Decimal("1"), rounding=ROUND_CEILING
+            )
+            if rounded_total_payout > MATERIAL_EXCHANGE_ORDER_TOTAL_MAX:
+                messages.error(
+                    request,
+                    _(
+                        "The total payout is too large. Split these items into smaller orders."
+                    ),
+                )
+                return redirect("indy_hub:material_exchange_sell")
+
             # Get order reference from client (generated in JavaScript)
             client_order_ref = request.POST.get("order_reference", "").strip()
             character_id_raw = request.POST.get("character_id", "").strip()
@@ -1928,9 +1961,6 @@ def material_exchange_sell(request, tokens=None):
             for item_data in items_to_create:
                 MaterialExchangeSellOrderItem.objects.create(order=order, **item_data)
 
-            rounded_total_payout = total_payout.quantize(
-                Decimal("1"), rounding=ROUND_CEILING
-            )
             order.rounded_total_price = rounded_total_payout
             order.save(update_fields=["rounded_total_price", "updated_at"])
 

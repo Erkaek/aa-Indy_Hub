@@ -162,6 +162,150 @@ class MaterialExchangeSellPasteTests(TestCase):
             reverse("indy_hub:sell_order_detail", args=[order.id]),
         )
 
+    def test_post_rejects_line_total_that_exceeds_database_precision(self) -> None:
+        self.config.sell_price_overrides = {"34": "999999999999999999.99"}
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell"),
+                {
+                    "sell_input_mode": "paste",
+                    "paste_quantities_json": json.dumps({"34": 2}),
+                    "order_reference": "INDY-PASTE-OVERFLOW",
+                },
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                return_value="Tritanium",
+            ),
+        ):
+            response = self.view(request, tokens=[])
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(MaterialExchangeSellOrder.objects.exists())
+        self.assertIn(
+            "Tritanium has a line total that is too large.",
+            [str(message) for message in get_messages(request)],
+        )
+
+    def test_post_rejects_aggregate_payout_that_exceeds_database_precision(
+        self,
+    ) -> None:
+        type_ids = set(range(1000, 1101))
+        self.config.sell_price_overrides = {
+            str(type_id): "999999999999999999.99" for type_id in type_ids
+        }
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell"),
+                {
+                    "sell_input_mode": "paste",
+                    "paste_quantities_json": json.dumps(
+                        {str(type_id): 1 for type_id in type_ids}
+                    ),
+                    "order_reference": "INDY-PASTE-TOTAL-OVERFLOW",
+                },
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value=type_ids,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                side_effect=lambda type_id: f"Item {type_id}",
+            ),
+        ):
+            response = self.view(request, tokens=[])
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(MaterialExchangeSellOrder.objects.exists())
+        self.assertIn(
+            "The total payout is too large. Split these items into smaller orders.",
+            [str(message) for message in get_messages(request)],
+        )
+
+    def test_post_rejects_quantity_that_exceeds_database_range(self) -> None:
+        self.config.sell_price_overrides = {"34": "0.01"}
+        request = self._prepare_request(
+            self.factory.post(
+                reverse("indy_hub:material_exchange_sell"),
+                {
+                    "sell_input_mode": "paste",
+                    "paste_quantities_json": json.dumps(
+                        {"34": 9_223_372_036_854_775_808}
+                    ),
+                    "order_reference": "INDY-PASTE-QUANTITY-OVERFLOW",
+                },
+            )
+        )
+
+        with (
+            patch("indy_hub.views.material_exchange.emit_view_analytics_event"),
+            patch(
+                "indy_hub.views.material_exchange._is_material_exchange_enabled",
+                return_value=True,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_material_exchange_config",
+                return_value=self.config,
+            ),
+            patch(
+                "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
+                return_value={34},
+            ),
+            patch(
+                "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
+                return_value={},
+            ),
+            patch(
+                "indy_hub.views.material_exchange.get_type_name",
+                return_value="Tritanium",
+            ),
+        ):
+            response = self.view(request, tokens=[])
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(MaterialExchangeSellOrder.objects.exists())
+        self.assertIn(
+            "Tritanium has a quantity that is too large.",
+            [str(message) for message in get_messages(request)],
+        )
+
     def test_post_creates_sell_order_from_paste_even_when_item_is_not_on_selected_character(
         self,
     ) -> None:

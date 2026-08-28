@@ -2219,6 +2219,10 @@ def craft_project(request, project_ref):
                     "indy_hub:save_production_project_workspace",
                     args=[project.project_ref],
                 ),
+                "update_workspace_state": reverse(
+                    "indy_hub:update_production_project_workspace_state",
+                    args=[project.project_ref],
+                ),
                 "load_list": reverse("indy_hub:production_simulations_list"),
                 "load_config": None,
                 "fuzzwork_price": reverse("indy_hub:fuzzwork_price"),

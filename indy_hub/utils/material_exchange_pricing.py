@@ -13,6 +13,9 @@ from __future__ import annotations
 # Standard Library
 from decimal import Decimal
 
+MATERIAL_EXCHANGE_PRICE_MAX = Decimal("999999999999999999.99")
+MATERIAL_EXCHANGE_ORDER_TOTAL_MAX = Decimal("99999999999999999999")
+
 
 def _to_decimal(value) -> Decimal:
     if isinstance(value, Decimal):
