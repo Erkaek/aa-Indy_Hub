@@ -96,6 +96,21 @@ class MaterialExchangeConfigSaveCheckboxTests(TestCase):
         self.assertTrue(self.config.notify_admins_on_sell_anomaly)
         self.assertTrue(self.config.enforce_jita_price_bounds)
 
+    @patch("indy_hub.views.material_exchange_config._resolve_specific_type_ids")
+    def test_fixed_member_sell_price_override_is_saved(self, mock_resolve) -> None:
+        mock_resolve.side_effect = lambda tokens: (
+            ([74534], []) if tokens else ([], [])
+        )
+        post_data = self._base_post_data()
+        post_data["sell_price_overrides_text"] = "Ducinium II-Grade = 4500,25"
+
+        request = self._build_request(post_data)
+        response = _handle_config_save(request, self.config)
+
+        self.assertEqual(response.status_code, 302)
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.sell_price_overrides, {"74534": "4500.25"})
+
     def test_is_active_keeps_existing_value_when_field_missing(self):
         self.config.is_active = False
         self.config.save(update_fields=["is_active"])

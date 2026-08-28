@@ -3,11 +3,39 @@ import logging
 import sys
 from importlib import import_module
 
+# Third Party
+from celery.signals import beat_init
+
 # Django
 from django.apps import AppConfig, apps
 from django.conf import settings
 from django.db import connection
 from django.db.models.signals import post_migrate
+
+logger = logging.getLogger(__name__)
+
+
+def _reconcile_periodic_tasks_at_beat_start(sender=None, **kwargs) -> None:
+    """Repair Indy Hub's database schedule whenever Celery Beat starts.
+
+    Migration hooks remain the primary installation path, but a Beat restart
+    must also recover rows missed by an unusual or app-scoped deployment flow.
+    The database scheduler notices the ``PeriodicTask`` change marker and
+    reloads the repaired rows through its normal refresh cycle.
+    """
+
+    if not apps.is_installed("django_celery_beat"):
+        return
+
+    try:
+        from .tasks import setup_periodic_tasks
+
+        setup_periodic_tasks()
+    except Exception as exc:
+        logger.exception(
+            "Could not reconcile Indy Hub periodic tasks at Celery Beat startup: %s",
+            exc,
+        )
 
 
 class IndyHubConfig(AppConfig):
@@ -104,7 +132,7 @@ class IndyHubConfig(AppConfig):
             if (
                 "test" in sys.argv
                 or "runtests.py" in sys.argv[0]
-                or hasattr(settings, "TESTING")
+                or getattr(settings, "TESTING", False)
                 or "pytest" in sys.modules
             ):
                 logger.info("Skipping periodic tasks setup during tests.")
@@ -246,6 +274,11 @@ class IndyHubConfig(AppConfig):
                 )
 
         post_migrate.connect(_setup_periodic_tasks, sender=self)
+        beat_init.connect(
+            _reconcile_periodic_tasks_at_beat_start,
+            dispatch_uid="indy_hub.reconcile_periodic_tasks_at_beat_start",
+            weak=False,
+        )
 
         # Check dependencies (optional logging)
         if not apps.is_installed("esi"):

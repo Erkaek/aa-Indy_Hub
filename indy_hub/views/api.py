@@ -23,6 +23,7 @@ from django.views.decorators.http import require_http_methods
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
+from .. import app_settings
 from ..decorators import indy_hub_access_required, indy_hub_permission_required
 
 # Local
@@ -51,6 +52,7 @@ from ..services.production_projects import (
     build_project_workspace_payload,
     build_temporary_project_payload,
     build_temporary_project_workspace_state,
+    cached_project_workspace_payload_matches_corp_authorization,
     create_project_from_entries,
     create_temporary_project_workspace,
     delete_temporary_project_workspace,
@@ -180,7 +182,10 @@ def _sanitize_production_workspace_state(
         else existing_workspace_state.get("use_corp_blueprints", False)
     )
     # Explicit parse: reject truthy strings like "false" or "0"
-    use_corp_blueprints = raw_corp is True or raw_corp == 1
+    use_corp_blueprints = bool(
+        app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP
+        and (raw_corp is True or raw_corp == 1)
+    )
 
     return {
         "blueprint_type_id": blueprint_type_id,
@@ -440,7 +445,13 @@ def temporary_production_project_payload(request, temp_project_ref: str):
         cached_payload = (temp_state.get("workspace_state") or {}).get(
             PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY
         )
-        if isinstance(cached_payload, dict):
+        if isinstance(
+            cached_payload, dict
+        ) and cached_project_workspace_payload_matches_corp_authorization(
+            cached_payload,
+            temp_state.get("workspace_state"),
+            user=request.user,
+        ):
             payload = dict(cached_payload)
 
     if payload is None:
@@ -541,6 +552,8 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
         data = json.loads(request.body or "{}")
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON data"}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "JSON body must be an object"}, status=400)
 
     # Patch only allowed fields into the existing workspace_state, stripping cached payload
     workspace_state = strip_project_workspace_cache(
@@ -548,7 +561,9 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
     )
     if "use_corp_blueprints" in data:
         raw = data["use_corp_blueprints"]
-        workspace_state["use_corp_blueprints"] = raw is True or raw == 1
+        workspace_state["use_corp_blueprints"] = bool(
+            app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP and (raw is True or raw == 1)
+        )
     temp_state["workspace_state"] = workspace_state
     set_temporary_project_workspace(temp_project_ref, temp_state)
 
@@ -556,6 +571,54 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
         {
             "success": True,
             "message": "Temporary project workspace state updated successfully",
+        }
+    )
+
+
+@indy_hub_access_required
+@indy_hub_permission_required("can_access_indy_hub")
+@login_required
+@require_http_methods(["POST"])
+def update_production_project_workspace_state(request, project_ref: str):
+    """Patch fields that must take effect before reloading a saved project."""
+    emit_view_analytics_event(
+        view_name="api.update_production_project_workspace_state",
+        request=request,
+    )
+
+    try:
+        normalized_project_ref = normalize_production_project_ref(project_ref)
+    except ValueError:
+        return JsonResponse(
+            {"error": "Invalid production project reference"}, status=400
+        )
+
+    project = get_object_or_404(
+        ProductionProject,
+        project_ref=normalized_project_ref,
+        user=request.user,
+    )
+
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON data"}, status=400)
+    if not isinstance(data, dict):
+        return JsonResponse({"error": "JSON body must be an object"}, status=400)
+
+    workspace_state = strip_project_workspace_cache(dict(project.workspace_state or {}))
+    if "use_corp_blueprints" in data:
+        raw = data["use_corp_blueprints"]
+        workspace_state["use_corp_blueprints"] = bool(
+            app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP and (raw is True or raw == 1)
+        )
+    project.workspace_state = workspace_state
+    project.save(update_fields=["workspace_state", "updated_at"])
+
+    return JsonResponse(
+        {
+            "success": True,
+            "message": "Production project workspace state updated successfully",
         }
     )
 

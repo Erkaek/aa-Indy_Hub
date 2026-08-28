@@ -2175,3 +2175,47 @@ msgstr "Prix unitaire"
 #: templates/indy_hub/material_exchange/transactions.html:256
 msgid "No transactions yet."
 msgstr "Aucune transaction pour le moment."
+
+#: models.py
+msgid "Fixed per-unit prices used when members sell configured item types to the hub."
+msgstr "Prix unitaires fixes utilisés lorsque les membres vendent au hub les types d'objets configurés."
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Corp BPs"
+msgstr "Plans corpo"
+
+#: templates/indy_hub/industry/structure_add.html
+msgid "Check the services available at this NPC Station"
+msgstr "Vérifiez les services disponibles dans cette station PNJ"
+
+#: templates/indy_hub/industry/structure_add.html
+msgid "Indy Hub cannot detect an NPC Station's industry services automatically. Enable only the activities available in game. Manufacturing and Manufacturing (Capitals) are separate: capital blueprints appear in the Craft Structure Planner only when Manufacturing (Capitals) is enabled."
+msgstr "Indy Hub ne peut pas détecter automatiquement les services industriels d'une station PNJ. Activez uniquement les activités disponibles en jeu. La fabrication et la fabrication (capitaux) sont distinctes : les plans de vaisseaux capitaux apparaissent dans le planificateur de structures uniquement lorsque Fabrication (Capitaux) est activée."
+
+#: templates/indy_hub/industry/structure_add.html
+msgid "For a lowsec NPC Station that supports capital production, review Manufacturing (Capitals) before saving."
+msgstr "Pour une station PNJ en basse sécurité qui permet la production de vaisseaux capitaux, vérifiez Fabrication (Capitaux) avant d'enregistrer."
+
+#: templates/indy_hub/material_exchange/config.html
+msgid "Fixed prices for member sales"
+msgstr "Prix fixes pour les ventes des membres"
+
+#: templates/indy_hub/material_exchange/config.html
+msgid "Ducinium II-Grade = 4500.00"
+msgstr "Ducinium II-Grade = 4500.00"
+
+#: templates/indy_hub/material_exchange/config.html
+msgid "Optional. Enter one exact item name or type ID per line as Item = ISK price. This fixed unit price is used only when members sell that item to the hub, even when Jita data is missing. Normal Jita markup rules are bypassed for these entries."
+msgstr "Facultatif. Saisissez un nom exact d'objet ou un ID de type par ligne sous la forme Objet = prix en ISK. Ce prix unitaire fixe est utilisé uniquement lorsqu'un membre vend cet objet au hub, même si les données de Jita sont manquantes. Les règles habituelles de marge Jita ne s'appliquent pas à ces lignes."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html
+msgid "Accepted items are added automatically. Not bought, unpriced, and unknown lines are ignored for order creation."
+msgstr "Les objets acceptés sont ajoutés automatiquement. Les lignes non achetées, sans prix ou inconnues sont ignorées lors de la création de la commande."
+
+#: templates/indy_hub/material_exchange/includes/sell_page_content.html
+msgid "Recognized, price unavailable"
+msgstr "Reconnu, prix indisponible"
+
+#: templates/indy_hub/material_exchange/sell.html
+msgid "This item is recognized, but its market reference price is incomplete. An administrator can configure a fixed member-sale price for this exact item."
+msgstr "Cet objet est reconnu, mais son prix de référence est incomplet. Un administrateur peut configurer un prix de vente membre fixe pour cet objet précis."

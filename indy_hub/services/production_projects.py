@@ -24,6 +24,7 @@ from allianceauth.services.hooks import get_extension_logger
 # Alliance Auth (External Libs)
 from eve_sde.models import EveSDE
 
+from .. import app_settings
 from ..models import (
     PROJECT_REF_BASE36_ALPHABET,
     PROJECT_REF_LENGTH,
@@ -116,7 +117,10 @@ SUBSYSTEM_GROUP_KEYWORDS = ("subsystem", "strategic cruiser")
 SERVICE_GROUP_KEYWORDS = ("service",)
 EFT_DRONE_CATEGORY_INDEX = 6
 PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
-PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION = 5
+PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION = 6
+PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY = (
+    "corpBlueprintAuthorizationFingerprint"
+)
 PROJECT_WORKSPACE_SDE_SIGNATURE_KEY = "cachedProjectSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY = "cachedProjectScopedSdeSignature"
 PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_VERSION = 1
@@ -754,9 +758,60 @@ def _cached_payload_includes_blueprint_configs(
     return used_blueprint_type_ids.issubset(configured_blueprint_type_ids)
 
 
+def get_corporation_blueprint_authorization_fingerprint(user) -> list[int]:
+    """Return the current corporation blueprint visibility as a stable list."""
+
+    return sorted({int(corp_id) for corp_id in get_viewable_corporation_ids(user)})
+
+
+def cached_project_workspace_payload_matches_corp_authorization(
+    cached_payload: dict[str, object] | None,
+    workspace_state: dict[str, object] | None,
+    *,
+    user,
+) -> bool:
+    """Reject cached corporation data after visibility or toggle changes."""
+
+    if not isinstance(cached_payload, dict):
+        return False
+
+    state = workspace_state if isinstance(workspace_state, dict) else {}
+    effective_use_corp_blueprints = bool(
+        app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP
+        and state.get("use_corp_blueprints", False)
+    )
+    cached_workspace_state = cached_payload.get("workspace_state")
+    cached_use_corp_blueprints = bool(
+        isinstance(cached_workspace_state, dict)
+        and cached_workspace_state.get("use_corp_blueprints", False)
+    )
+    if cached_use_corp_blueprints != effective_use_corp_blueprints:
+        return False
+    if not effective_use_corp_blueprints:
+        return True
+
+    cached_fingerprint = cached_payload.get(
+        PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY
+    )
+    if not isinstance(cached_fingerprint, list):
+        return False
+    try:
+        normalized_cached_fingerprint = sorted(
+            {int(corp_id) for corp_id in cached_fingerprint}
+        )
+    except (TypeError, ValueError):
+        return False
+
+    return normalized_cached_fingerprint == (
+        get_corporation_blueprint_authorization_fingerprint(user)
+    )
+
+
 def cached_project_workspace_payload_matches_state(
     cached_payload: dict[str, object] | None,
     workspace_state: dict[str, object] | None,
+    *,
+    user,
 ) -> bool:
     if not isinstance(cached_payload, dict):
         return False
@@ -766,6 +821,13 @@ def cached_project_workspace_payload_matches_state(
 
     normalized_workspace_state = strip_project_workspace_cache(workspace_state)
     if normalized_workspace_state.get("pendingWorkspaceRefresh"):
+        return False
+
+    if not cached_project_workspace_payload_matches_corp_authorization(
+        cached_payload,
+        normalized_workspace_state,
+        user=user,
+    ):
         return False
 
     if not _cached_payload_includes_blueprint_configs(
@@ -799,7 +861,9 @@ def get_cached_project_workspace_payload(
     if not isinstance(cached_payload, dict):
         return None, False
     if not cached_project_workspace_payload_matches_state(
-        cached_payload, workspace_state
+        cached_payload,
+        workspace_state,
+        user=project.user,
     ):
         logger.info(
             "Discarding cached craft payload for project %s because it is out of sync with the saved workspace state.",
@@ -1695,7 +1759,16 @@ def build_project_workspace_payload(
         _extract_workspace_final_output_quantity_overrides(workspace_state),
         final_output_quantity_overrides,
     )
-    use_corp_blueprints = bool(workspace_state.get("use_corp_blueprints", False))
+    use_corp_blueprints = bool(
+        app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP
+        and workspace_state.get("use_corp_blueprints", False)
+    )
+    workspace_state["use_corp_blueprints"] = use_corp_blueprints
+    viewable_corporation_ids = (
+        set(get_corporation_blueprint_authorization_fingerprint(project.user))
+        if use_corp_blueprints
+        else set()
+    )
     is_eft_project = project.source_kind == ProductionProject.SourceKind.EFT
     owned_blueprint_inventory_map: dict[int, dict[str, object]] = {}
     owned_blueprint_efficiency_cache: dict[int, dict[str, int]] = {}
@@ -1759,6 +1832,9 @@ def build_project_workspace_payload(
             "source_kind": project.source_kind,
             "workspace_state": workspace_state,
             "cache_version": PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION,
+            PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY: sorted(
+                viewable_corporation_ids
+            ),
             "product_type_id": None,
             "final_product_qty": 0,
             "materials_tree": [],
@@ -2285,6 +2361,7 @@ def build_project_workspace_payload(
         user=project.user,
         blueprint_type_ids=all_blueprint_type_ids,
         include_corp=use_corp_blueprints,
+        viewable_corporation_ids=viewable_corporation_ids,
     )
     record_timing_step(
         "blueprint-inventory",
@@ -2829,6 +2906,9 @@ def build_project_workspace_payload(
         "source_kind": project.source_kind,
         "workspace_state": workspace_state,
         "cache_version": PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION,
+        PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY: sorted(
+            viewable_corporation_ids
+        ),
         "product_type_id": root_product_type_id or None,
         "output_qty_per_run": root_product_output_per_cycle,
         "product_output_per_cycle": root_product_output_per_cycle,
@@ -3284,6 +3364,7 @@ def _resolve_user_blueprint_inventory(
     user,
     blueprint_type_ids: Iterable[int | None],
     include_corp: bool = True,
+    viewable_corporation_ids: Iterable[int] | None = None,
 ) -> dict[int, dict[str, object]]:
     numeric_ids = sorted(
         {int(type_id) for type_id in blueprint_type_ids if int(type_id or 0) > 0}
@@ -3309,7 +3390,11 @@ def _resolve_user_blueprint_inventory(
 
     # Corp blueprints are only queried when the caller explicitly requests them
     if include_corp:
-        viewable_corp_ids = get_viewable_corporation_ids(user)
+        viewable_corp_ids = (
+            {int(corp_id) for corp_id in viewable_corporation_ids}
+            if viewable_corporation_ids is not None
+            else get_viewable_corporation_ids(user)
+        )
         corp_blueprints = (
             Blueprint.objects.filter(
                 owner_kind=Blueprint.OwnerKind.CORPORATION,
@@ -3393,18 +3478,10 @@ def _resolve_user_blueprint_inventory(
             )
             _accumulate(entry, bp_me, bp_te, bp_type, runs, prefix="corp_")
             if tid not in personal_type_ids:
-                # No personal BP: use corp directly
+                # Personal blueprints always take precedence. Corporation
+                # blueprints are an explicit fallback when no personal source
+                # exists for this type.
                 _accumulate(entry, bp_me, bp_te, bp_type, runs)
-            else:
-                # Personal BP exists: use corp only if it improves ME (or same ME + better TE)
-                personal_best, _ = _select_best_owned_blueprint_entry(entry)
-                p_me = int(personal_best.get("me") or 0) if personal_best else 0
-                p_te = int(personal_best.get("te") or 0) if personal_best else 0
-                c_me = int(bp_me or 0)
-                c_te = int(bp_te or 0)
-                if c_me > p_me or (c_me == p_me and c_te > p_te):
-                    _accumulate(entry, bp_me, bp_te, bp_type, runs)
-                    entry["corp_source"] = True
 
     return user_bp_map
 

@@ -673,6 +673,7 @@ class MaterialExchangeConfigAdmin(admin.ModelAdmin):
                 "fields": (
                     ("sell_markup_percent", "sell_markup_base"),
                     ("buy_markup_percent", "buy_markup_base"),
+                    "sell_price_overrides",
                 )
             },
         ),

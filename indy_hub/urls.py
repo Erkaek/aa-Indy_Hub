@@ -18,6 +18,7 @@ from .views.api import (
     set_production_project_status,
     temporary_production_project_payload,
     toggle_favorite_structure,
+    update_production_project_workspace_state,
     update_temporary_project_workspace_state,
 )
 from .views.hubs import (
@@ -338,6 +339,11 @@ urlpatterns = [
         "api/temp-production-projects/<str:temp_project_ref>/update-workspace-state/",
         update_temporary_project_workspace_state,
         name="update_temporary_project_workspace_state",
+    ),
+    re_path(
+        r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/update-workspace-state/$",
+        update_production_project_workspace_state,
+        name="update_production_project_workspace_state",
     ),
     re_path(
         r"^api/production-projects/(?P<project_ref>[0-9A-Za-z]{10})/rename/$",

@@ -117,6 +117,15 @@ MAX_REQUEST_BODY_BYTES = clean_setting(
     required_type=int,
 )
 
+# Corporation blueprints can expose inventory shared by a corporation. Keep the
+# feature opt-in for personal crafting projects so Alliance Auth administrators
+# explicitly decide whether that source may be used on their installation.
+PERSONAL_PROJECTS_ALLOW_CORP_BP = clean_setting(
+    "INDY_HUB_PERSONAL_PROJECTS_ALLOW_CORP_BP",
+    False,
+    required_type=bool,
+)
+
 MANUAL_REFRESH_COOLDOWN_SECONDS = clean_setting(
     "INDY_HUB_MANUAL_REFRESH_COOLDOWN_SECONDS",
     300,

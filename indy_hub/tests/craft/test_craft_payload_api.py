@@ -10,6 +10,7 @@ from django.contrib.auth.models import Permission, User
 from django.test import RequestFactory, TestCase
 
 # AA Example App
+from indy_hub.models import ProductionProject
 from indy_hub.services.craft_materials import (
     compute_job_material_quantity,
     is_base_item_material_efficiency_exempt,
@@ -20,6 +21,7 @@ from indy_hub.views.api import (
     fuzzwork_price,
     production_project_payload,
     temporary_production_project_payload,
+    update_production_project_workspace_state,
     update_temporary_project_workspace_state,
 )
 
@@ -130,6 +132,61 @@ class CraftBlueprintPayloadApiTests(TestCase):
             mock_build_temporary_project_payload.call_args.kwargs[
                 "include_full_structure_options"
             ]
+        )
+
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.build_temporary_project_payload")
+    @patch(
+        "indy_hub.views.api.cached_project_workspace_payload_matches_corp_authorization",
+        return_value=False,
+    )
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_temporary_payload_rebuilds_revoked_corporation_cache(
+        self,
+        mock_emit_view_analytics_event,
+        mock_get_temporary_project_workspace,
+        mock_cache_matches_authorization,
+        mock_build_temporary_project_payload,
+        mock_set_temporary_project_workspace,
+    ) -> None:
+        cached_payload = {
+            "workspace_state": {"use_corp_blueprints": True},
+            "corpBlueprintAuthorizationFingerprint": [2_000_001],
+        }
+        temp_state = {
+            "workspace_state": {
+                "use_corp_blueprints": True,
+                "cachedProjectPayload": cached_payload,
+            }
+        }
+        fresh_payload = {
+            "workspace_state": {"use_corp_blueprints": True},
+            "corpBlueprintAuthorizationFingerprint": [],
+        }
+        mock_get_temporary_project_workspace.return_value = temp_state
+        mock_build_temporary_project_payload.return_value = fresh_payload
+
+        request = self.factory.get(
+            "/indy_hub/api/temp-production-projects/test-temp/payload/"
+        )
+        request.user = self.user
+        view = temporary_production_project_payload
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+
+        response = view(request, "test-temp")
+
+        self.assertEqual(response.status_code, 200)
+        mock_cache_matches_authorization.assert_called_once_with(
+            cached_payload,
+            temp_state["workspace_state"],
+            user=self.user,
+        )
+        mock_build_temporary_project_payload.assert_called_once()
+        saved_state = mock_set_temporary_project_workspace.call_args.args[1]
+        self.assertEqual(
+            saved_state["workspace_state"]["cachedProjectPayload"], fresh_payload
         )
 
     @patch("indy_hub.views.api.build_craft_time_map")
@@ -545,7 +602,11 @@ class UpdateTemporaryProjectWorkspaceStateTests(TestCase):
         mock_emit.return_value = None
         mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
 
-        response = self._call("abc123", {"use_corp_blueprints": True})
+        with patch(
+            "indy_hub.views.api.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            True,
+        ):
+            response = self._call("abc123", {"use_corp_blueprints": True})
 
         self.assertEqual(response.status_code, 200)
         saved = mock_set.call_args[0][1]
@@ -561,7 +622,28 @@ class UpdateTemporaryProjectWorkspaceStateTests(TestCase):
         mock_emit.return_value = None
         mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
 
-        response = self._call("abc123", {"use_corp_blueprints": "false"})
+        with patch(
+            "indy_hub.views.api.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            True,
+        ):
+            response = self._call("abc123", {"use_corp_blueprints": "false"})
+
+        self.assertEqual(response.status_code, 200)
+        saved = mock_set.call_args[0][1]
+        self.assertIs(saved["workspace_state"]["use_corp_blueprints"], False)
+
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_global_setting_blocks_corp_blueprints(self, mock_emit, mock_get, mock_set):
+        mock_emit.return_value = None
+        mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
+
+        with patch(
+            "indy_hub.views.api.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            False,
+        ):
+            response = self._call("abc123", {"use_corp_blueprints": True})
 
         self.assertEqual(response.status_code, 200)
         saved = mock_set.call_args[0][1]
@@ -594,3 +676,95 @@ class UpdateTemporaryProjectWorkspaceStateTests(TestCase):
         saved = mock_set.call_args[0][1]
         self.assertNotIn("cachedProjectPayload", saved["workspace_state"])
         self.assertEqual(saved["workspace_state"]["runs"], 5)
+
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_rejects_non_object_json_payloads(
+        self, mock_emit, mock_get, mock_set
+    ) -> None:
+        mock_get.return_value = {"user_id": self.user.id, "workspace_state": {}}
+
+        for body in (None, [], "use_corp_blueprints"):
+            with self.subTest(body=body):
+                response = self._call("abc123", body)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    json.loads(response.content),
+                    {"error": "JSON body must be an object"},
+                )
+
+        mock_set.assert_not_called()
+
+
+class UpdateProductionProjectWorkspaceStateTests(TestCase):
+    def setUp(self) -> None:
+        self.factory = RequestFactory()
+        self.user = User.objects.create_user(username="builder3", password="secret")
+        permission = Permission.objects.get(codename="can_access_indy_hub")
+        self.user.user_permissions.add(permission)
+        self.project = ProductionProject.objects.create(
+            user=self.user,
+            name="Saved project",
+            workspace_state={
+                "runs": 5,
+                "use_corp_blueprints": False,
+                "cachedProjectPayload": {"materials_tree": []},
+            },
+        )
+
+    def _call(self, body, *, user=None):
+        request = self.factory.post(
+            f"/indy_hub/api/production-projects/{self.project.project_ref}/update-workspace-state/",
+            data=json.dumps(body),
+            content_type="application/json",
+        )
+        request.user = user or self.user
+        view = update_production_project_workspace_state
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+        return view(request, self.project.project_ref)
+
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_persists_toggle_without_replacing_other_workspace_state(
+        self, mock_emit
+    ) -> None:
+        with patch(
+            "indy_hub.views.api.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            True,
+        ):
+            response = self._call({"use_corp_blueprints": True})
+
+        self.assertEqual(response.status_code, 200)
+        self.project.refresh_from_db()
+        self.assertIs(self.project.workspace_state["use_corp_blueprints"], True)
+        self.assertEqual(self.project.workspace_state["runs"], 5)
+        self.assertNotIn("cachedProjectPayload", self.project.workspace_state)
+
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_global_setting_prevents_enabling_corp_blueprints(self, mock_emit) -> None:
+        with patch(
+            "indy_hub.views.api.app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP",
+            False,
+        ):
+            response = self._call({"use_corp_blueprints": True})
+
+        self.assertEqual(response.status_code, 200)
+        self.project.refresh_from_db()
+        self.assertIs(self.project.workspace_state["use_corp_blueprints"], False)
+
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_rejects_non_object_json_payloads(self, mock_emit) -> None:
+        original_workspace_state = dict(self.project.workspace_state)
+
+        for body in (None, [], "use_corp_blueprints"):
+            with self.subTest(body=body):
+                response = self._call(body)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    json.loads(response.content),
+                    {"error": "JSON body must be an object"},
+                )
+
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.workspace_state, original_workspace_state)

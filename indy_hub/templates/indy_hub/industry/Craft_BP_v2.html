@@ -979,13 +979,15 @@
                             <i class="fas fa-sliders-h text-danger"></i> {% trans "Blueprint Configuration" %}
                         </h3>
                         <div class="d-flex gap-2 align-items-center flex-wrap">
-                            <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
-                                <input class="form-check-input" type="checkbox" id="useCorpBlueprintsToggle" role="switch"
-                                    {% if workspace_state.use_corp_blueprints %}checked{% endif %}>
-                                <label class="form-check-label small text-muted" for="useCorpBlueprintsToggle">
-                                    <i class="fas fa-building me-1"></i>{% trans "Corp BPs" %}
-                                </label>
-                            </div>
+                            {% if allow_corp_blueprints %}
+                                <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
+                                    <input class="form-check-input" type="checkbox" id="useCorpBlueprintsToggle" role="switch"
+                                        {% if workspace_state.use_corp_blueprints %}checked{% endif %}>
+                                    <label class="form-check-label small text-muted" for="useCorpBlueprintsToggle">
+                                        <i class="fas fa-building me-1"></i>{% trans "Corp BPs" %}
+                                    </label>
+                                </div>
+                            {% endif %}
                             <div class="input-group input-group-sm" style="max-width: 250px;">
                                 <span class="input-group-text bg-white"><i class="fas fa-search text-muted"></i></span>
                                 <input type="text" class="form-control" id="blueprintSearchInput" placeholder="{% trans 'Search blueprints...' %}">

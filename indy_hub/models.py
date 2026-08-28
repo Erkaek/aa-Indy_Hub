@@ -2130,6 +2130,14 @@ class MaterialExchangeConfig(models.Model):
         ),
     )
 
+    sell_price_overrides = models.JSONField(
+        blank=True,
+        default=dict,
+        help_text=_(
+            "Fixed per-unit prices used when members sell configured item types to the hub."
+        ),
+    )
+
     notify_admins_on_sell_anomaly = models.BooleanField(
         default=True,
         help_text=_(
@@ -2396,6 +2404,7 @@ class MaterialExchangeStock(models.Model):
 
         return compute_buy_price_from_member(
             config=self.config,
+            type_id=self.type_id,
             jita_buy=self.jita_buy_price or 0,
             jita_sell=self.jita_sell_price or 0,
         )

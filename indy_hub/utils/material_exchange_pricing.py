@@ -11,7 +11,11 @@ Prices are based on Jita buy/sell plus a configurable markup, with an optional
 from __future__ import annotations
 
 # Standard Library
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+
+MATERIAL_EXCHANGE_PRICE_MAX = Decimal("999999999999999999.99")
+MATERIAL_EXCHANGE_ORDER_TOTAL_MAX = Decimal("99999999999999999999")
+MATERIAL_EXCHANGE_PRICE_QUANTUM = Decimal("0.01")
 
 
 def _to_decimal(value) -> Decimal:
@@ -21,6 +25,27 @@ def _to_decimal(value) -> Decimal:
         return Decimal(str(value or 0))
     except Exception:
         return Decimal("0")
+
+
+def get_sell_price_override(*, config, type_id: int | None) -> Decimal | None:
+    """Return the administrator-defined member sell price for one exact type."""
+
+    if not config or not type_id:
+        return None
+    raw_overrides = getattr(config, "sell_price_overrides", {}) or {}
+    if not isinstance(raw_overrides, dict):
+        return None
+    raw_value = raw_overrides.get(str(int(type_id)))
+    if raw_value is None:
+        raw_value = raw_overrides.get(int(type_id))
+    value = _to_decimal(raw_value)
+    if not value.is_finite():
+        return None
+    try:
+        value = value.quantize(MATERIAL_EXCHANGE_PRICE_QUANTUM)
+    except InvalidOperation:
+        return None
+    return value if 0 < value <= MATERIAL_EXCHANGE_PRICE_MAX else None
 
 
 def apply_markup_with_jita_bounds(
@@ -71,9 +96,17 @@ def compute_sell_price_to_member(
 
 
 def compute_buy_price_from_member(
-    *, config, jita_buy: Decimal, jita_sell: Decimal
+    *,
+    config,
+    jita_buy: Decimal,
+    jita_sell: Decimal,
+    type_id: int | None = None,
 ) -> Decimal:
     """Price when member sells TO hub (uses config.sell_markup_*)."""
+
+    configured_price = get_sell_price_override(config=config, type_id=type_id)
+    if configured_price is not None:
+        return configured_price
 
     return apply_markup_with_jita_bounds(
         jita_buy=jita_buy,

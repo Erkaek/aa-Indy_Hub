@@ -143,6 +143,18 @@
                                     </div>
                                 </div>
                                 <div class="card-body px-4 py-4">
+                                    <div
+                                        id="npc-station-activity-guidance"
+                                        class="alert alert-info small mb-4{% if not is_npc_station_selected %} d-none{% endif %}"
+                                        role="status">
+                                        <div class="fw-semibold mb-1">
+                                            <i class="fas fa-circle-info me-1"></i>{% trans "Check the services available at this NPC Station" %}
+                                        </div>
+                                        {% trans "Indy Hub cannot detect an NPC Station's industry services automatically. Enable only the activities available in game. Manufacturing and Manufacturing (Capitals) are separate: capital blueprints appear in the Craft Structure Planner only when Manufacturing (Capitals) is enabled." %}
+                                        <div class="mt-1">
+                                            {% trans "For a lowsec NPC Station that supports capital production, review Manufacturing (Capitals) before saving." %}
+                                        </div>
+                                    </div>
                                     {% if not is_synced_structure_locked %}
                                         <div class="structure-scan-import rounded-3 border p-3 mb-4" id="structure-scan-import-panel">
                                             <div class="structure-scan-import__header">
@@ -487,6 +499,7 @@
             ? new window.bootstrap.Modal(rigAdvisorModalElement)
             : null;
         const rigSection = document.getElementById('structure-rig-section');
+        const npcStationActivityGuidance = document.getElementById('npc-station-activity-guidance');
         const rigAdvisorOpenButton = document.getElementById('rig-advisor-open-button');
         const rigAdvisorLoading = document.getElementById('rig-advisor-loading');
         const rigAdvisorEmpty = document.getElementById('rig-advisor-empty');
@@ -818,6 +831,18 @@
 
         function structureSupportsRigs(structureEntry) {
             return Boolean(structureEntry && structureEntry.supports_rigs !== false);
+        }
+
+        function syncNpcStationActivityGuidance() {
+            if (!npcStationActivityGuidance) {
+                return;
+            }
+            const structureEntry = getStructureMeta();
+            const isNpcStation = Boolean(
+                structureEntry
+                && Number(structureEntry.type_id) === Number('{{ npc_station_structure_type_id }}')
+            );
+            npcStationActivityGuidance.classList.toggle('d-none', !isNpcStation);
         }
 
         function applyDefaultActivityFlags() {
@@ -2188,6 +2213,7 @@
                 applyDefaultActivityFlags();
                 syncVisibleTaxFields();
                 syncRigSectionVisibility();
+                syncNpcStationActivityGuidance();
                 invalidateRigAdvisorCache();
                 renderRigOptions();
                 syncRigSectionVisibility();
@@ -2199,6 +2225,7 @@
         }
 
         syncVisibleTaxFields();
+        syncNpcStationActivityGuidance();
         updateRigAdvisorAvailability();
         renderCommandDeck();
         syncIdentityAsideState();
