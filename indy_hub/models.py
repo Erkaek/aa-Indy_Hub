@@ -1266,7 +1266,7 @@ class UserFavoriteStructure(models.Model):
 
 class CharacterSettings(models.Model):
     """
-    Collect user preferences for job notifications and blueprint copy sharing.
+    Collect per-character user preferences.
     """
 
     SCOPE_NONE = "none"
@@ -1325,6 +1325,14 @@ class CharacterSettings(models.Model):
         max_length=20,
         choices=COPY_SHARING_SCOPE_CHOICES,
         default=SCOPE_NONE,
+    )
+    market_broker_fee_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+        help_text=_("Last broker fee percentage entered in the Craft workspace."),
     )
     updated_at = models.DateTimeField(auto_now=True)
 

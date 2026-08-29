@@ -3544,6 +3544,7 @@ function collectCraftPageSessionState() {
         simulationName: String(document.getElementById('simulationName')?.value || ''),
         decisionBuyTolerance: String(document.getElementById('decisionBuyToleranceInput')?.value || ''),
         extraCostRows: collectFinancialExtraCostRows(),
+        marketFees: getMarketFeeState(),
         revenueMode: getRevenueMode(),
         revenueTotalOverride: getRevenueTotalOverride(),
         outputGroupRevenueOverrides: getOutputGroupRevenueOverrides(),
@@ -3583,6 +3584,10 @@ function applyCraftPageSessionState(parsedState) {
     window.craftBPFlags.revenueMode = normalizeRevenueMode(parsedState?.revenueMode);
     window.craftBPFlags.revenueTotalOverride = normalizeRevenueTotalOverride(parsedState?.revenueTotalOverride);
     window.craftBPFlags.outputGroupRevenueOverrides = normalizeOutputGroupRevenueOverrides(parsedState?.outputGroupRevenueOverrides);
+    window.craftBPFlags.marketFees = normalizeMarketFeeState(
+        parsedState?.marketFees,
+        { preferSavedBroker: true }
+    );
 
     applyCraftPageRunsValue(parsedState?.runs);
     applyFinalOutputQuantitiesToInputs(window.craftBPFlags.pendingFinalOutputQuantities);
@@ -3617,6 +3622,10 @@ function applyCraftPageSessionState(parsedState) {
     }
 
     applyFinancialExtraCostRows(parsedState?.extraCostRows);
+
+    if (typeof applyMarketFeeStateToInputs === 'function') {
+        applyMarketFeeStateToInputs();
+    }
 
     applyBlueprintCopyRequestState(parsedState?.copyRequests);
 
@@ -5459,6 +5468,7 @@ function initializeDecisionStrategyTab() {
 function initializeFinancialCalculations() {
     initializeDelegatedFinancialPriceInputs();
     initializeFinancialExtraCostsEditor();
+    initializeMarketFeeControls();
     updateFinalProductRowFromPayload(window.BLUEPRINT_DATA || {});
 
     const recalcNowBtn = document.getElementById('recalcNowBtn');
@@ -7278,6 +7288,356 @@ function renderStructurePlanner(options = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// Market fees (database-backed character preference + project state)
+// ---------------------------------------------------------------------------
+
+let marketFeePatchSequence = 0;
+const MARKET_PURPOSE_SALE = 'market_sale';
+const MARKET_PURPOSE_PERSONAL = 'personal_use';
+
+function getMarketFeeCsrfToken() {
+    const match = document.cookie.match(/csrftoken=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+}
+
+function normalizeMarketFeePercent(value) {
+    const numeric = Number.parseFloat(value);
+    if (!Number.isFinite(numeric)) {
+        return 0;
+    }
+    return Math.min(100, Math.max(0, numeric));
+}
+
+function getMarketFeeProfiles() {
+    const payload = window.BLUEPRINT_DATA?.market_fee_profiles;
+    return payload && typeof payload === 'object' ? payload : { characters: [], default_character_id: null };
+}
+
+function getMarketFeeCharacters() {
+    const characters = getMarketFeeProfiles().characters;
+    return Array.isArray(characters) ? characters : [];
+}
+
+function getMarketFeeCharacter(characterId) {
+    const normalizedId = Number(characterId) || 0;
+    return getMarketFeeCharacters().find((entry) => Number(entry?.character_id || 0) === normalizedId) || null;
+}
+
+function getDefaultBrokerFeeForCharacter(character) {
+    if (!character || typeof character !== 'object') {
+        return 0;
+    }
+    if (character.saved_broker_fee_percent != null) {
+        return normalizeMarketFeePercent(character.saved_broker_fee_percent);
+    }
+    return normalizeMarketFeePercent(character.estimated_broker_fee_percent);
+}
+
+function normalizeMarketFeeState(rawState, options = {}) {
+    const state = rawState && typeof rawState === 'object' ? rawState : {};
+    const rawPurpose = String(state.purpose || '').trim().toLowerCase();
+    const purpose = [MARKET_PURPOSE_SALE, MARKET_PURPOSE_PERSONAL].includes(rawPurpose)
+        ? rawPurpose
+        : '';
+    const characters = getMarketFeeCharacters();
+    const availableIds = new Set(characters.map((entry) => Number(entry?.character_id || 0)).filter((id) => id > 0));
+    let sellerCharacterId = Number(state.sellerCharacterId || 0) || 0;
+    if (!availableIds.has(sellerCharacterId)) {
+        const payloadDefault = Number(getMarketFeeProfiles().default_character_id || 0) || 0;
+        sellerCharacterId = availableIds.has(payloadDefault)
+            ? payloadDefault
+            : (characters.length > 0 ? Number(characters[0].character_id || 0) : 0);
+    }
+
+    const character = getMarketFeeCharacter(sellerCharacterId);
+    const hasStoredBrokerValue = Object.prototype.hasOwnProperty.call(state, 'brokerFeePercent');
+    const brokerFeePercent = options.preferCharacterDefault
+        || options.preferSavedBroker
+        || !hasStoredBrokerValue
+        ? getDefaultBrokerFeeForCharacter(character)
+        : normalizeMarketFeePercent(state.brokerFeePercent);
+
+    return {
+        purpose,
+        sellerCharacterId: sellerCharacterId || null,
+        brokerFeePercent,
+        safetyTaxPercent: normalizeMarketFeePercent(state.safetyTaxPercent),
+    };
+}
+
+function getMarketFeeState() {
+    window.craftBPFlags = window.craftBPFlags || {};
+    if (window.craftBPFlags.marketFees && typeof window.craftBPFlags.marketFees === 'object') {
+        return normalizeMarketFeeState(window.craftBPFlags.marketFees);
+    }
+    const restored = window.craftBPFlags?.restoredSessionState?.marketFees
+        ?? window.BLUEPRINT_DATA?.workspace_state?.marketFees;
+    window.craftBPFlags.marketFees = normalizeMarketFeeState(
+        restored,
+        { preferSavedBroker: true }
+    );
+    return window.craftBPFlags.marketFees;
+}
+
+function getSalesTaxPercentForCharacter(character) {
+    return normalizeMarketFeePercent(character?.sales_tax_percent ?? 7.5);
+}
+
+function setMarketFeePersistStatus(message, variant = 'secondary') {
+    const status = document.getElementById('marketFeePersistStatus');
+    if (!status) {
+        return;
+    }
+    status.textContent = message;
+    status.className = `badge bg-${variant}-subtle text-${variant}-emphasis`;
+}
+
+function populateMarketFeeCharacterSelect() {
+    const select = document.getElementById('marketFeeSellerCharacter');
+    if (!select) {
+        return;
+    }
+    const characters = getMarketFeeCharacters();
+    select.innerHTML = '';
+    if (characters.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = __('No character available');
+        select.appendChild(option);
+        select.disabled = true;
+        return;
+    }
+    characters.forEach((character) => {
+        const option = document.createElement('option');
+        option.value = String(Number(character.character_id || 0));
+        option.textContent = String(character.name || character.character_id || '');
+        select.appendChild(option);
+    });
+    select.disabled = false;
+}
+
+function applyMarketFeeStateToInputs() {
+    const state = getMarketFeeState();
+    const character = getMarketFeeCharacter(state.sellerCharacterId);
+    const appliesMarketFees = state.purpose === MARKET_PURPOSE_SALE;
+    const sellerSelect = document.getElementById('marketFeeSellerCharacter');
+    const brokerInput = document.getElementById('marketFeeBrokerPercent');
+    const salesTaxInput = document.getElementById('marketFeeSalesTaxPercent');
+    const safetyInput = document.getElementById('marketFeeSafetyTaxPercent');
+    const brokerHint = document.getElementById('marketFeeBrokerHint');
+    const salesTaxHint = document.getElementById('marketFeeSalesTaxHint');
+    const forSellSwitch = document.getElementById('marketForSellSwitch');
+    const forSellValue = document.getElementById('marketForSellValue');
+    const feesSection = document.getElementById('marketFeesSection');
+
+    if (forSellSwitch) {
+        forSellSwitch.checked = appliesMarketFees;
+    }
+    if (forSellValue) {
+        forSellValue.textContent = appliesMarketFees ? __('Yes') : __('No');
+        forSellValue.className = appliesMarketFees
+            ? 'badge bg-success-subtle text-success-emphasis ms-2'
+            : 'badge bg-secondary-subtle text-secondary-emphasis ms-2';
+    }
+    if (feesSection) {
+        feesSection.classList.toggle('d-none', !appliesMarketFees);
+    }
+    document.querySelectorAll('.market-fee-summary-row').forEach((row) => {
+        row.classList.toggle('d-none', !appliesMarketFees);
+    });
+
+    if (sellerSelect) {
+        sellerSelect.value = state.sellerCharacterId ? String(state.sellerCharacterId) : '';
+        sellerSelect.disabled = !appliesMarketFees || getMarketFeeCharacters().length === 0;
+    }
+    if (brokerInput) {
+        brokerInput.value = normalizeMarketFeePercent(state.brokerFeePercent).toFixed(2);
+        brokerInput.disabled = !appliesMarketFees || !character;
+    }
+    if (salesTaxInput) {
+        salesTaxInput.value = getSalesTaxPercentForCharacter(character).toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+        salesTaxInput.disabled = !appliesMarketFees || !character;
+    }
+    if (safetyInput) {
+        safetyInput.value = normalizeMarketFeePercent(state.safetyTaxPercent).toFixed(2);
+        safetyInput.disabled = !appliesMarketFees || !character;
+    }
+    if (brokerHint) {
+        if (!character) {
+            brokerHint.textContent = __('Select a character to calculate market fees.');
+        } else if (character.saved_broker_fee_percent != null) {
+            brokerHint.textContent = __('Saved rate for this character.');
+        } else {
+            brokerHint.textContent = __('Estimated from Broker Relations; standings are not included.');
+        }
+    }
+    if (salesTaxHint) {
+        salesTaxHint.textContent = character?.skills_missing
+            ? __('Skill snapshot unavailable; using the base rate.')
+            : `${__('Accounting')} ${Number(character?.accounting_level || 0)}`;
+    }
+}
+
+function setMarketFeeState(nextState, options = {}) {
+    window.craftBPFlags = window.craftBPFlags || {};
+    window.craftBPFlags.marketFees = normalizeMarketFeeState(nextState, options);
+    if (options.syncInputs !== false) {
+        applyMarketFeeStateToInputs();
+    }
+    if (options.recalc !== false && typeof recalcFinancials === 'function') {
+        recalcFinancials();
+    }
+    if (options.persistSession !== false && typeof persistCraftPageSessionState === 'function') {
+        persistCraftPageSessionState();
+    }
+}
+
+async function persistMarketFeeWorkspaceState() {
+    const state = getMarketFeeState();
+    const updateUrl = String(window.BLUEPRINT_DATA?.urls?.update_workspace_state || '').trim();
+    if (!updateUrl || !state.purpose) {
+        setMarketFeePersistStatus(__('Not saved'), 'secondary');
+        return;
+    }
+
+    const requestSequence = ++marketFeePatchSequence;
+    setMarketFeePersistStatus(__('Saving…'), 'info');
+    try {
+        const response = await fetch(updateUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getMarketFeeCsrfToken(),
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({ marketFees: state }),
+        });
+        if (!response.ok) {
+            throw new Error(`Market fee workspace update failed (${response.status})`);
+        }
+        if (requestSequence !== marketFeePatchSequence) {
+            return;
+        }
+        const character = getMarketFeeCharacter(state.sellerCharacterId);
+        if (character && state.purpose === MARKET_PURPOSE_SALE) {
+            character.saved_broker_fee_percent = normalizeMarketFeePercent(state.brokerFeePercent);
+        }
+        setMarketFeePersistStatus(__('Saved'), 'success');
+        applyMarketFeeStateToInputs();
+    } catch (error) {
+        if (requestSequence !== marketFeePatchSequence) {
+            return;
+        }
+        console.error('[CraftMarketFees] Unable to save market fee preferences', error);
+        setMarketFeePersistStatus(__('Save failed'), 'danger');
+    }
+}
+
+function initializeMarketFeeControls() {
+    const sellerSelect = document.getElementById('marketFeeSellerCharacter');
+    const brokerInput = document.getElementById('marketFeeBrokerPercent');
+    const safetyInput = document.getElementById('marketFeeSafetyTaxPercent');
+    const forSellSwitch = document.getElementById('marketForSellSwitch');
+
+    populateMarketFeeCharacterSelect();
+    applyMarketFeeStateToInputs();
+
+    if (sellerSelect && sellerSelect.dataset.marketFeesBound !== 'true') {
+        sellerSelect.addEventListener('change', () => {
+            const selectedCharacterId = Number(sellerSelect.value || 0) || null;
+            setMarketFeeState(
+                {
+                    ...getMarketFeeState(),
+                    sellerCharacterId: selectedCharacterId,
+                },
+                { preferCharacterDefault: true }
+            );
+            persistMarketFeeWorkspaceState();
+        });
+        sellerSelect.dataset.marketFeesBound = 'true';
+    }
+
+    if (brokerInput && brokerInput.dataset.marketFeesBound !== 'true') {
+        brokerInput.addEventListener('input', () => {
+            setMarketFeePersistStatus(__('Not saved'), 'secondary');
+            setMarketFeeState({
+                ...getMarketFeeState(),
+                brokerFeePercent: brokerInput.value,
+            }, { persistSession: true, syncInputs: false });
+        });
+        brokerInput.addEventListener('change', () => {
+            setMarketFeeState({
+                ...getMarketFeeState(),
+                brokerFeePercent: brokerInput.value,
+            });
+            persistMarketFeeWorkspaceState();
+        });
+        brokerInput.dataset.marketFeesBound = 'true';
+    }
+
+    if (safetyInput && safetyInput.dataset.marketFeesBound !== 'true') {
+        safetyInput.addEventListener('input', () => {
+            setMarketFeePersistStatus(__('Not saved'), 'secondary');
+            setMarketFeeState({
+                ...getMarketFeeState(),
+                safetyTaxPercent: safetyInput.value,
+            }, { persistSession: true, syncInputs: false });
+        });
+        safetyInput.addEventListener('change', () => {
+            setMarketFeeState({
+                ...getMarketFeeState(),
+                safetyTaxPercent: safetyInput.value,
+            });
+            persistMarketFeeWorkspaceState();
+        });
+        safetyInput.dataset.marketFeesBound = 'true';
+    }
+
+    if (forSellSwitch && forSellSwitch.dataset.marketFeesBound !== 'true') {
+        forSellSwitch.addEventListener('change', () => {
+            setMarketFeeState({
+                ...getMarketFeeState(),
+                purpose: forSellSwitch.checked ? MARKET_PURPOSE_SALE : MARKET_PURPOSE_PERSONAL,
+            });
+            persistMarketFeeWorkspaceState();
+        });
+        forSellSwitch.dataset.marketFeesBound = 'true';
+    }
+
+    const currentState = getMarketFeeState();
+    const currentCharacter = getMarketFeeCharacter(currentState.sellerCharacterId);
+    const persistedWorkspaceState = window.BLUEPRINT_DATA?.workspace_state?.marketFees;
+    const hasPersistedState = Boolean(
+        currentState.purpose && (currentCharacter?.saved_broker_fee_percent != null
+        || Number(persistedWorkspaceState?.sellerCharacterId || 0) === Number(currentState.sellerCharacterId || 0)
+        || String(persistedWorkspaceState?.purpose || '') === currentState.purpose)
+    );
+    setMarketFeePersistStatus(
+        hasPersistedState ? __('Saved') : __('Not saved'),
+        hasPersistedState ? 'success' : 'secondary'
+    );
+
+}
+
+function computeMarketFeeAmounts(grossMarketRevenue) {
+    const taxableRevenue = Math.max(0, Number(grossMarketRevenue) || 0);
+    const state = getMarketFeeState();
+    const character = getMarketFeeCharacter(state.sellerCharacterId);
+    if (state.purpose !== MARKET_PURPOSE_SALE || !character) {
+        return { brokerFee: 0, salesTax: 0, safetyTax: 0, total: 0 };
+    }
+    const brokerFee = taxableRevenue * (normalizeMarketFeePercent(state.brokerFeePercent) / 100);
+    const salesTax = taxableRevenue * (getSalesTaxPercentForCharacter(character) / 100);
+    const safetyTax = taxableRevenue * (normalizeMarketFeePercent(state.safetyTaxPercent) / 100);
+    return {
+        brokerFee,
+        salesTax,
+        safetyTax,
+        total: brokerFee + salesTax + safetyTax,
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Revenue mode (per-unit sale prices vs. lump-sum total project revenue)
 // ---------------------------------------------------------------------------
 
@@ -8064,17 +8424,24 @@ function recalcFinancials() {
         revTotal += surplusRevenue;
     }
 
+    // Market fees apply to sale proceeds, not to manually entered fixed
+    // revenues. Keep the gross figure visible while using net proceeds for
+    // profit so the user can audit every deduction independently.
+    const grossMarketRevenueTotal = revTotal;
+    const marketFeeAmounts = computeMarketFeeAmounts(grossMarketRevenueTotal);
+
     const structureSummary = renderStructureFinancialSummary();
     const extraTotals = computeFinancialExtraCostTotals();
     const fixedExpenseTotal = Number(extraTotals.expenseTotal || 0);
     const fixedRevenueTotal = Number(extraTotals.revenueTotal || 0);
 
     revTotal += fixedRevenueTotal;
+    const netRevenueTotal = revTotal - marketFeeAmounts.total;
     const installationCostTotal = structureSummary.totalInstallation;
     const costTotal = materialCostTotal + installationCostTotal + fixedExpenseTotal;
     const investmentNeededTotal = materialInvestmentTotal + installationCostTotal + fixedExpenseTotal;
 
-    const profit = revTotal - costTotal;
+    const profit = netRevenueTotal - costTotal;
     // Margin = profit / revenue (not markup on cost).
     // When revenue is zero, keep the display meaningful instead of forcing 0%.
     let marginValue = 0;
@@ -8097,6 +8464,10 @@ function recalcFinancials() {
     const grandTotalInvestmentNeededEl = document.querySelector('.grand-total-investment-needed');
     const grandTotalCostEl = document.querySelector('.grand-total-cost');
     const grandTotalRevEl = document.querySelector('.grand-total-rev');
+    const grandTotalBrokerFeeEl = document.querySelector('.grand-total-broker-fee');
+    const grandTotalSalesTaxEl = document.querySelector('.grand-total-sales-tax');
+    const grandTotalSafetyTaxEl = document.querySelector('.grand-total-safety-tax');
+    const grandTotalNetRevenueEl = document.querySelector('.grand-total-net-revenue');
     const profitEl = document.querySelector('.profit');
     const profitPctEl = document.querySelector('.profit-pct');
 
@@ -8138,6 +8509,22 @@ function recalcFinancials() {
 
     if (grandTotalRevEl) {
         grandTotalRevEl.textContent = formatPrice(revTotal);
+    }
+
+    if (grandTotalBrokerFeeEl) {
+        grandTotalBrokerFeeEl.textContent = `-${formatPrice(marketFeeAmounts.brokerFee)}`;
+    }
+
+    if (grandTotalSalesTaxEl) {
+        grandTotalSalesTaxEl.textContent = `-${formatPrice(marketFeeAmounts.salesTax)}`;
+    }
+
+    if (grandTotalSafetyTaxEl) {
+        grandTotalSafetyTaxEl.textContent = `-${formatPrice(marketFeeAmounts.safetyTax)}`;
+    }
+
+    if (grandTotalNetRevenueEl) {
+        grandTotalNetRevenueEl.textContent = formatPrice(netRevenueTotal);
     }
 
     if (profitEl && profitEl.childNodes.length > 0) {

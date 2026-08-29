@@ -45,6 +45,7 @@ from .craft_materials import (
 from .craft_structures import build_craft_structure_planner
 from .craft_times import build_craft_time_map
 from .industry_skills import build_craft_character_advisor
+from .market_fees import build_craft_market_fee_profiles
 from .temporary_project_models import TemporaryItemsQuerySet as _TemporaryItemsQuerySet
 from .temporary_project_models import (
     TemporaryProductionProject,
@@ -2725,6 +2726,14 @@ def build_project_workspace_payload(
         "character-advisor", "Build character advisor", character_advisor_started_at
     )
 
+    market_fee_profiles_started_at = perf_counter()
+    market_fee_profiles = build_craft_market_fee_profiles(project.user)
+    record_timing_step(
+        "market-fee-profiles",
+        "Build market fee profiles",
+        market_fee_profiles_started_at,
+    )
+
     structure_planner_started_at = perf_counter()
     structure_planner = build_craft_structure_planner(
         product_type_id=None,
@@ -2926,6 +2935,7 @@ def build_project_workspace_payload(
         "blueprint_configs_grouped": blueprint_configs_grouped,
         "production_time_map": production_time_map,
         "craft_character_advisor": craft_character_advisor,
+        "market_fee_profiles": market_fee_profiles,
         "structure_planner": structure_planner,
         "final_outputs": final_outputs,
         "editable_final_outputs": editable_final_outputs,

@@ -121,6 +121,24 @@
                     }))
                     .filter((entry) => entry.name || entry.quantity > 0 || entry.unitPrice > 0)
                 : [],
+            marketFees: (() => {
+                if (!state.marketFees || typeof state.marketFees !== 'object') {
+                    return null;
+                }
+                const raw = state.marketFees;
+                const clampPercent = (value) => {
+                    const numeric = Number.parseFloat(value);
+                    return Number.isFinite(numeric) ? Math.min(100, Math.max(0, numeric)) : 0;
+                };
+                const sellerCharacterId = Number(raw.sellerCharacterId || 0) || null;
+                const rawPurpose = String(raw.purpose || '').trim().toLowerCase();
+                return {
+                    purpose: ['market_sale', 'personal_use'].includes(rawPurpose) ? rawPurpose : '',
+                    sellerCharacterId,
+                    brokerFeePercent: clampPercent(raw.brokerFeePercent),
+                    safetyTaxPercent: clampPercent(raw.safetyTaxPercent),
+                };
+            })(),
             revenueMode: (String(state.revenueMode || '').trim().toLowerCase() === 'total') ? 'total' : 'per_unit',
             revenueTotalOverride: (() => {
                 const v = Number.parseFloat(state.revenueTotalOverride);
@@ -212,6 +230,7 @@
             copyRequests: normalizedState.copyRequests,
             structure: normalizedState.structure,
             extraCostRows: normalizedState.extraCostRows,
+            marketFees: normalizedState.marketFees,
             revenueMode: normalizedState.revenueMode,
             revenueTotalOverride: normalizedState.revenueTotalOverride,
             pendingWorkspaceRefresh: normalizedState.pendingWorkspaceRefresh,
@@ -998,6 +1017,7 @@
                 + '.bp-me-input, .bp-te-input, #decisionBuyToleranceInput, '
                 + '.financial-extra-name, .financial-extra-type, .financial-extra-qty, .financial-extra-price, '
                 + '#addFinancialExtraCostRowBtn, .financial-extra-remove, '
+                + '#marketFeeSellerCharacter, #marketFeeBrokerPercent, #marketFeeSafetyTaxPercent, '
                 + 'input[data-type-id], select[data-type-id], textarea[data-type-id]'
             );
             if (!editableTarget) {

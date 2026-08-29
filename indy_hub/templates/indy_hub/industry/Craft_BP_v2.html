@@ -375,6 +375,63 @@
                     </div>
                 </div>
 
+                <section class="craft-section mb-4" id="marketPurposeSection">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                        <div>
+                            <div class="form-check form-switch mb-1">
+                                <input class="form-check-input" type="checkbox" role="switch" id="marketForSellSwitch">
+                                <label class="form-check-label fw-semibold" for="marketForSellSwitch">{% trans "For sell" %}</label>
+                                <span class="badge bg-secondary-subtle text-secondary-emphasis ms-2" id="marketForSellValue">{% trans "No" %}</span>
+                            </div>
+                            <p class="small text-muted mb-0">{% trans "Enable this when the production is intended for sale." %}</p>
+                        </div>
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis" id="marketFeePersistStatus">{% trans "Not saved" %}</span>
+                    </div>
+                </section>
+
+                <section class="craft-section mb-4 d-none" id="marketFeesSection">
+                    <div class="craft-section-header-with-actions">
+                        <div>
+                            <h3 class="craft-section-title mb-1">
+                                <i class="fas fa-receipt text-success"></i> {% trans "Sell fees" %}
+                            </h3>
+                            <p class="small text-muted mb-0">{% trans "Estimate the proceeds after the seller's market fees. No live ESI request is made." %}</p>
+                        </div>
+                    </div>
+                    <div class="row g-3 mt-1 align-items-start">
+                        <div class="col-12 col-lg-3">
+                            <label for="marketFeeSellerCharacter" class="form-label small fw-semibold">{% trans "Selling character" %}</label>
+                            <select id="marketFeeSellerCharacter" class="form-select form-select-sm">
+                                <option value="">{% trans "No character available" %}</option>
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-4 col-lg-3">
+                            <label for="marketFeeBrokerPercent" class="form-label small fw-semibold">{% trans "Broker fee" %}</label>
+                            <div class="input-group input-group-sm">
+                                <input id="marketFeeBrokerPercent" type="number" min="0" max="100" step="0.01" class="form-control text-end" value="0">
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text" id="marketFeeBrokerHint"></div>
+                        </div>
+                        <div class="col-12 col-sm-4 col-lg-3">
+                            <label for="marketFeeSalesTaxPercent" class="form-label small fw-semibold">{% trans "Sales tax" %}</label>
+                            <div class="input-group input-group-sm">
+                                <input id="marketFeeSalesTaxPercent" type="number" min="0" max="100" step="0.001" class="form-control text-end bg-body-tertiary" value="0" readonly>
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text" id="marketFeeSalesTaxHint"></div>
+                        </div>
+                        <div class="col-12 col-sm-4 col-lg-3">
+                            <label for="marketFeeSafetyTaxPercent" class="form-label small fw-semibold">{% trans "Safety tax" %}</label>
+                            <div class="input-group input-group-sm">
+                                <input id="marketFeeSafetyTaxPercent" type="number" min="0" max="100" step="0.01" class="form-control text-end" value="0">
+                                <span class="input-group-text">%</span>
+                            </div>
+                            <div class="form-text">{% trans "Manual rate, zero by default." %}</div>
+                        </div>
+                    </div>
+                </section>
+
                 <section class="craft-section mb-4">
                     <div class="craft-financial-table-header">
                         <h4 class="text-sm fw-semibold mb-0">
@@ -642,6 +699,22 @@
                                 <tr>
                                     <th colspan="4" class="text-end text-xs">{% trans "Total Revenue" %}</th>
                                     <th class="text-end text-xs grand-total-rev fw-semibold text-success" colspan="2">0</th>
+                                </tr>
+                                <tr class="market-fee-summary-row d-none">
+                                    <th colspan="4" class="text-end text-xs text-muted">{% trans "Broker Fee" %}</th>
+                                    <th class="text-end text-xs grand-total-broker-fee text-muted" colspan="2">0</th>
+                                </tr>
+                                <tr class="market-fee-summary-row d-none">
+                                    <th colspan="4" class="text-end text-xs text-muted">{% trans "Sales Tax" %}</th>
+                                    <th class="text-end text-xs grand-total-sales-tax text-muted" colspan="2">0</th>
+                                </tr>
+                                <tr class="market-fee-summary-row d-none">
+                                    <th colspan="4" class="text-end text-xs text-muted">{% trans "Safety Tax" %}</th>
+                                    <th class="text-end text-xs grand-total-safety-tax text-muted" colspan="2">0</th>
+                                </tr>
+                                <tr class="market-fee-summary-row d-none">
+                                    <th colspan="4" class="text-end text-xs">{% trans "Net Revenue After Fees" %}</th>
+                                    <th class="text-end text-xs grand-total-net-revenue fw-semibold text-success" colspan="2">0</th>
                                 </tr>
                                 <tr class="table-primary">
                                     <th colspan="4" class="text-end text-xs">{% trans "Net Profit" %}</th>
@@ -1344,8 +1417,8 @@
 <script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260820-pending-refresh-banner"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260820-status-badge-flash"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260829-market-switch"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260829-market-switch"></script>
 <script src="{% static 'indy_hub/js/craft_bp_project_rename.js' %}?v=20260523-project-rename-status"></script>
 {% endif %}
 {% endblock extra_javascript %}

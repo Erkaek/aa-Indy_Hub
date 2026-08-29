@@ -2219,3 +2219,111 @@ msgstr "Reconnu, prix indisponible"
 #: templates/indy_hub/material_exchange/sell.html
 msgid "This item is recognized, but its market reference price is incomplete. An administrator can configure a fixed member-sale price for this exact item."
 msgstr "Cet objet est reconnu, mais son prix de référence est incomplet. Un administrateur peut configurer un prix de vente membre fixe pour cet objet précis."
+
+#: models.py
+msgid "Last broker fee percentage entered in the Craft workspace."
+msgstr "Dernier pourcentage de frais de courtage saisi dans l'espace de travail Craft."
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Sell fees"
+msgstr "Frais de vente"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Estimate the proceeds after the seller's market fees. No live ESI request is made."
+msgstr "Estime les recettes après les frais de marché du vendeur. Aucun appel ESI direct n'est effectué."
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+#: static/indy_hub/js/craft_bp.js
+msgid "Not saved"
+msgstr "Non enregistré"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Selling character"
+msgstr "Personnage vendeur"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+#: static/indy_hub/js/craft_bp.js
+msgid "No character available"
+msgstr "Aucun personnage disponible"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Broker fee"
+msgstr "Frais de courtage"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Sales tax"
+msgstr "Taxe de vente"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Safety tax"
+msgstr "Taxe de sécurité"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Manual rate, zero by default."
+msgstr "Taux manuel, zéro par défaut."
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Broker Fee"
+msgstr "Frais de courtage"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Sales Tax"
+msgstr "Taxe de vente"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Safety Tax"
+msgstr "Taxe de sécurité"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Net Revenue After Fees"
+msgstr "Revenu net après frais"
+
+#: static/indy_hub/js/craft_bp.js
+msgid "Select a character to calculate market fees."
+msgstr "Sélectionnez un personnage pour calculer les frais de marché."
+
+#: static/indy_hub/js/craft_bp.js
+msgid "Saved rate for this character."
+msgstr "Taux enregistré pour ce personnage."
+
+#: static/indy_hub/js/craft_bp.js
+msgid "Estimated from Broker Relations; standings are not included."
+msgstr "Estimation basée sur Broker Relations ; les standings ne sont pas inclus."
+
+#: static/indy_hub/js/craft_bp.js
+msgid "Skill snapshot unavailable; using the base rate."
+msgstr "Snapshot de compétences indisponible ; utilisation du taux de base."
+
+#: static/indy_hub/js/craft_bp.js
+msgid "Accounting"
+msgstr "Accounting"
+
+#: static/indy_hub/js/craft_bp.js
+msgid "Saving…"
+msgstr "Enregistrement…"
+
+#: static/indy_hub/js/craft_bp.js
+msgid "Saved"
+msgstr "Enregistré"
+
+#: static/indy_hub/js/craft_bp.js
+msgid "Save failed"
+msgstr "Échec de l'enregistrement"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "For sell"
+msgstr "Pour la vente"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+msgid "Enable this when the production is intended for sale."
+msgstr "Activez cette option lorsque la production est destinée à la vente."
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+#: static/indy_hub/js/craft_bp.js
+msgid "Yes"
+msgstr "Oui"
+
+#: templates/indy_hub/industry/Craft_BP_v2.html
+#: static/indy_hub/js/craft_bp.js
+msgid "No"
+msgstr "Non"

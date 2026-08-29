@@ -9,8 +9,12 @@ from unittest.mock import patch
 from django.contrib.auth.models import Permission, User
 from django.test import RequestFactory, TestCase
 
+# Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
+from allianceauth.eveonline.models import EveCharacter
+
 # AA Example App
-from indy_hub.models import ProductionProject
+from indy_hub.models import CharacterSettings, ProductionProject
 from indy_hub.services.craft_materials import (
     compute_job_material_quantity,
     is_base_item_material_efficiency_exempt,
@@ -712,6 +716,18 @@ class UpdateProductionProjectWorkspaceStateTests(TestCase):
                 "cachedProjectPayload": {"materials_tree": []},
             },
         )
+        self.character = EveCharacter.objects.create(
+            character_id=9_001_002,
+            character_name="Workspace Seller",
+            corporation_id=2_000_002,
+            corporation_name="Workspace Corp",
+            corporation_ticker="WORK",
+        )
+        CharacterOwnership.objects.create(
+            user=self.user,
+            character=self.character,
+            owner_hash="workspace-seller-owner",
+        )
 
     def _call(self, body, *, user=None):
         request = self.factory.post(
@@ -752,6 +768,75 @@ class UpdateProductionProjectWorkspaceStateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.project.refresh_from_db()
         self.assertIs(self.project.workspace_state["use_corp_blueprints"], False)
+
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_patches_market_fees_and_persists_character_broker_rate(
+        self, mock_emit
+    ) -> None:
+        response = self._call(
+            {
+                "marketFees": {
+                    "purpose": "market_sale",
+                    "sellerCharacterId": self.character.character_id,
+                    "brokerFeePercent": 2.4,
+                    "safetyTaxPercent": 0.25,
+                }
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.project.refresh_from_db()
+        self.assertEqual(
+            self.project.workspace_state["marketFees"],
+            {
+                "purpose": "market_sale",
+                "sellerCharacterId": self.character.character_id,
+                "brokerFeePercent": 2.4,
+                "safetyTaxPercent": 0.25,
+            },
+        )
+        self.assertEqual(self.project.workspace_state["runs"], 5)
+        self.assertIn("cachedProjectPayload", self.project.workspace_state)
+        setting = CharacterSettings.objects.get(
+            user=self.user,
+            character_id=self.character.character_id,
+        )
+        self.assertEqual(setting.market_broker_fee_percent, Decimal("2.40"))
+
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_patches_personal_use_without_a_seller_or_market_fee_preference(
+        self, mock_emit
+    ) -> None:
+        response = self._call(
+            {
+                "marketFees": {
+                    "purpose": "personal_use",
+                    "sellerCharacterId": None,
+                    "brokerFeePercent": 2.4,
+                    "safetyTaxPercent": 0.25,
+                }
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.project.refresh_from_db()
+        self.assertEqual(
+            self.project.workspace_state["marketFees"],
+            {
+                "purpose": "personal_use",
+                "sellerCharacterId": None,
+                "brokerFeePercent": 2.4,
+                "safetyTaxPercent": 0.25,
+            },
+        )
+        self.assertEqual(self.project.workspace_state["runs"], 5)
+        self.assertIn("cachedProjectPayload", self.project.workspace_state)
+        self.assertFalse(
+            CharacterSettings.objects.filter(
+                user=self.user,
+                character_id=self.character.character_id,
+            ).exists()
+        )
 
     @patch("indy_hub.views.api.emit_view_analytics_event")
     def test_rejects_non_object_json_payloads(self, mock_emit) -> None:
