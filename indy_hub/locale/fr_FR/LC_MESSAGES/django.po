@@ -2311,7 +2311,7 @@ msgid "Save failed"
 msgstr "Échec de l'enregistrement"
 
 #: templates/indy_hub/industry/Craft_BP_v2.html
-msgid "For sell"
+msgid "For sale"
 msgstr "Pour la vente"
 
 #: templates/indy_hub/industry/Craft_BP_v2.html

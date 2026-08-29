@@ -104,6 +104,26 @@ class CraftMarketFeeTests(TestCase):
         self.assertIs(setting.allow_copy_requests, True)
         self.assertEqual(setting.market_broker_fee_percent, Decimal("2.41"))
 
+    def test_preference_save_requires_market_sale_purpose(self) -> None:
+        for purpose in (None, "invalid", "personal_use"):
+            with self.subTest(purpose=purpose):
+                persist_craft_market_fee_preference(
+                    self.user,
+                    {
+                        "purpose": purpose,
+                        "sellerCharacterId": self.character.character_id,
+                        "brokerFeePercent": "2.40",
+                        "safetyTaxPercent": 0,
+                    },
+                )
+
+        self.assertFalse(
+            CharacterSettings.objects.filter(
+                user=self.user,
+                character_id=self.character.character_id,
+            ).exists()
+        )
+
     def test_workspace_state_rejects_unowned_character_and_clamps_rates(self) -> None:
         self.assertEqual(
             sanitize_craft_market_fees(

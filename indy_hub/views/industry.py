@@ -2169,6 +2169,7 @@ def craft_project(request, project_ref):
         "active_tab", "materials"
     )
     payload = None
+    payload_loaded_from_cache = False
     sde_has_changed = False
     favorite_ids = frozenset(
         UserFavoriteStructure.objects.filter(user=request.user).values_list(
@@ -2177,6 +2178,7 @@ def craft_project(request, project_ref):
     )
     if runs_override is None and not refresh_from_current_sde:
         payload, sde_has_changed = get_cached_project_workspace_payload(project)
+        payload_loaded_from_cache = payload is not None
     if payload is None:
         payload = build_project_workspace_payload(
             project,
@@ -2192,7 +2194,8 @@ def craft_project(request, project_ref):
         sde_has_changed = False
     # Always patch so cached payloads reflect current favorite state
     _patch_payload_structure_planner_favorites(payload, favorite_ids)
-    payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
+    if payload_loaded_from_cache:
+        payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
 
     sde_refresh_url = ""
     if sde_has_changed:
@@ -2375,6 +2378,7 @@ def craft_temp_project(request, temp_project_ref):
         (temp_state.get("workspace_state") or {}).get("active_tab") or "materials"
     )
     payload = None
+    payload_loaded_from_cache = False
     favorite_ids = frozenset(
         UserFavoriteStructure.objects.filter(user=request.user).values_list(
             "structure_id", flat=True
@@ -2392,6 +2396,7 @@ def craft_temp_project(request, temp_project_ref):
             user=request.user,
         ):
             payload = dict(cached_payload)
+            payload_loaded_from_cache = True
 
     if payload is None:
         payload = build_temporary_project_payload(
@@ -2415,7 +2420,8 @@ def craft_temp_project(request, temp_project_ref):
             set_temporary_project_workspace(temp_project_ref, cached_state)
     # Always patch so cached payloads reflect current favorite state
     _patch_payload_structure_planner_favorites(payload, favorite_ids)
-    payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
+    if payload_loaded_from_cache:
+        payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
 
     payload["temp_project_ref"] = str(temp_project_ref or "")
     payload["project_ref"] = str(payload.get("project_ref") or temp_project_ref or "")

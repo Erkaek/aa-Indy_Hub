@@ -11,7 +11,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Added
 
-- Crafting Projects / Financial tab: added a **For sell** switch, a selling-character selector with cached-skill Sales Tax, a reusable per-character Broker Fee override, manual Safety Tax, and net revenue/profit after market fees without additional ESI requests. Sell fees stay hidden and are not applied when the switch is off.
+- Crafting Projects / Financial tab: added a **For sale** switch, a selling-character selector with cached-skill Sales Tax, a reusable per-character Broker Fee override, manual Safety Tax, and net revenue/profit after market fees without additional ESI requests. Sell fees stay hidden and are not applied when the switch is off.
 
 ## [1.18.3] - 2026-08-27
 

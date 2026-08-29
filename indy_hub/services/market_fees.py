@@ -166,7 +166,9 @@ def sanitize_craft_market_fees(user, value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
     raw_purpose = str(value.get("purpose") or "").strip().lower()
-    purpose = raw_purpose if raw_purpose in MARKET_PURPOSES else ""
+    if raw_purpose not in MARKET_PURPOSES:
+        return {}
+    purpose = raw_purpose
     try:
         character_id = int(value.get("sellerCharacterId") or 0)
     except (TypeError, ValueError):
@@ -204,7 +206,7 @@ def persist_craft_market_fee_preference(user, market_fees: object) -> None:
     normalized = sanitize_craft_market_fees(user, market_fees)
     if (
         not normalized
-        or normalized.get("purpose") == MARKET_PURPOSE_PERSONAL_USE
+        or normalized.get("purpose") != MARKET_PURPOSE_MARKET_SALE
         or not normalized.get("sellerCharacterId")
     ):
         return

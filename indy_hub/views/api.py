@@ -454,6 +454,7 @@ def temporary_production_project_payload(request, temp_project_ref: str):
     )
 
     payload = None
+    payload_loaded_from_cache = False
     if use_cached_payload:
         cached_payload = (temp_state.get("workspace_state") or {}).get(
             PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY
@@ -466,6 +467,7 @@ def temporary_production_project_payload(request, temp_project_ref: str):
             user=request.user,
         ):
             payload = dict(cached_payload)
+            payload_loaded_from_cache = True
 
     if payload is None:
         payload = build_temporary_project_payload(
@@ -490,7 +492,8 @@ def temporary_production_project_payload(request, temp_project_ref: str):
     payload["temp_project_ref"] = str(temp_project_ref or "")
     payload["project_ref"] = str(payload.get("project_ref") or temp_project_ref or "")
     payload["is_temporary_project"] = True
-    payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
+    if payload_loaded_from_cache:
+        payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
     persisted_workspace_state = strip_project_workspace_cache(
         temp_state.get("workspace_state")
     )

@@ -101,6 +101,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
             ]
         )
 
+    @patch("indy_hub.views.api.build_craft_market_fee_profiles")
     @patch("indy_hub.views.api.build_temporary_project_payload")
     @patch("indy_hub.views.api.get_temporary_project_workspace")
     @patch("indy_hub.views.api.emit_view_analytics_event")
@@ -109,6 +110,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
         mock_emit_view_analytics_event,
         mock_get_temporary_project_workspace,
         mock_build_temporary_project_payload,
+        mock_build_craft_market_fee_profiles,
     ) -> None:
         mock_emit_view_analytics_event.return_value = None
         mock_get_temporary_project_workspace.return_value = {
@@ -137,8 +139,10 @@ class CraftBlueprintPayloadApiTests(TestCase):
                 "include_full_structure_options"
             ]
         )
+        mock_build_craft_market_fee_profiles.assert_not_called()
 
     @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.build_craft_market_fee_profiles")
     @patch("indy_hub.views.api.build_temporary_project_payload")
     @patch(
         "indy_hub.views.api.cached_project_workspace_payload_matches_corp_authorization",
@@ -152,6 +156,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
         mock_get_temporary_project_workspace,
         mock_cache_matches_authorization,
         mock_build_temporary_project_payload,
+        mock_build_craft_market_fee_profiles,
         mock_set_temporary_project_workspace,
     ) -> None:
         cached_payload = {
@@ -191,6 +196,51 @@ class CraftBlueprintPayloadApiTests(TestCase):
         saved_state = mock_set_temporary_project_workspace.call_args.args[1]
         self.assertEqual(
             saved_state["workspace_state"]["cachedProjectPayload"], fresh_payload
+        )
+        mock_build_craft_market_fee_profiles.assert_not_called()
+
+    @patch("indy_hub.views.api.build_craft_market_fee_profiles")
+    @patch("indy_hub.views.api.build_temporary_project_payload")
+    @patch(
+        "indy_hub.views.api.cached_project_workspace_payload_matches_corp_authorization",
+        return_value=True,
+    )
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_temporary_payload_refreshes_market_fee_profiles_only_for_cached_payload(
+        self,
+        mock_emit_view_analytics_event,
+        mock_get_temporary_project_workspace,
+        mock_cache_matches_authorization,
+        mock_build_temporary_project_payload,
+        mock_build_craft_market_fee_profiles,
+    ) -> None:
+        cached_payload = {
+            "workspace_state": {},
+            "market_fee_profiles": {"characters": [{"character_id": 1}]},
+        }
+        mock_get_temporary_project_workspace.return_value = {
+            "workspace_state": {"cachedProjectPayload": cached_payload}
+        }
+        current_profiles = {"characters": [{"character_id": 2}]}
+        mock_build_craft_market_fee_profiles.return_value = current_profiles
+
+        request = self.factory.get(
+            "/indy_hub/api/temp-production-projects/test-temp/payload/"
+        )
+        request.user = self.user
+        view = temporary_production_project_payload
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+
+        response = view(request, "test-temp")
+
+        self.assertEqual(response.status_code, 200)
+        mock_cache_matches_authorization.assert_called_once()
+        mock_build_temporary_project_payload.assert_not_called()
+        mock_build_craft_market_fee_profiles.assert_called_once_with(self.user)
+        self.assertEqual(
+            json.loads(response.content)["market_fee_profiles"], current_profiles
         )
 
     @patch("indy_hub.views.api.build_craft_time_map")

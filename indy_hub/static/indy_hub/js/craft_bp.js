@@ -7626,9 +7626,9 @@ function computeMarketFeeAmounts(grossMarketRevenue) {
     if (state.purpose !== MARKET_PURPOSE_SALE || !character) {
         return { brokerFee: 0, salesTax: 0, safetyTax: 0, total: 0 };
     }
-    const brokerFee = taxableRevenue * (normalizeMarketFeePercent(state.brokerFeePercent) / 100);
-    const salesTax = taxableRevenue * (getSalesTaxPercentForCharacter(character) / 100);
-    const safetyTax = taxableRevenue * (normalizeMarketFeePercent(state.safetyTaxPercent) / 100);
+    const brokerFee = Math.round(taxableRevenue * (normalizeMarketFeePercent(state.brokerFeePercent) / 100));
+    const salesTax = Math.round(taxableRevenue * (getSalesTaxPercentForCharacter(character) / 100));
+    const safetyTax = Math.round(taxableRevenue * (normalizeMarketFeePercent(state.safetyTaxPercent) / 100));
     return {
         brokerFee,
         salesTax,

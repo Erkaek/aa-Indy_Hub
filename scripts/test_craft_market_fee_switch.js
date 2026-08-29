@@ -60,12 +60,12 @@ if (personalFees.total !== 0) {
 }
 
 context.state.purpose = 'market_sale';
-const saleFees = context.computeMarketFeeAmounts(100000000);
+const saleFees = context.computeMarketFeeAmounts(123456789);
 const expected = {
-    brokerFee: 2400000,
-    salesTax: 3837500,
-    safetyTax: 250000,
-    total: 6487500,
+    brokerFee: 2962963,
+    salesTax: 4737654,
+    safetyTax: 308642,
+    total: 8009259,
 };
 Object.entries(expected).forEach(([key, value]) => {
     if (saleFees[key] !== value) {
