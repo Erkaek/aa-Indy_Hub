@@ -44,6 +44,11 @@ from ..services.craft_structures import (
 from ..services.craft_times import build_craft_time_map
 from ..services.industry_skills import build_craft_character_advisor
 from ..services.industry_structures import resolve_solar_system_reference
+from ..services.market_fees import (
+    build_craft_market_fee_profiles,
+    persist_craft_market_fee_preference,
+    sanitize_craft_market_fees,
+)
 from ..services.production_projects import (
     PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
     PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY,
@@ -211,6 +216,10 @@ def _sanitize_production_workspace_state(
         "meTeConfig": sanitize_dict(data.get("meTeConfig")),
         "copyRequests": sanitize_list(data.get("copyRequests")),
         "extraCostRows": sanitize_extra_cost_rows(data.get("extraCostRows")),
+        "marketFees": sanitize_craft_market_fees(
+            project.user,
+            data.get("marketFees"),
+        ),
         "finalOutputQuantities": sanitize_final_output_quantities(
             data.get("finalOutputQuantities")
         ),
@@ -235,6 +244,10 @@ def _sanitize_production_workspace_state(
 def _apply_workspace_state_to_project(
     project, workspace_state: dict[str, object]
 ) -> None:
+    persist_craft_market_fee_preference(
+        project.user,
+        workspace_state.get("marketFees"),
+    )
     selected_items = list(
         project.items.filter(is_selected=True)
         .exclude(inclusion_mode=ProductionProjectItem.InclusionMode.SKIP)
@@ -441,6 +454,7 @@ def temporary_production_project_payload(request, temp_project_ref: str):
     )
 
     payload = None
+    payload_loaded_from_cache = False
     if use_cached_payload:
         cached_payload = (temp_state.get("workspace_state") or {}).get(
             PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY
@@ -453,6 +467,7 @@ def temporary_production_project_payload(request, temp_project_ref: str):
             user=request.user,
         ):
             payload = dict(cached_payload)
+            payload_loaded_from_cache = True
 
     if payload is None:
         payload = build_temporary_project_payload(
@@ -477,6 +492,15 @@ def temporary_production_project_payload(request, temp_project_ref: str):
     payload["temp_project_ref"] = str(temp_project_ref or "")
     payload["project_ref"] = str(payload.get("project_ref") or temp_project_ref or "")
     payload["is_temporary_project"] = True
+    if payload_loaded_from_cache:
+        payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
+    persisted_workspace_state = strip_project_workspace_cache(
+        temp_state.get("workspace_state")
+    )
+    payload_workspace_state = dict(payload.get("workspace_state") or {})
+    if isinstance(persisted_workspace_state.get("marketFees"), dict):
+        payload_workspace_state["marketFees"] = persisted_workspace_state["marketFees"]
+    payload["workspace_state"] = payload_workspace_state
     return JsonResponse(_to_serializable(payload))
 
 
@@ -555,15 +579,24 @@ def update_temporary_project_workspace_state(request, temp_project_ref: str):
     if not isinstance(data, dict):
         return JsonResponse({"error": "JSON body must be an object"}, status=400)
 
-    # Patch only allowed fields into the existing workspace_state, stripping cached payload
-    workspace_state = strip_project_workspace_cache(
-        dict(temp_state.get("workspace_state") or {})
+    # Corp BP visibility changes invalidate the material payload. Market fee
+    # edits do not, so keep that expensive cache intact for fee-only patches.
+    existing_workspace_state = dict(temp_state.get("workspace_state") or {})
+    workspace_state = (
+        strip_project_workspace_cache(existing_workspace_state)
+        if "use_corp_blueprints" in data
+        else existing_workspace_state
     )
     if "use_corp_blueprints" in data:
         raw = data["use_corp_blueprints"]
         workspace_state["use_corp_blueprints"] = bool(
             app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP and (raw is True or raw == 1)
         )
+    if "marketFees" in data:
+        market_fees = sanitize_craft_market_fees(request.user, data["marketFees"])
+        if market_fees:
+            workspace_state["marketFees"] = market_fees
+            persist_craft_market_fee_preference(request.user, market_fees)
     temp_state["workspace_state"] = workspace_state
     set_temporary_project_workspace(temp_project_ref, temp_state)
 
@@ -606,12 +639,22 @@ def update_production_project_workspace_state(request, project_ref: str):
     if not isinstance(data, dict):
         return JsonResponse({"error": "JSON body must be an object"}, status=400)
 
-    workspace_state = strip_project_workspace_cache(dict(project.workspace_state or {}))
+    existing_workspace_state = dict(project.workspace_state or {})
+    workspace_state = (
+        strip_project_workspace_cache(existing_workspace_state)
+        if "use_corp_blueprints" in data
+        else existing_workspace_state
+    )
     if "use_corp_blueprints" in data:
         raw = data["use_corp_blueprints"]
         workspace_state["use_corp_blueprints"] = bool(
             app_settings.PERSONAL_PROJECTS_ALLOW_CORP_BP and (raw is True or raw == 1)
         )
+    if "marketFees" in data:
+        market_fees = sanitize_craft_market_fees(request.user, data["marketFees"])
+        if market_fees:
+            workspace_state["marketFees"] = market_fees
+            persist_craft_market_fee_preference(request.user, market_fees)
     project.workspace_state = workspace_state
     project.save(update_fields=["workspace_state", "updated_at"])
 

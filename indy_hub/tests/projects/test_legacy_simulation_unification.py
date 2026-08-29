@@ -1447,6 +1447,7 @@ class LegacySimulationUnificationTests(TestCase):
             mock_build_project_workspace_payload.call_args.kwargs["runs_override"], 5
         )
 
+    @patch("indy_hub.views.industry.build_craft_market_fee_profiles")
     @patch("indy_hub.views.industry.build_user_asset_inventory_snapshot")
     @patch("indy_hub.views.industry._get_craft_project_stock_refresh_progress")
     @patch("indy_hub.views.industry.build_project_workspace_payload")
@@ -1457,6 +1458,7 @@ class LegacySimulationUnificationTests(TestCase):
         mock_build_project_workspace_payload,
         mock_get_stock_refresh_progress,
         mock_build_user_asset_inventory_snapshot,
+        mock_build_craft_market_fee_profiles,
     ):
         project = ProductionProject.objects.create(
             user=self.user,
@@ -1521,7 +1523,9 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertNotContains(response, 'id="runsInput"', html=False)
         self.assertNotContains(response, 'id="recalcNowBtn"', html=False)
         self.assertContains(response, 'id="updateFinalOutputQuantitiesBtn"', html=False)
+        mock_build_craft_market_fee_profiles.assert_not_called()
 
+    @patch("indy_hub.views.industry.build_craft_market_fee_profiles")
     @patch("indy_hub.views.industry.build_user_asset_inventory_snapshot")
     @patch("indy_hub.views.industry._get_craft_project_stock_refresh_progress")
     @patch("indy_hub.views.industry.build_project_workspace_payload")
@@ -1532,6 +1536,7 @@ class LegacySimulationUnificationTests(TestCase):
         mock_build_project_workspace_payload,
         mock_get_stock_refresh_progress,
         mock_build_user_asset_inventory_snapshot,
+        mock_build_craft_market_fee_profiles,
     ):
         project = ProductionProject.objects.create(
             user=self.user,
@@ -1583,6 +1588,7 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         mock_get_cached_project_workspace_payload.assert_not_called()
         mock_build_project_workspace_payload.assert_called_once()
+        mock_build_craft_market_fee_profiles.assert_not_called()
         self.assertNotContains(response, "Saved snapshot uses older SDE data")
 
     @patch("indy_hub.views.industry._ensure_craft_project_stock_refresh_started")

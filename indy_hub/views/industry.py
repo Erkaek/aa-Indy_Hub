@@ -196,6 +196,7 @@ from ..services.industry_structures import (
     sde_item_types_loaded,
     search_solar_system_options,
 )
+from ..services.market_fees import build_craft_market_fee_profiles
 from ..services.market_prices import MarketPriceError, fetch_adjusted_prices
 from ..services.material_exchange_assets import (
     CRAFT_PROJECT_STOCK_CACHE_MAX_AGE_MINUTES,
@@ -2168,6 +2169,7 @@ def craft_project(request, project_ref):
         "active_tab", "materials"
     )
     payload = None
+    payload_loaded_from_cache = False
     sde_has_changed = False
     favorite_ids = frozenset(
         UserFavoriteStructure.objects.filter(user=request.user).values_list(
@@ -2176,6 +2178,7 @@ def craft_project(request, project_ref):
     )
     if runs_override is None and not refresh_from_current_sde:
         payload, sde_has_changed = get_cached_project_workspace_payload(project)
+        payload_loaded_from_cache = payload is not None
     if payload is None:
         payload = build_project_workspace_payload(
             project,
@@ -2191,6 +2194,8 @@ def craft_project(request, project_ref):
         sde_has_changed = False
     # Always patch so cached payloads reflect current favorite state
     _patch_payload_structure_planner_favorites(payload, favorite_ids)
+    if payload_loaded_from_cache:
+        payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
 
     sde_refresh_url = ""
     if sde_has_changed:
@@ -2203,6 +2208,8 @@ def craft_project(request, project_ref):
         )
 
     render_workspace_state = dict(payload.get("workspace_state") or workspace_state)
+    if isinstance(workspace_state.get("marketFees"), dict):
+        render_workspace_state["marketFees"] = workspace_state["marketFees"]
     render_workspace_state["active_tab"] = active_tab
     stock_refresh_progress = _get_craft_project_stock_refresh_progress(request.user)
 
@@ -2371,6 +2378,7 @@ def craft_temp_project(request, temp_project_ref):
         (temp_state.get("workspace_state") or {}).get("active_tab") or "materials"
     )
     payload = None
+    payload_loaded_from_cache = False
     favorite_ids = frozenset(
         UserFavoriteStructure.objects.filter(user=request.user).values_list(
             "structure_id", flat=True
@@ -2388,6 +2396,7 @@ def craft_temp_project(request, temp_project_ref):
             user=request.user,
         ):
             payload = dict(cached_payload)
+            payload_loaded_from_cache = True
 
     if payload is None:
         payload = build_temporary_project_payload(
@@ -2411,12 +2420,21 @@ def craft_temp_project(request, temp_project_ref):
             set_temporary_project_workspace(temp_project_ref, cached_state)
     # Always patch so cached payloads reflect current favorite state
     _patch_payload_structure_planner_favorites(payload, favorite_ids)
+    if payload_loaded_from_cache:
+        payload["market_fee_profiles"] = build_craft_market_fee_profiles(request.user)
 
     payload["temp_project_ref"] = str(temp_project_ref or "")
     payload["project_ref"] = str(payload.get("project_ref") or temp_project_ref or "")
     payload["is_temporary_project"] = True
 
     render_workspace_state = dict(payload.get("workspace_state") or {})
+    persisted_temp_workspace_state = strip_project_workspace_cache(
+        temp_state.get("workspace_state")
+    )
+    if isinstance(persisted_temp_workspace_state.get("marketFees"), dict):
+        render_workspace_state["marketFees"] = persisted_temp_workspace_state[
+            "marketFees"
+        ]
     render_workspace_state["active_tab"] = active_tab
     stock_refresh_progress = _get_craft_project_stock_refresh_progress(request.user)
     payload.update(

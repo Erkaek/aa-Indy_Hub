@@ -9,8 +9,12 @@ from unittest.mock import patch
 from django.contrib.auth.models import Permission, User
 from django.test import RequestFactory, TestCase
 
+# Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
+from allianceauth.eveonline.models import EveCharacter
+
 # AA Example App
-from indy_hub.models import ProductionProject
+from indy_hub.models import CharacterSettings, ProductionProject
 from indy_hub.services.craft_materials import (
     compute_job_material_quantity,
     is_base_item_material_efficiency_exempt,
@@ -97,6 +101,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
             ]
         )
 
+    @patch("indy_hub.views.api.build_craft_market_fee_profiles")
     @patch("indy_hub.views.api.build_temporary_project_payload")
     @patch("indy_hub.views.api.get_temporary_project_workspace")
     @patch("indy_hub.views.api.emit_view_analytics_event")
@@ -105,6 +110,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
         mock_emit_view_analytics_event,
         mock_get_temporary_project_workspace,
         mock_build_temporary_project_payload,
+        mock_build_craft_market_fee_profiles,
     ) -> None:
         mock_emit_view_analytics_event.return_value = None
         mock_get_temporary_project_workspace.return_value = {
@@ -133,8 +139,10 @@ class CraftBlueprintPayloadApiTests(TestCase):
                 "include_full_structure_options"
             ]
         )
+        mock_build_craft_market_fee_profiles.assert_not_called()
 
     @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch("indy_hub.views.api.build_craft_market_fee_profiles")
     @patch("indy_hub.views.api.build_temporary_project_payload")
     @patch(
         "indy_hub.views.api.cached_project_workspace_payload_matches_corp_authorization",
@@ -148,6 +156,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
         mock_get_temporary_project_workspace,
         mock_cache_matches_authorization,
         mock_build_temporary_project_payload,
+        mock_build_craft_market_fee_profiles,
         mock_set_temporary_project_workspace,
     ) -> None:
         cached_payload = {
@@ -187,6 +196,51 @@ class CraftBlueprintPayloadApiTests(TestCase):
         saved_state = mock_set_temporary_project_workspace.call_args.args[1]
         self.assertEqual(
             saved_state["workspace_state"]["cachedProjectPayload"], fresh_payload
+        )
+        mock_build_craft_market_fee_profiles.assert_not_called()
+
+    @patch("indy_hub.views.api.build_craft_market_fee_profiles")
+    @patch("indy_hub.views.api.build_temporary_project_payload")
+    @patch(
+        "indy_hub.views.api.cached_project_workspace_payload_matches_corp_authorization",
+        return_value=True,
+    )
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_temporary_payload_refreshes_market_fee_profiles_only_for_cached_payload(
+        self,
+        mock_emit_view_analytics_event,
+        mock_get_temporary_project_workspace,
+        mock_cache_matches_authorization,
+        mock_build_temporary_project_payload,
+        mock_build_craft_market_fee_profiles,
+    ) -> None:
+        cached_payload = {
+            "workspace_state": {},
+            "market_fee_profiles": {"characters": [{"character_id": 1}]},
+        }
+        mock_get_temporary_project_workspace.return_value = {
+            "workspace_state": {"cachedProjectPayload": cached_payload}
+        }
+        current_profiles = {"characters": [{"character_id": 2}]}
+        mock_build_craft_market_fee_profiles.return_value = current_profiles
+
+        request = self.factory.get(
+            "/indy_hub/api/temp-production-projects/test-temp/payload/"
+        )
+        request.user = self.user
+        view = temporary_production_project_payload
+        while hasattr(view, "__wrapped__"):
+            view = view.__wrapped__
+
+        response = view(request, "test-temp")
+
+        self.assertEqual(response.status_code, 200)
+        mock_cache_matches_authorization.assert_called_once()
+        mock_build_temporary_project_payload.assert_not_called()
+        mock_build_craft_market_fee_profiles.assert_called_once_with(self.user)
+        self.assertEqual(
+            json.loads(response.content)["market_fee_profiles"], current_profiles
         )
 
     @patch("indy_hub.views.api.build_craft_time_map")
@@ -712,6 +766,18 @@ class UpdateProductionProjectWorkspaceStateTests(TestCase):
                 "cachedProjectPayload": {"materials_tree": []},
             },
         )
+        self.character = EveCharacter.objects.create(
+            character_id=9_001_002,
+            character_name="Workspace Seller",
+            corporation_id=2_000_002,
+            corporation_name="Workspace Corp",
+            corporation_ticker="WORK",
+        )
+        CharacterOwnership.objects.create(
+            user=self.user,
+            character=self.character,
+            owner_hash="workspace-seller-owner",
+        )
 
     def _call(self, body, *, user=None):
         request = self.factory.post(
@@ -752,6 +818,75 @@ class UpdateProductionProjectWorkspaceStateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.project.refresh_from_db()
         self.assertIs(self.project.workspace_state["use_corp_blueprints"], False)
+
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_patches_market_fees_and_persists_character_broker_rate(
+        self, mock_emit
+    ) -> None:
+        response = self._call(
+            {
+                "marketFees": {
+                    "purpose": "market_sale",
+                    "sellerCharacterId": self.character.character_id,
+                    "brokerFeePercent": 2.4,
+                    "safetyTaxPercent": 0.25,
+                }
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.project.refresh_from_db()
+        self.assertEqual(
+            self.project.workspace_state["marketFees"],
+            {
+                "purpose": "market_sale",
+                "sellerCharacterId": self.character.character_id,
+                "brokerFeePercent": 2.4,
+                "safetyTaxPercent": 0.25,
+            },
+        )
+        self.assertEqual(self.project.workspace_state["runs"], 5)
+        self.assertIn("cachedProjectPayload", self.project.workspace_state)
+        setting = CharacterSettings.objects.get(
+            user=self.user,
+            character_id=self.character.character_id,
+        )
+        self.assertEqual(setting.market_broker_fee_percent, Decimal("2.40"))
+
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_patches_personal_use_without_a_seller_or_market_fee_preference(
+        self, mock_emit
+    ) -> None:
+        response = self._call(
+            {
+                "marketFees": {
+                    "purpose": "personal_use",
+                    "sellerCharacterId": None,
+                    "brokerFeePercent": 2.4,
+                    "safetyTaxPercent": 0.25,
+                }
+            }
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.project.refresh_from_db()
+        self.assertEqual(
+            self.project.workspace_state["marketFees"],
+            {
+                "purpose": "personal_use",
+                "sellerCharacterId": None,
+                "brokerFeePercent": 2.4,
+                "safetyTaxPercent": 0.25,
+            },
+        )
+        self.assertEqual(self.project.workspace_state["runs"], 5)
+        self.assertIn("cachedProjectPayload", self.project.workspace_state)
+        self.assertFalse(
+            CharacterSettings.objects.filter(
+                user=self.user,
+                character_id=self.character.character_id,
+            ).exists()
+        )
 
     @patch("indy_hub.views.api.emit_view_analytics_event")
     def test_rejects_non_object_json_payloads(self, mock_emit) -> None:
