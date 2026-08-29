@@ -171,10 +171,13 @@ def sanitize_craft_market_fees(user, value: object) -> dict[str, object]:
         character_id = int(value.get("sellerCharacterId") or 0)
     except (TypeError, ValueError):
         character_id = 0
-    if character_id > 0 and not CharacterOwnership.objects.filter(
-        user=user,
-        character__character_id=character_id,
-    ).exists():
+    if (
+        character_id > 0
+        and not CharacterOwnership.objects.filter(
+            user=user,
+            character__character_id=character_id,
+        ).exists()
+    ):
         return {}
     if character_id <= 0 and not purpose:
         return {}
