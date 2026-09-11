@@ -134,14 +134,14 @@ def _token_management_payload_hash(
 
 
 def _build_token_management_live_payload(user) -> dict[str, Any]:
-    corp_scope_status, corp_scope_warnings = _collect_corporation_scope_status(
+    full_corp_scope_status, corp_scope_warnings = _collect_corporation_scope_status(
         user,
         include_warnings=True,
         allow_live_role_fetch=False,
     )
     corp_scope_status = [
         status
-        for status in corp_scope_status
+        for status in full_corp_scope_status
         if status.get("blueprint", {}).get("has_scope")
         or status.get("jobs", {}).get("has_scope")
         or status.get("has_director_role")
@@ -150,6 +150,7 @@ def _build_token_management_live_payload(user) -> dict[str, Any]:
     corporation_sharing = build_corporation_sharing_context(
         user,
         allow_live_role_fetch=False,
+        corp_scope_status=full_corp_scope_status,
     )
     payload_hash = _token_management_payload_hash(
         corporations=corp_scope_status,
@@ -595,15 +596,39 @@ def _collect_corporation_scope_status(
             )
             continue
 
-        blueprint_token = _select_corporation_token(token_qs, CORP_BLUEPRINT_SCOPE)
-        jobs_token = _select_corporation_token(token_qs, CORP_JOBS_SCOPE)
-        roles_token = (
+        present_scopes = set(
             _apply_token_validity_filter(
-                token_qs.require_scopes([CORP_ROLES_SCOPE]),
-                validate_tokens=validate_tokens,
+                token_qs, validate_tokens=validate_tokens
             )
-            .order_by("-created")
-            .first()
+            .filter(scopes__name__in=required_corporation_scopes)
+            .values_list("scopes__name", flat=True)
+            .distinct()
+        )
+
+        def _has_all_scopes(scopes: Iterable[str]) -> bool:
+            return all(scope in present_scopes for scope in scopes)
+
+        blueprint_token = (
+            _select_corporation_token(token_qs, CORP_BLUEPRINT_SCOPE)
+            if CORP_BLUEPRINT_SCOPE in present_scopes
+            else None
+        )
+        jobs_token = (
+            _select_corporation_token(token_qs, CORP_JOBS_SCOPE)
+            if CORP_JOBS_SCOPE in present_scopes
+            else None
+        )
+        roles_token = (
+            (
+                _apply_token_validity_filter(
+                    token_qs.require_scopes([CORP_ROLES_SCOPE]),
+                    validate_tokens=validate_tokens,
+                )
+                .order_by("-created")
+                .first()
+            )
+            if CORP_ROLES_SCOPE in present_scopes
+            else None
         )
         if not blueprint_token and not jobs_token and not roles_token:
             continue
@@ -767,14 +792,6 @@ def _collect_corporation_scope_status(
                 )
             continue
 
-        present_scopes = {
-            scope
-            for scope in required_corporation_scopes
-            if _apply_token_validity_filter(
-                token_qs.require_scopes([scope]),
-                validate_tokens=validate_tokens,
-            ).exists()
-        }
         if present_scopes:
             corp_available_scopes.setdefault(corp_id, set()).update(present_scopes)
 
@@ -838,7 +855,11 @@ def _collect_corporation_scope_status(
                 "last_updated": getattr(jobs_token, "created", None),
             }
 
-        assets_token = _select_corporation_token(token_qs, CORP_ASSETS_SCOPE)
+        assets_token = (
+            _select_corporation_token(token_qs, CORP_ASSETS_SCOPE)
+            if CORP_ASSETS_SCOPE in present_scopes
+            else None
+        )
         if assets_token and not entry["assets"]["has_scope"]:
             entry["assets"] = {
                 "has_scope": True,
@@ -848,28 +869,16 @@ def _collect_corporation_scope_status(
             }
 
         material_exchange_token = (
-            _apply_token_validity_filter(
-                token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET),
-                validate_tokens=validate_tokens,
+            (
+                _apply_token_validity_filter(
+                    token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET),
+                    validate_tokens=validate_tokens,
+                )
+                .order_by("-created")
+                .first()
             )
-            .order_by("-created")
-            .first()
-        )
-        if material_exchange_token and not entry["material_exchange"]["has_scope"]:
-            entry["material_exchange"] = {
-                "has_scope": True,
-                "character_id": character_id,
-                "character_name": character_name,
-                "last_updated": getattr(material_exchange_token, "created", None),
-            }
-
-        material_exchange_token = (
-            _apply_token_validity_filter(
-                token_qs.require_scopes(MATERIAL_EXCHANGE_SCOPE_SET),
-                validate_tokens=validate_tokens,
-            )
-            .order_by("-created")
-            .first()
+            if _has_all_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
+            else None
         )
         if material_exchange_token and not entry["material_exchange"]["has_scope"]:
             entry["material_exchange"] = {
@@ -933,6 +942,7 @@ def build_corporation_sharing_context(
     *,
     allow_live_role_fetch: bool = True,
     validate_tokens: bool = True,
+    corp_scope_status: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     if not user.has_perm("indy_hub.can_manage_corp_bp_requests"):
         return None
@@ -951,11 +961,12 @@ def build_corporation_sharing_context(
         if corp_id
     }
 
-    corp_scope_status = _collect_corporation_scope_status(
-        user,
-        allow_live_role_fetch=allow_live_role_fetch,
-        validate_tokens=validate_tokens,
-    )
+    if corp_scope_status is None:
+        corp_scope_status = _collect_corporation_scope_status(
+            user,
+            allow_live_role_fetch=allow_live_role_fetch,
+            validate_tokens=validate_tokens,
+        )
     settings_map = {
         setting.corporation_id: setting
         for setting in CorporationSharingSetting.objects.filter(
@@ -2097,6 +2108,7 @@ def _build_dashboard_context(request):
             request.user,
             allow_live_role_fetch=False,
             validate_tokens=False,
+            corp_scope_status=corp_scope_status,
         )
         if can_manage_corp
         else None
@@ -2633,7 +2645,7 @@ def token_management(request):
             token_management_live_hash = str(live_payload.get("hash") or "")
         else:
             (
-                corp_scope_status,
+                full_corp_scope_status,
                 corp_scope_warnings,
             ) = _collect_corporation_scope_status(
                 request.user,
@@ -2643,7 +2655,7 @@ def token_management(request):
             )
             corp_scope_status = [
                 status
-                for status in corp_scope_status
+                for status in full_corp_scope_status
                 if status.get("blueprint", {}).get("has_scope")
                 or status.get("jobs", {}).get("has_scope")
                 or status.get("has_director_role")
@@ -2653,6 +2665,7 @@ def token_management(request):
                 request.user,
                 allow_live_role_fetch=False,
                 validate_tokens=False,
+                corp_scope_status=full_corp_scope_status,
             )
             token_management_live_hash = _token_management_payload_hash(
                 corporations=corp_scope_status,
