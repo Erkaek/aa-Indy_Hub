@@ -214,7 +214,7 @@ def update_user_roles_snapshots(user_id: int) -> dict[str, int]:
 
 @shared_task
 def warm_menu_badge_count_cache(
-    user_id: int, generation: int | None = None
+    user_id: int, generation: str | int | None = None
 ) -> dict[str, int]:
     """Compute and cache Indy Hub menu badge count for one user."""
     # Django
@@ -222,7 +222,7 @@ def warm_menu_badge_count_cache(
 
     user_id = int(user_id)
     current_generation = get_menu_badge_generation(user_id)
-    generation = current_generation if generation is None else int(generation)
+    generation = current_generation if generation is None else str(generation)
     if generation != current_generation:
         return {"user_id": user_id, "count": 0}
 

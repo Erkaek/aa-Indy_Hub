@@ -369,6 +369,18 @@ class NavigationMenuBadgeTests(TestCase):
             1,
         )
 
+    @patch(
+        "indy_hub.utils.menu_badge.cache.get",
+        side_effect=RuntimeError("cache unavailable"),
+    )
+    def test_menu_render_degrades_safely_when_cache_fails(
+        self, _mock_cache_get
+    ) -> None:
+        with self.assertLogs("indy_hub.utils.menu_badge", level="ERROR"):
+            menu = self._render_menu(self.builder)
+
+        self.assertIsNone(menu.count)
+
     @patch("indy_hub.tasks.user.compute_menu_badge_count")
     def test_badge_warm_does_not_publish_after_invalidation(
         self, mock_compute_badge_count
