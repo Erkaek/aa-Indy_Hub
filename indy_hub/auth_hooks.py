@@ -1,12 +1,9 @@
-# Django
-from django.core.cache import cache
-
 # Alliance Auth
 from allianceauth import hooks
 from allianceauth.services.hooks import MenuItemHook, UrlHook
 
 from . import urls
-from .utils.menu_badge import MENU_BADGE_CACHE_TTL_SECONDS, compute_menu_badge_count
+from .utils.menu_badge import get_cached_menu_badge_count
 
 
 class IndyHubMenu(MenuItemHook):
@@ -36,18 +33,8 @@ class IndyHubMenu(MenuItemHook):
         if not request.user.has_perm("indy_hub.can_access_indy_hub"):
             return ""
 
-        cache_key = f"indy_hub:menu_badge_count:{request.user.id}"
-        cached_count = cache.get(cache_key)
-        if cached_count is not None:
-            self.count = cached_count if cached_count > 0 else None
-            return super().render(request)
-
-        try:
-            computed_count = compute_menu_badge_count(int(request.user.id))
-            cache.set(cache_key, computed_count, MENU_BADGE_CACHE_TTL_SECONDS)
-            self.count = computed_count if computed_count > 0 else None
-        except Exception:
-            self.count = None
+        count = get_cached_menu_badge_count(int(request.user.id))
+        self.count = count if count > 0 else None
 
         # Delegate rendering to base class
         return super().render(request)

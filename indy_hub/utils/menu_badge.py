@@ -1,13 +1,17 @@
 """Helpers for Indy Hub menu badge count computation."""
 
 # Standard Library
+import logging
 from collections import defaultdict
 
 # Django
 from django.core.cache import cache
 from django.db.models import Exists, F, OuterRef, Q
 
-MENU_BADGE_CACHE_TTL_SECONDS = 45
+logger = logging.getLogger(__name__)
+
+MENU_BADGE_CACHE_TTL_SECONDS = 300
+MENU_BADGE_REFRESH_LOCK_TTL_SECONDS = 60
 
 # Required personal-character ESI scopes for Indy Hub. Kept in sync with
 # ``indy_hub.views.user`` (BLUEPRINT/JOBS/ASSETS/SKILLS scope sets).
@@ -31,6 +35,27 @@ def menu_badge_cache_key(user_id: int) -> str:
 
 def menu_badge_refresh_lock_key(user_id: int) -> str:
     return f"indy_hub:menu_badge_count_refreshing:{int(user_id)}"
+
+
+def get_cached_menu_badge_count(user_id: int) -> int:
+    """Return the cached badge count and schedule one refresh on cache miss."""
+    user_id = int(user_id)
+    cached_count = cache.get(menu_badge_cache_key(user_id))
+    if cached_count is not None:
+        return int(cached_count)
+
+    refresh_lock_key = menu_badge_refresh_lock_key(user_id)
+    if cache.add(refresh_lock_key, 1, MENU_BADGE_REFRESH_LOCK_TTL_SECONDS):
+        try:
+            from ..tasks.user import warm_menu_badge_count_cache
+
+            warm_menu_badge_count_cache.delay(user_id)
+        except Exception:
+            logger.exception(
+                "Unable to schedule menu badge refresh for user %s", user_id
+            )
+
+    return 0
 
 
 def invalidate_menu_badge_cache(*user_ids: int | None) -> None:

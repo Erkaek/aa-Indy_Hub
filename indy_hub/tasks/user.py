@@ -34,7 +34,12 @@ from ..services.esi_client import (
 )
 from ..utils.analytics import emit_analytics_event
 from ..utils.db_retry import update_or_create_with_mysql_retry
-from ..utils.menu_badge import compute_menu_badge_count
+from ..utils.menu_badge import (
+    MENU_BADGE_CACHE_TTL_SECONDS,
+    compute_menu_badge_count,
+    menu_badge_cache_key,
+    menu_badge_refresh_lock_key,
+)
 from .industry import _is_user_active
 
 logger = get_extension_logger(__name__)
@@ -42,9 +47,6 @@ logger = get_extension_logger(__name__)
 CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
 
 User = get_user_model()
-
-_MENU_BADGE_CACHE_TTL_SECONDS = 45
-_MENU_BADGE_REFRESH_LOCK_TTL_SECONDS = 30
 
 
 def _coerce_role_list(value: object) -> list[str]:
@@ -217,13 +219,13 @@ def warm_menu_badge_count_cache(user_id: int) -> dict[str, int]:
     from django.core.cache import cache
 
     user_id = int(user_id)
-    cache_key = f"indy_hub:menu_badge_count:{user_id}"
-    refresh_lock_key = f"indy_hub:menu_badge_count_refreshing:{user_id}"
+    cache_key = menu_badge_cache_key(user_id)
+    refresh_lock_key = menu_badge_refresh_lock_key(user_id)
 
     count = 0
     try:
         count = compute_menu_badge_count(user_id)
-        cache.set(cache_key, count, _MENU_BADGE_CACHE_TTL_SECONDS)
+        cache.set(cache_key, count, MENU_BADGE_CACHE_TTL_SECONDS)
     finally:
         # Best-effort unlock so later refreshes can be scheduled.
         cache.delete(refresh_lock_key)

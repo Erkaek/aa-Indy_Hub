@@ -70,6 +70,7 @@ from indy_hub.utils.menu_badge import (
     compute_menu_badge_count,
     count_material_exchange_open_orders,
     menu_badge_cache_key,
+    menu_badge_refresh_lock_key,
 )
 
 PUBLIC_STATION_ID = 60003760
@@ -277,6 +278,11 @@ class NavigationMenuBadgeTests(TestCase):
         )
         self.assertEqual(count_material_exchange_open_orders(self.builder.id), 1)
 
+        cache.set(
+            menu_badge_cache_key(self.builder.id),
+            compute_menu_badge_count(self.builder.id),
+            45,
+        )
         menu = self._render_menu(self.builder)
         self.assertEqual(menu.count, 2)
 
@@ -312,7 +318,10 @@ class NavigationMenuBadgeTests(TestCase):
 
         self.assertEqual(compute_menu_badge_count(self.builder.id), 2)
 
-    def test_menu_render_computes_count_when_cache_is_cold(self) -> None:
+    @patch("indy_hub.tasks.user.warm_menu_badge_count_cache.delay")
+    def test_menu_render_schedules_one_refresh_when_cache_is_cold(
+        self, mock_warm_badge_cache
+    ) -> None:
         BlueprintCopyRequest.objects.create(
             type_id=9876510,
             material_efficiency=4,
@@ -324,10 +333,16 @@ class NavigationMenuBadgeTests(TestCase):
 
         cache.delete(menu_badge_cache_key(self.builder.id))
 
-        menu = self._render_menu(self.builder)
+        first_menu = self._render_menu(self.builder)
+        second_menu = self._render_menu(self.builder)
 
-        self.assertEqual(menu.count, 1)
-        self.assertEqual(cache.get(menu_badge_cache_key(self.builder.id)), 1)
+        self.assertIsNone(first_menu.count)
+        self.assertIsNone(second_menu.count)
+        mock_warm_badge_cache.assert_called_once_with(self.builder.id)
+        self.assertEqual(
+            cache.get(menu_badge_refresh_lock_key(self.builder.id)),
+            1,
+        )
 
     def test_request_creation_invalidates_stale_menu_badge_cache(self) -> None:
         cache.set(menu_badge_cache_key(self.builder.id), 0, 300)
