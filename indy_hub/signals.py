@@ -301,7 +301,7 @@ if Token is not None:
     def _invalidate_menu_badge_on_token_change(sender, instance, **kwargs):
         """Refresh the Indy Hub navbar badge as soon as a user (re)links a character.
 
-        Without this, the AA-side badge would keep its 45s cached value even
+        Without this, the AA-side badge would keep its cached value even
         after the user re-authorizes the missing scopes, which is misleading.
         """
         invalidate_menu_badge_cache(getattr(instance, "user_id", None))

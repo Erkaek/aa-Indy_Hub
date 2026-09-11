@@ -37,8 +37,8 @@ from ..utils.db_retry import update_or_create_with_mysql_retry
 from ..utils.menu_badge import (
     MENU_BADGE_CACHE_TTL_SECONDS,
     compute_menu_badge_count,
+    get_menu_badge_generation,
     menu_badge_cache_key,
-    menu_badge_refresh_lock_key,
 )
 from .industry import _is_user_active
 
@@ -213,21 +213,25 @@ def update_user_roles_snapshots(user_id: int) -> dict[str, int]:
 
 
 @shared_task
-def warm_menu_badge_count_cache(user_id: int) -> dict[str, int]:
+def warm_menu_badge_count_cache(
+    user_id: int, generation: int | None = None
+) -> dict[str, int]:
     """Compute and cache Indy Hub menu badge count for one user."""
     # Django
     from django.core.cache import cache
 
     user_id = int(user_id)
-    cache_key = menu_badge_cache_key(user_id)
-    refresh_lock_key = menu_badge_refresh_lock_key(user_id)
+    current_generation = get_menu_badge_generation(user_id)
+    generation = current_generation if generation is None else int(generation)
+    if generation != current_generation:
+        return {"user_id": user_id, "count": 0}
 
-    count = 0
-    try:
-        count = compute_menu_badge_count(user_id)
-        cache.set(cache_key, count, MENU_BADGE_CACHE_TTL_SECONDS)
-    finally:
-        # Best-effort unlock so later refreshes can be scheduled.
-        cache.delete(refresh_lock_key)
+    count = compute_menu_badge_count(user_id)
+    if generation == get_menu_badge_generation(user_id):
+        cache.set(
+            menu_badge_cache_key(user_id, generation),
+            count,
+            MENU_BADGE_CACHE_TTL_SECONDS,
+        )
 
     return {"user_id": user_id, "count": int(count)}

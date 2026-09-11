@@ -63,12 +63,15 @@ from indy_hub.tasks.industry import (
     request_manual_refresh,
     reset_manual_refresh_cooldown,
 )
+from indy_hub.tasks.user import warm_menu_badge_count_cache
 from indy_hub.utils import eve as eve_utils
 from indy_hub.utils import job_notifications as job_notifications_utils
 from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
 from indy_hub.utils.menu_badge import (
     compute_menu_badge_count,
     count_material_exchange_open_orders,
+    get_menu_badge_generation,
+    invalidate_menu_badge_cache,
     menu_badge_cache_key,
     menu_badge_refresh_lock_key,
 )
@@ -338,11 +341,46 @@ class NavigationMenuBadgeTests(TestCase):
 
         self.assertIsNone(first_menu.count)
         self.assertIsNone(second_menu.count)
-        mock_warm_badge_cache.assert_called_once_with(self.builder.id)
+        mock_warm_badge_cache.assert_called_once_with(
+            self.builder.id,
+            get_menu_badge_generation(self.builder.id),
+        )
         self.assertEqual(
             cache.get(menu_badge_refresh_lock_key(self.builder.id)),
             1,
         )
+
+    @patch(
+        "indy_hub.tasks.user.warm_menu_badge_count_cache.delay",
+        side_effect=RuntimeError("broker unavailable"),
+    )
+    def test_menu_render_throttles_retries_when_enqueue_fails(
+        self, mock_warm_badge_cache
+    ) -> None:
+        invalidate_menu_badge_cache(self.builder.id)
+
+        with self.assertLogs("indy_hub.utils.menu_badge", level="ERROR"):
+            self._render_menu(self.builder)
+            self._render_menu(self.builder)
+
+        mock_warm_badge_cache.assert_called_once()
+        self.assertEqual(
+            cache.get(menu_badge_refresh_lock_key(self.builder.id)),
+            1,
+        )
+
+    @patch("indy_hub.tasks.user.compute_menu_badge_count")
+    def test_badge_warm_does_not_publish_after_invalidation(
+        self, mock_compute_badge_count
+    ) -> None:
+        generation = get_menu_badge_generation(self.builder.id)
+        mock_compute_badge_count.side_effect = lambda _user_id: (
+            invalidate_menu_badge_cache(self.builder.id) or 4
+        )
+
+        warm_menu_badge_count_cache(self.builder.id, generation)
+
+        self.assertIsNone(cache.get(menu_badge_cache_key(self.builder.id)))
 
     def test_request_creation_invalidates_stale_menu_badge_cache(self) -> None:
         cache.set(menu_badge_cache_key(self.builder.id), 0, 300)

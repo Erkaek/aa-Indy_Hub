@@ -29,27 +29,44 @@ _CHARACTER_REQUIRED_SCOPES = (
 )
 
 
-def menu_badge_cache_key(user_id: int) -> str:
-    return f"indy_hub:menu_badge_count:{int(user_id)}"
+def menu_badge_generation_key(user_id: int) -> str:
+    return f"indy_hub:menu_badge_generation:{int(user_id)}"
 
 
-def menu_badge_refresh_lock_key(user_id: int) -> str:
-    return f"indy_hub:menu_badge_count_refreshing:{int(user_id)}"
+def get_menu_badge_generation(user_id: int) -> int:
+    generation_key = menu_badge_generation_key(user_id)
+    cache.add(generation_key, 0, timeout=None)
+    return int(cache.get(generation_key) or 0)
+
+
+def menu_badge_cache_key(user_id: int, generation: int | None = None) -> str:
+    generation = (
+        get_menu_badge_generation(user_id) if generation is None else int(generation)
+    )
+    return f"indy_hub:menu_badge_count:{int(user_id)}:{generation}"
+
+
+def menu_badge_refresh_lock_key(user_id: int, generation: int | None = None) -> str:
+    generation = (
+        get_menu_badge_generation(user_id) if generation is None else int(generation)
+    )
+    return f"indy_hub:menu_badge_count_refreshing:{int(user_id)}:{generation}"
 
 
 def get_cached_menu_badge_count(user_id: int) -> int:
     """Return the cached badge count and schedule one refresh on cache miss."""
     user_id = int(user_id)
-    cached_count = cache.get(menu_badge_cache_key(user_id))
+    generation = get_menu_badge_generation(user_id)
+    cached_count = cache.get(menu_badge_cache_key(user_id, generation))
     if cached_count is not None:
         return int(cached_count)
 
-    refresh_lock_key = menu_badge_refresh_lock_key(user_id)
+    refresh_lock_key = menu_badge_refresh_lock_key(user_id, generation)
     if cache.add(refresh_lock_key, 1, MENU_BADGE_REFRESH_LOCK_TTL_SECONDS):
         try:
             from ..tasks.user import warm_menu_badge_count_cache
 
-            warm_menu_badge_count_cache.delay(user_id)
+            warm_menu_badge_count_cache.delay(user_id, generation)
         except Exception:
             logger.exception(
                 "Unable to schedule menu badge refresh for user %s", user_id
@@ -60,8 +77,9 @@ def get_cached_menu_badge_count(user_id: int) -> int:
 
 def invalidate_menu_badge_cache(*user_ids: int | None) -> None:
     for user_id in {int(user_id) for user_id in user_ids if user_id}:
-        cache.delete(menu_badge_cache_key(user_id))
-        cache.delete(menu_badge_refresh_lock_key(user_id))
+        generation_key = menu_badge_generation_key(user_id)
+        cache.add(generation_key, 0, timeout=None)
+        cache.incr(generation_key)
 
 
 def count_material_exchange_open_orders(user_id: int) -> int:
