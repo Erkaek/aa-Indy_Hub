@@ -13,6 +13,10 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Crafting Projects / Financial tab: added a **For sale** switch, a selling-character selector with cached-skill Sales Tax, a reusable per-character Broker Fee override, manual Safety Tax, and net revenue/profit after market fees without additional ESI requests. Sell fees stay hidden and are not applied when the switch is off.
 
+### Fixed
+
+- Alliance Auth navigation: the Indy Hub badge is now refreshed once in the background and cached for five minutes, preventing duplicate scope queries from slowing page loads.
+
 ## [1.18.3] - 2026-08-27
 
 ### Added

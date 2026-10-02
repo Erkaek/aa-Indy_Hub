@@ -13,7 +13,6 @@ from math import ceil, isfinite
 
 # Django
 from django.contrib.auth.decorators import login_required
-from django.core.cache import cache
 from django.db import connection
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -75,11 +74,10 @@ from ..services.project_progress import (
     update_project_summary_progress,
 )
 from ..utils.analytics import emit_view_analytics_event
-from ..utils.menu_badge import compute_menu_badge_count
+from ..utils.menu_badge import get_cached_menu_badge_count
 
 logger = get_extension_logger(__name__)
 
-MENU_BADGE_CACHE_TTL_SECONDS = 45
 SKILL_CACHE_TTL = timedelta(hours=1)
 
 
@@ -932,19 +930,7 @@ def menu_badge_count(request):
     if not request.user.has_perm("indy_hub.can_access_indy_hub"):
         return JsonResponse({"count": 0}, status=403)
 
-    cache_key = f"indy_hub:menu_badge_count:{request.user.id}"
-    refresh_lock_key = f"indy_hub:menu_badge_count_refreshing:{request.user.id}"
-    count = cache.get(cache_key)
-    if count is None:
-        try:
-            if cache.add(refresh_lock_key, 1, 30):
-                count = compute_menu_badge_count(int(request.user.id))
-                cache.set(cache_key, count, MENU_BADGE_CACHE_TTL_SECONDS)
-                cache.delete(refresh_lock_key)
-            else:
-                count = 0
-        except Exception:
-            count = 0
+    count = get_cached_menu_badge_count(int(request.user.id))
     return JsonResponse({"count": int(count or 0)})
 
 

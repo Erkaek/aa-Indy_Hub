@@ -63,13 +63,17 @@ from indy_hub.tasks.industry import (
     request_manual_refresh,
     reset_manual_refresh_cooldown,
 )
+from indy_hub.tasks.user import warm_menu_badge_count_cache
 from indy_hub.utils import eve as eve_utils
 from indy_hub.utils import job_notifications as job_notifications_utils
 from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
 from indy_hub.utils.menu_badge import (
     compute_menu_badge_count,
     count_material_exchange_open_orders,
+    get_menu_badge_generation,
+    invalidate_menu_badge_cache,
     menu_badge_cache_key,
+    menu_badge_refresh_lock_key,
 )
 
 PUBLIC_STATION_ID = 60003760
@@ -277,6 +281,11 @@ class NavigationMenuBadgeTests(TestCase):
         )
         self.assertEqual(count_material_exchange_open_orders(self.builder.id), 1)
 
+        cache.set(
+            menu_badge_cache_key(self.builder.id),
+            compute_menu_badge_count(self.builder.id),
+            45,
+        )
         menu = self._render_menu(self.builder)
         self.assertEqual(menu.count, 2)
 
@@ -312,7 +321,10 @@ class NavigationMenuBadgeTests(TestCase):
 
         self.assertEqual(compute_menu_badge_count(self.builder.id), 2)
 
-    def test_menu_render_computes_count_when_cache_is_cold(self) -> None:
+    @patch("indy_hub.tasks.user.warm_menu_badge_count_cache.delay")
+    def test_menu_render_schedules_one_refresh_when_cache_is_cold(
+        self, mock_warm_badge_cache
+    ) -> None:
         BlueprintCopyRequest.objects.create(
             type_id=9876510,
             material_efficiency=4,
@@ -324,10 +336,63 @@ class NavigationMenuBadgeTests(TestCase):
 
         cache.delete(menu_badge_cache_key(self.builder.id))
 
-        menu = self._render_menu(self.builder)
+        first_menu = self._render_menu(self.builder)
+        second_menu = self._render_menu(self.builder)
 
-        self.assertEqual(menu.count, 1)
-        self.assertEqual(cache.get(menu_badge_cache_key(self.builder.id)), 1)
+        self.assertIsNone(first_menu.count)
+        self.assertIsNone(second_menu.count)
+        mock_warm_badge_cache.assert_called_once_with(
+            self.builder.id,
+            get_menu_badge_generation(self.builder.id),
+        )
+        self.assertEqual(
+            cache.get(menu_badge_refresh_lock_key(self.builder.id)),
+            1,
+        )
+
+    @patch(
+        "indy_hub.tasks.user.warm_menu_badge_count_cache.delay",
+        side_effect=RuntimeError("broker unavailable"),
+    )
+    def test_menu_render_throttles_retries_when_enqueue_fails(
+        self, mock_warm_badge_cache
+    ) -> None:
+        invalidate_menu_badge_cache(self.builder.id)
+
+        with self.assertLogs("indy_hub.utils.menu_badge", level="ERROR"):
+            self._render_menu(self.builder)
+            self._render_menu(self.builder)
+
+        mock_warm_badge_cache.assert_called_once()
+        self.assertEqual(
+            cache.get(menu_badge_refresh_lock_key(self.builder.id)),
+            1,
+        )
+
+    @patch(
+        "indy_hub.utils.menu_badge.cache.get",
+        side_effect=RuntimeError("cache unavailable"),
+    )
+    def test_menu_render_degrades_safely_when_cache_fails(
+        self, _mock_cache_get
+    ) -> None:
+        with self.assertLogs("indy_hub.utils.menu_badge", level="ERROR"):
+            menu = self._render_menu(self.builder)
+
+        self.assertIsNone(menu.count)
+
+    @patch("indy_hub.tasks.user.compute_menu_badge_count")
+    def test_badge_warm_does_not_publish_after_invalidation(
+        self, mock_compute_badge_count
+    ) -> None:
+        generation = get_menu_badge_generation(self.builder.id)
+        mock_compute_badge_count.side_effect = lambda _user_id: (
+            invalidate_menu_badge_cache(self.builder.id) or 4
+        )
+
+        warm_menu_badge_count_cache(self.builder.id, generation)
+
+        self.assertIsNone(cache.get(menu_badge_cache_key(self.builder.id)))
 
     def test_request_creation_invalidates_stale_menu_badge_cache(self) -> None:
         cache.set(menu_badge_cache_key(self.builder.id), 0, 300)
