@@ -596,9 +596,14 @@ def _collect_corporation_scope_status(
             )
             continue
 
+        # Validation can refresh or delete tokens, so exclude unrelated scopes first.
+        relevant_tokens = token_qs.filter(
+            scopes__name__in=required_corporation_scopes
+        ).distinct()
         present_scopes = set(
-            _apply_token_validity_filter(token_qs, validate_tokens=validate_tokens)
-            .filter(scopes__name__in=required_corporation_scopes)
+            _apply_token_validity_filter(
+                relevant_tokens, validate_tokens=validate_tokens
+            )
             .values_list("scopes__name", flat=True)
             .distinct()
         )
