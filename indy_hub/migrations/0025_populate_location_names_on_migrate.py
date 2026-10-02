@@ -32,8 +32,12 @@ def _populate_location_names(apps, schema_editor):
 
     if can_enqueue:
         try:
-            result = populate_location_names_async.delay()
-        except Exception:  # pragma: no cover - Celery broker misconfigured
+            result = populate_location_names_async.delay(
+                location_ids=None,
+                force_refresh=True,
+                dry_run=False,
+            )
+        except Exception:
             logger.exception(
                 "Unable to enqueue populate_location_names_async task; falling back to synchronous execution during migration.",
             )
