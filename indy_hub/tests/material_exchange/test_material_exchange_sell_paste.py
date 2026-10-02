@@ -752,9 +752,9 @@ class MaterialExchangeSellPasteTests(TestCase):
             patch(
                 "indy_hub.views.material_exchange._fetch_user_assets_for_structure_data",
                 return_value=(
-                    {34: 10, 36: 3, 35: 5},
+                    {34: 10, 36: 3, 35: 5, 37: 8},
                     {
-                        self.character.character_id: {34: 10, 35: 5},
+                        self.character.character_id: {34: 10, 35: 5, 37: 8},
                         other_character_id: {36: 3},
                     },
                     False,
@@ -762,13 +762,14 @@ class MaterialExchangeSellPasteTests(TestCase):
             ),
             patch(
                 "indy_hub.views.material_exchange._get_allowed_type_ids_for_config",
-                return_value={34, 36},
+                return_value={34, 36, 37},
             ),
             patch(
                 "indy_hub.views.material_exchange._fetch_fuzzwork_prices",
                 return_value={
                     34: {"buy": Decimal("5.00"), "sell": Decimal("6.00")},
                     36: {"buy": Decimal("7.00"), "sell": Decimal("8.00")},
+                    37: {"buy": Decimal("9.00"), "sell": Decimal("0")},
                 },
             ),
             patch(
@@ -777,11 +778,17 @@ class MaterialExchangeSellPasteTests(TestCase):
                     34: "Tritanium",
                     35: "Unrefined Goo",
                     36: "Large Skill Injector",
+                    37: "Compressed Bitumens",
                 }[type_id],
             ),
             patch(
                 "indy_hub.views.material_exchange._get_group_map",
-                return_value={34: "Minerals", 35: "Gas Clouds", 36: "Skill Injectors"},
+                return_value={
+                    34: "Minerals",
+                    35: "Gas Clouds",
+                    36: "Skill Injectors",
+                    37: "Moon Ore",
+                },
             ),
             patch(
                 "indy_hub.views.material_exchange._resolve_user_character_names_map",
@@ -810,6 +817,8 @@ class MaterialExchangeSellPasteTests(TestCase):
         self.assertFalse(catalog["Large Skill Injector"]["enforce_available_qty"])
         self.assertEqual(catalog["Unrefined Goo"]["status"], "rejected")
         self.assertEqual(catalog["Unrefined Goo"]["reason"], "not_bought")
+        self.assertEqual(catalog["Compressed Bitumens"]["status"], "rejected")
+        self.assertEqual(catalog["Compressed Bitumens"]["reason"], "no_reliable_price")
 
     def test_paste_catalog_keeps_accepted_visible_items(self) -> None:
         with (
