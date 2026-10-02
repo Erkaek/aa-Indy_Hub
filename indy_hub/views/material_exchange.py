@@ -1296,6 +1296,7 @@ def _build_sell_paste_catalog(
     raw_assets_by_type: dict[int, int],
     selected_raw_assets_by_type: dict[int, int],
     accepted_by_type_id: dict[int, dict],
+    rejected_reason_by_type_id: dict[int, str] | None = None,
 ) -> list[dict]:
     """Return the sell paste-import catalog for all known user assets.
 
@@ -1307,6 +1308,8 @@ def _build_sell_paste_catalog(
 
     if not raw_assets_by_type:
         return []
+
+    rejected_reason_by_type_id = rejected_reason_by_type_id or {}
 
     batch_cache_type_names(raw_assets_by_type.keys())
     group_map = _get_group_map(list(raw_assets_by_type.keys()))
@@ -1337,7 +1340,7 @@ def _build_sell_paste_catalog(
                 reason = "not_on_character"
         else:
             status = "rejected"
-            reason = "not_bought"
+            reason = rejected_reason_by_type_id.get(int(type_id), "not_bought")
             enforce_available_qty = True
 
         catalog.append(
@@ -2067,6 +2070,7 @@ def material_exchange_sell(request, tokens=None):
         accepted_group_map = _get_group_map(list(user_assets.keys()))
         batch_cache_type_names(user_assets.keys())
         accepted_catalog_by_type: dict[int, dict] = {}
+        rejected_reason_by_type: dict[int, str] = {}
         no_reliable_price_count = 0
         no_reliable_price_samples: list[int] = []
         for type_id in user_assets.keys():
@@ -2079,6 +2083,7 @@ def material_exchange_sell(request, tokens=None):
                 jita_sell=jita_sell,
                 configured_price=configured_price,
             ):
+                rejected_reason_by_type[int(type_id)] = "no_reliable_price"
                 no_reliable_price_count += 1
                 if len(no_reliable_price_samples) < 10:
                     no_reliable_price_samples.append(int(type_id))
@@ -2091,6 +2096,7 @@ def material_exchange_sell(request, tokens=None):
                 jita_sell=jita_sell,
             )
             if buy_price <= 0:
+                rejected_reason_by_type[int(type_id)] = "no_reliable_price"
                 continue
 
             type_name = get_type_name(type_id)
@@ -2230,6 +2236,7 @@ def material_exchange_sell(request, tokens=None):
             raw_user_assets_aggregated,
             raw_assets_for_display,
             accepted_catalog_by_type,
+            rejected_reason_by_type,
         )
 
         if pre_filter_count > 0 and not materials_with_qty and not is_fragment_request:

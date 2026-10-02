@@ -13,6 +13,8 @@ from allianceauth.services.hooks import get_extension_logger
 
 logger = get_extension_logger(__name__)
 
+FUZZWORK_TYPES_PER_REQUEST = 100
+
 
 class FuzzworkError(Exception):
     """Raised when the Fuzzwork API request fails."""
@@ -28,23 +30,33 @@ def fetch_fuzzwork_aggregates(
     if not type_ids:
         return {}
 
-    unique_ids = [str(t) for t in {str(t).strip() for t in type_ids} if t]
+    unique_ids = list(
+        dict.fromkeys(str(type_id).strip() for type_id in type_ids if type_id)
+    )
     if not unique_ids:
         return {}
 
-    type_ids_str = ",".join(unique_ids)
-    url = (
-        "https://market.fuzzwork.co.uk/aggregates/"
-        f"?station={int(station_id)}&types={type_ids_str}"
-    )
+    aggregates: dict = {}
+    for offset in range(0, len(unique_ids), FUZZWORK_TYPES_PER_REQUEST):
+        chunk = unique_ids[offset : offset + FUZZWORK_TYPES_PER_REQUEST]
+        type_ids_str = ",".join(chunk)
+        url = (
+            "https://market.fuzzwork.co.uk/aggregates/"
+            f"?station={int(station_id)}&types={type_ids_str}"
+        )
 
-    try:
-        response = requests.get(url, timeout=timeout)
-        response.raise_for_status()
-        return response.json()
-    except requests.RequestException as exc:
-        logger.warning("Fuzzwork request failed: %s", exc)
-        raise FuzzworkError(str(exc)) from exc
+        try:
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            chunk_data = response.json()
+        except requests.RequestException as exc:
+            logger.warning("Fuzzwork request failed: %s", exc)
+            raise FuzzworkError(str(exc)) from exc
+
+        if isinstance(chunk_data, dict):
+            aggregates.update(chunk_data)
+
+    return aggregates
 
 
 def parse_fuzzwork_prices(
