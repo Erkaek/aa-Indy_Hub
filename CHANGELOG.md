@@ -16,6 +16,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 ### Fixed
 
 - Alliance Auth navigation: the Indy Hub badge is now refreshed once in the background and cached for five minutes, preventing duplicate scope queries from slowing page loads.
+- Upgrades: location-name population now queues cleanly during migration instead of logging a `QueueOnce` error and unexpectedly running synchronously (issue #163).
 
 ## [1.18.3] - 2026-08-27
 
