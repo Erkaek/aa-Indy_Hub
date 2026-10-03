@@ -321,6 +321,20 @@ class NavigationMenuBadgeTests(TestCase):
 
         self.assertEqual(compute_menu_badge_count(self.builder.id), 2)
 
+    @patch(
+        "indy_hub.utils.menu_badge.count_characters_missing_scopes",
+        return_value=0,
+    )
+    def test_menu_count_reads_recorded_scopes_without_refreshing_tokens(
+        self, mock_missing_scopes
+    ) -> None:
+        compute_menu_badge_count(self.builder.id)
+
+        mock_missing_scopes.assert_called_once_with(
+            self.builder.id,
+            validate_tokens=False,
+        )
+
     @patch("indy_hub.tasks.user.warm_menu_badge_count_cache.delay")
     def test_menu_render_schedules_one_refresh_when_cache_is_cold(
         self, mock_warm_badge_cache

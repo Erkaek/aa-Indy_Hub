@@ -175,7 +175,7 @@ def compute_menu_badge_count(user_id: int) -> int:
     return (
         len(pending_request_ids)
         + count_material_exchange_open_orders(user_id)
-        + count_characters_missing_scopes(user_id)
+        + count_characters_missing_scopes(user_id, validate_tokens=False)
     )
 
 
