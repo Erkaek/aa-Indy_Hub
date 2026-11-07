@@ -25,6 +25,7 @@ from indy_hub.models import (
 )
 from indy_hub.services.esi_client import ESITokenError, ESIUnmodifiedError
 from indy_hub.utils.eve import get_character_name, get_type_name
+from indy_hub.utils.token_status import apply_token_validity_filter
 
 SKILLS_SCOPE = "esi-skills.read_skills.v1"
 
@@ -262,10 +263,12 @@ def build_user_character_skill_contexts(
         )
     }
     skill_token_ids = set(
-        Token.objects.filter(user=user, character_id__in=character_ids)
-        .require_scopes([SKILLS_SCOPE])
-        .require_valid()
-        .values_list("character_id", flat=True)
+        apply_token_validity_filter(
+            Token.objects.filter(
+                user=user, character_id__in=character_ids
+            ).require_scopes([SKILLS_SCOPE]),
+            validate_tokens=allow_live_fetch,
+        ).values_list("character_id", flat=True)
     )
 
     active_job_rows = (

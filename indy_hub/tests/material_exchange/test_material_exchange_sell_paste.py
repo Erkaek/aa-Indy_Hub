@@ -94,6 +94,14 @@ class MaterialExchangeSellPasteTests(TestCase):
             self.view = self.view.__wrapped__
 
     def _prepare_request(self, request):
+        if (
+            request.method == "GET"
+            and request.path == reverse("indy_hub:material_exchange_sell")
+            and request.headers.get("X-Requested-With") != "XMLHttpRequest"
+        ):
+            query = request.GET.copy()
+            query["load_data"] = "1"
+            request.GET = query
         request.user = self.user
         middleware = SessionMiddleware(lambda req: None)
         middleware.process_request(request)
@@ -437,7 +445,9 @@ class MaterialExchangeSellPasteTests(TestCase):
                 return_value=({}, True),
             ),
         ):
-            response = self.client.get(reverse("indy_hub:material_exchange_sell"))
+            response = self.client.get(
+                reverse("indy_hub:material_exchange_sell"), {"load_data": "1"}
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Paste import")

@@ -23,7 +23,7 @@ def build_nav_context(
     show_corporation_workflow_jobs: bool | None = None,
     can_access_indy_hub: bool | None = None,
     material_hub_enabled: bool | None = None,
-    validate_esi_tokens: bool = True,
+    validate_esi_tokens: bool = False,
 ) -> dict[str, object]:
     """Return navbar context entries for templates extending the Indy Hub base."""
 

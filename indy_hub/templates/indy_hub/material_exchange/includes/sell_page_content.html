@@ -17,7 +17,7 @@
         </div>
         {% endif %}
 
-        <div class="{% if assets_refreshing %}d-none{% endif %}">
+        <div class="{% if assets_refreshing and not materials %}d-none{% endif %}">
             <div class="me-info-bar" role="status">
                 <i class="fas fa-clock" aria-hidden="true"></i>
                 <div class="me-info-bar-body">

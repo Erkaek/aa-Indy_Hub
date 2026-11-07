@@ -1,6 +1,13 @@
 # Django
 from django.urls import path, re_path
 
+from .views.admin_users import (
+    settings_admin_users_action_status,
+    settings_admin_users_actions,
+    settings_admin_users_detail,
+    settings_admin_users_export,
+    settings_admin_users_summary,
+)
 from .views.api import (
     craft_bp_payload,
     craft_structure_jump_distances,
@@ -156,6 +163,31 @@ urlpatterns = [
     path("esi/", token_management, name="esi_hub"),
     path("settings/", settings_hub, name="settings_hub"),
     path("settings/admin-users/", settings_admin_users, name="settings_admin_users"),
+    path(
+        "settings/admin-users/summary/",
+        settings_admin_users_summary,
+        name="settings_admin_users_summary",
+    ),
+    path(
+        "settings/admin-users/detail/<int:user_id>/",
+        settings_admin_users_detail,
+        name="settings_admin_users_detail",
+    ),
+    path(
+        "settings/admin-users/actions/",
+        settings_admin_users_actions,
+        name="settings_admin_users_actions",
+    ),
+    path(
+        "settings/admin-users/actions/status/",
+        settings_admin_users_action_status,
+        name="settings_admin_users_action_status",
+    ),
+    path(
+        "settings/admin-users/export/",
+        settings_admin_users_export,
+        name="settings_admin_users_export",
+    ),
     path(
         "settings/admin-users/global-usage-fragment/",
         settings_admin_users_global_usage_fragment,

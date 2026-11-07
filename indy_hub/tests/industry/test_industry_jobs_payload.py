@@ -203,7 +203,7 @@ class IndustryJobsPayloadTests(TestCase):
         self.assertTrue(scheduled)
         apply_async.assert_called_once_with(
             args=(self.user.id,),
-            kwargs={"character_id": None, "queue_source": "auto"},
+            kwargs={"scope": None, "character_id": None, "queue_source": "auto"},
             countdown=0,
             priority=None,
         )
@@ -245,7 +245,7 @@ class IndustryJobsPayloadTests(TestCase):
                 return_value=True,
             ),
             patch(
-                "indy_hub.tasks.industry.queue_industry_job_update_for_user",
+                "indy_hub.tasks.industry.update_industry_jobs_for_user.apply_async",
                 return_value=True,
             ) as queue_jobs,
         ):
@@ -259,10 +259,15 @@ class IndustryJobsPayloadTests(TestCase):
         self.assertIsNone(remaining)
         self.assertIsNone(reason)
         queue_jobs.assert_called_once_with(
-            self.user.id,
+            args=(self.user.id,),
+            kwargs={
+                "scope": "character",
+                "character_id": 0,
+                "queue_source": "manual",
+                "force_refresh": True,
+            },
+            countdown=0,
             priority=None,
-            scope="character",
-            queue_source="manual",
         )
 
     def test_skips_non_list_payload(self) -> None:

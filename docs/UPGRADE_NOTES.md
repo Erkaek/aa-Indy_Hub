@@ -6,6 +6,52 @@ required.
 
 > Indy Hub 1.18.3 requires Alliance Auth 5.
 
+## django-esi compatibility (unreleased)
+
+Indy Hub now requires `django-esi>=10.1,<11`. Version `10.1.0` is the latest
+release as of 2026-11-07. Review the dependency constraints of other installed
+Alliance Auth apps when upgrading the shared environment.
+
+```bash
+pip install --upgrade 'django-esi>=10.1,<11'
+pip check
+```
+
+Restart the web and Celery processes after updating so they load the new library.
+This dependency update introduces no Indy Hub migration. django-esi 10 replaces
+its OpenAPI HTTP transport with `httpx2`; custom clients must use that transport.
+
+## Shared token eligibility (unreleased)
+
+Indy Hub no longer deletes shared ESI tokens for duplicate scopes or insufficient
+corporation roles. django-esi retains responsibility for native token reuse,
+`ESI_ALWAYS_CREATE_TOKEN`, refresh and invalid-token cleanup. Existing tokens
+and other apps' authorizations must not be purged during this upgrade.
+
+No new migration or dependency update is required for this behavior change.
+Deploy the code to web and Celery workers together and restart those processes
+through your normal procedure. Leave shared cache/QueueOnce keys intact.
+
+Scope additions dispatch independently ready capabilities after commit.
+Publication is coalesced for 60 seconds, not guaranteed exactly once. Failed
+broker publication is logged without inline ESI work; retry through existing
+manual/periodic refreshes after recovery. A passive corporation summary may now
+show unverified access until a fresh, matching role snapshot is available.
+
+## Snapshot pages and administration (unreleased)
+
+Blueprint and job lists now render local snapshots immediately and update results
+through background reads. Explicit manual refreshes retain cooldown/in-flight and
+corporation checks while bypassing the automatic Corptools inactivity cutoff.
+
+The superuser console adds account diagnostics, SQL-backed alternate-character
+search, CSV export and bounded maintenance actions. Deploy web and worker code
+together so workers register `rebuild_selected_admin_user_statuses` and accept
+forced skill-snapshot refreshes. Member and corporation permissions are unchanged.
+Material Exchange loads inventory/prices and configuration options after the
+initial render; saving configuration still queues stock refresh only after commit.
+No schema migration is introduced by these changes.
+
 ## Standard upgrade
 
 Run this cycle once after completing any extra steps for your current version:

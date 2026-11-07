@@ -155,6 +155,19 @@ def rebuild_admin_user_statuses(
     }
 
 
+@shared_task(base=QueueOnce, once={"graceful": True, "keys": ["actor_id", "user_ids"]})
+def rebuild_selected_admin_user_statuses(actor_id: int, user_ids: list[int]):
+    """Reconcile an explicit, bounded admin selection using local data only."""
+    if not User.objects.filter(pk=actor_id, is_active=True, is_superuser=True).exists():
+        return {"rebuilt": 0, "error": "permission"}
+    normalized_ids = sorted({int(value) for value in user_ids})
+    if not 1 <= len(normalized_ids) <= 25:
+        return {"rebuilt": 0, "error": "selection"}
+    rebuilt = rebuild_statuses(normalized_ids)
+    logger.info("Admin diagnostics rebuilt actor=%s count=%s", actor_id, rebuilt)
+    return {"rebuilt": rebuilt}
+
+
 @shared_task(
     bind=True,
     base=QueueOnce,

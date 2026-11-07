@@ -96,14 +96,9 @@
         <i class="fas fa-exchange-alt header-bg"></i>
     </div>
 
-    {% if not available_corps %}
-    <section class="dashboard-section mb-3">
-        <div class="alert alert-warning">
-            <i class="fas fa-exclamation-triangle me-2"></i>
-            {% trans "No corporations found. Make sure you have ESI tokens authorized." %}
-        </div>
-    </section>
-    {% endif %}
+    <p id="configDataStatus" role="status" aria-live="polite" class="small text-muted">{% trans "Loading corporations and hangars…" %}</p>
+    <button type="button" id="configDataRetry" class="btn btn-outline-primary btn-sm d-none">{% trans "Retry" %}</button>
+    <noscript><p>{% trans "JavaScript is required to load corporations and hangars." %}</p></noscript>
 
     {{ market_group_search_index|json_script:"marketGroupSearchIndex" }}
     {{ accepted_locations|json_script:"acceptedLocationsData" }}
@@ -635,7 +630,7 @@
                         <i class="fas fa-trash-alt me-2"></i>{% trans "Delete Configuration" %}
                     </button>
                     {% endif %}
-                    <button type="submit" class="btn btn-primary btn-sm" id="submitBtn">
+                    <button type="submit" class="btn btn-primary btn-sm" id="submitBtn" disabled>
                         <i class="fas fa-save me-2"></i>{% trans "Save Configuration" %}
                     </button>
                     <a href="{% url 'indy_hub:material_exchange_index' %}" class="btn btn-outline-secondary btn-sm">
@@ -661,6 +656,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const acceptedLocationsList = document.getElementById('acceptedLocationsList');
     const acceptedLocationsEmpty = document.getElementById('acceptedLocationsEmpty');
     const addAcceptedLocationBtn = document.getElementById('addAcceptedLocationBtn');
+    let configDataReady = false;
+    let corporationsLoaded = false;
+    let savedStructureId = "{{ config.structure_id|default:'' }}";
+    let savedHangarDivision = "{{ config.hangar_division|default:'' }}";
+    let structureRequest = null;
+    const configDataStatus = document.getElementById('configDataStatus');
+    const configDataRetry = document.getElementById('configDataRetry');
     const submitBtn = document.getElementById('submitBtn');
     const initialStructureId = "{{ config.structure_id|default:'' }}";
     const initialHangarDivision = "{{ config.hangar_division|default:'' }}";
@@ -757,7 +759,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     const updateSubmitButton = () => {
-        if (hangarSelect.disabled || divisionScopeMissing || acceptedLocations.length === 0) {
+        if (!configDataReady || hangarSelect.disabled || divisionScopeMissing || acceptedLocations.length === 0) {
             submitBtn.disabled = true;
             submitBtn.title = acceptedLocations.length === 0
                 ? "{% trans 'Add at least one accepted location before saving' %}"
@@ -811,13 +813,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update structure name when structure is selected
     structureSelect.addEventListener('change', function() {
         const selectedOption = structureSelect.options[structureSelect.selectedIndex];
+        savedStructureId = structureSelect.value;
+        savedHangarDivision = hangarSelect.value;
         structureName.value = selectedOption.getAttribute('data-name') || '';
         rebuildHangarOptions(selectedOption.getAttribute('data-flags'));
     });
 
     const fetchStructures = (corpId, preserveSelection = false) => {
-        const prevStructure = preserveSelection ? structureSelect.value : '';
-        const prevHangar = preserveSelection ? hangarSelect.value : '';
+        structureRequest?.abort();
+        const controller = new AbortController();
+        structureRequest = controller;
+        configDataReady = false;
+        updateSubmitButton();
+        const prevStructure = preserveSelection ? (structureSelect.value || savedStructureId) : '';
+        const prevHangar = preserveSelection ? (hangarSelect.value || savedHangarDivision) : '';
 
         if (!corpId) {
             structureSelect.innerHTML = '<option value="">{% trans "Select corporation first..." %}</option>';
@@ -829,9 +838,19 @@ document.addEventListener('DOMContentLoaded', function() {
         structureSelect.innerHTML = '<option value="">{% trans "Loading structures..." %}</option>';
         structureSelect.disabled = true;
 
-        fetch(`{% url 'indy_hub:material_exchange_get_structures' 0 %}`.replace('/0/', `/${corpId}/`))
-            .then(response => response.json())
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        fetch(`{% url 'indy_hub:material_exchange_get_structures' 0 %}`.replace('/0/', `/${corpId}/`), {
+            signal: controller.signal, credentials: 'same-origin', cache: 'no-store'
+        })
+            .then(response => {
+                if (!response.ok || response.redirected) throw new Error('Configuration request failed');
+                return response.json();
+            })
             .then(data => {
+                if (structureRequest !== controller) return;
+                configDataReady = !data.authorization_required;
+                configDataStatus.textContent = '';
+                configDataRetry.classList.add('d-none');
                 structureSelect.innerHTML = '<option value="">{% trans "Select a structure..." %}</option>';
 
                 if (data.hangar_divisions) {
@@ -870,7 +889,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Restore previous structure if still available, else pick first
                 let selectedIndex = 1;
-                const desiredStructure = prevStructure || initialStructureId;
+                const desiredStructure = preserveSelection ? (prevStructure || initialStructureId) : '';
                 if (desiredStructure) {
                     const exists = Array.from(structureSelect.options).some(opt => opt.value === desiredStructure);
                     if (!exists) {
@@ -893,7 +912,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const selectedOption = structureSelect.options[selectedIndex];
                     structureName.value = selectedOption.getAttribute('data-name') || '';
                     rebuildHangarOptions(selectedOption.getAttribute('data-flags'));
-                    const desiredHangar = prevHangar || initialHangarDivision;
+                    const desiredHangar = preserveSelection ? (prevHangar || initialHangarDivision) : '';
                     if (desiredHangar) {
                         hangarSelect.value = desiredHangar;
                     }
@@ -905,12 +924,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateSubmitButton();
             })
             .catch(error => {
+                if (structureRequest !== controller) return;
+                configDataReady = false;
+                configDataStatus.textContent = '{% trans "Unable to load hangars. Your changes have been kept. Please try again." %}';
+                configDataRetry.classList.remove('d-none');
                 console.error('Error fetching structures:', error);
                 structureSelect.innerHTML = '<option value="">{% trans "Error loading structures" %}</option>';
+                if (prevStructure) {
+                    const previousOption = new Option(structureName.value || `Structure ${prevStructure}`, prevStructure);
+                    previousOption.setAttribute('data-name', structureName.value || '');
+                    structureSelect.appendChild(previousOption);
+                    structureSelect.value = prevStructure;
+                }
                 structureSelect.disabled = false;
                 rebuildHangarOptions('');
+                if (prevHangar) hangarSelect.value = prevHangar;
                 updateSubmitButton();
-            });
+            }).finally(() => clearTimeout(timeout));
     };
 
     if (addAcceptedLocationBtn) {
@@ -965,17 +995,50 @@ document.addEventListener('DOMContentLoaded', function() {
 
     corpSelect.addEventListener('change', function() {
         acceptedLocations = [];
+        savedStructureId = '';
+        savedHangarDivision = '';
         renderAcceptedLocations();
         fetchStructures(corpSelect.value, false);
     });
 
-    // On load, fetch structures (and divisions) for the preselected corp to hydrate names
-    if (corpSelect.value) {
-        fetchStructures(corpSelect.value, true);
-    } else if (structureSelect.value) {
-        const selectedOption = structureSelect.options[structureSelect.selectedIndex];
-        rebuildHangarOptions(selectedOption.getAttribute('data-flags'));
+    async function loadCorporations() {
+        corpSelect.disabled = true;
+        configDataRetry.disabled = true;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+        try {
+            const url = new URL(window.location.href);
+            url.searchParams.set('fragment', '1');
+            const response = await fetch(url, {signal: controller.signal, credentials: 'same-origin', cache: 'no-store'});
+            if (!response.ok || response.redirected) throw new Error('Corporations request failed');
+            const data = await response.json();
+            if (!Array.isArray(data.corporations)) throw new Error('Invalid corporations response');
+            corporationsLoaded = true;
+            const selected = corpSelect.value;
+            const placeholder = corpSelect.options[0].cloneNode(true);
+            const options = data.corporations.map(corp => new Option(`[${corp.ticker}] ${corp.name}`, String(corp.id)));
+            if (selected && !options.some(option => option.value === selected)) {
+                options.push(new Option(corpSelect.selectedOptions[0].textContent, selected));
+            }
+            corpSelect.replaceChildren(placeholder, ...options);
+            corpSelect.value = selected;
+            if (selected) fetchStructures(selected, true);
+            else configDataStatus.textContent = data.corporations.length ? '' : '{% trans "No corporations found. Add ESI tokens in the ESI tab." %}';
+            configDataRetry.classList.add('d-none');
+        } catch (error) {
+            configDataStatus.textContent = '{% trans "Unable to load corporations. Your changes have been kept. Please try again." %}';
+            configDataRetry.classList.remove('d-none');
+        } finally {
+            clearTimeout(timeout);
+            corpSelect.disabled = false;
+            configDataRetry.disabled = false;
+        }
     }
+    configDataRetry.addEventListener('click', () => {
+        if (corporationsLoaded && corpSelect.value) fetchStructures(corpSelect.value, true);
+        else loadCorporations();
+    });
+    loadCorporations();
 
     renderAcceptedLocations();
     updateSubmitButton();

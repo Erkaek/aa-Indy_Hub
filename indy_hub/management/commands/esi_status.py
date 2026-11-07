@@ -1,102 +1,75 @@
-# indy_hub/management/commands/esi_status.py
+"""Inspect current local ESI protections and clear Indy Hub response validators."""
 
 # Django
 from django.core.cache import cache
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
+from django.utils.text import slugify
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
 # AA Example App
-from indy_hub.utils import clear_esi_cache, get_esi_status
+from indy_hub.services.esi_client import shared_client
+from indy_hub.services.market_prices import MARKET_PRICES_CACHE_KEY
+from indy_hub.services.providers import esi_provider
+from indy_hub.utils.eve import get_structure_rate_limit_cooldown_seconds
 
 logger = get_extension_logger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Monitor ESI status and manage cache"
+    help = "Inspect local ESI cooldowns without making ESI calls"
 
     def add_arguments(self, parser):
-        parser.add_argument(
+        actions = parser.add_mutually_exclusive_group()
+        actions.add_argument(
             "--clear-cache",
             action="store_true",
-            help="Clear ESI cache data",
+            help="Clear Indy Hub ETags and public market prices; preserve shared responses and protections",
         )
-        parser.add_argument(
+        actions.add_argument(
             "--reset-circuit-breakers",
             action="store_true",
-            help="Reset all circuit breakers",
+            help="Obsolete: the current client does not use per-type/per-character circuit breakers",
         )
 
     def handle(self, *args, **options):
-        if options["clear_cache"]:
-            clear_esi_cache()
-            self.stdout.write(self.style.SUCCESS("ESI cache cleared successfully"))
-            logger.info("ESI cache cleared via esi_status command.")
-            return
-
+        if options["clear_cache"] and options["reset_circuit_breakers"]:
+            raise CommandError("Choose only one cache action")
         if options["reset_circuit_breakers"]:
-            # Clear circuit breaker states
-            cache.delete_pattern("esi_circuit_breaker_*")
-            cache.delete_pattern("esi_error_count_*")
-            cache.delete_pattern("esi_backoff_*")
-            self.stdout.write(self.style.SUCCESS("Circuit breakers reset successfully"))
-            logger.info("ESI circuit breakers reset via esi_status command.")
+            raise CommandError(
+                "--reset-circuit-breakers is obsolete: the current client uses ESI "
+                "rate limits and cooldowns, which must be allowed to expire."
+            )
+        if options["clear_cache"]:
+            delete_pattern = getattr(cache, "delete_pattern", None)
+            if not callable(delete_pattern):
+                raise CommandError(
+                    "Clearing Indy Hub ETags requires a cache backend with delete_pattern support"
+                )
+            # django-esi namespaces ETags by the provider's application name;
+            # response bodies use shared esi_<hash> keys and must be preserved.
+            pattern = f"{slugify(esi_provider._ua_appname)}_etag_*"
+            deleted = delete_pattern(pattern)
+            cache.delete(MARKET_PRICES_CACHE_KEY)
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Cleared {deleted or 0} Indy Hub ETags and its public market price cache. "
+                    "Shared ESI responses, cooldowns and task locks were preserved."
+                )
+            )
+            logger.info("Indy Hub ETags and public market price cache cleared.")
             return
 
-        # Show current status
-        try:
-            status = get_esi_status()
-        except Exception as exc:
-            logger.exception("Failed to retrieve ESI status: %s", exc)
-            raise
-        logger.info(
-            "ESI status: type_cb=%s char_cb=%s type_backoff=%s char_backoff=%s type_errors=%s char_errors=%s",
-            status.get("type_circuit_breaker"),
-            status.get("character_circuit_breaker"),
-            status.get("type_backoff"),
-            status.get("character_backoff"),
-            status.get("type_errors"),
-            status.get("character_errors"),
+        remaining = shared_client._tranquility_cooldown_seconds_remaining()
+        structure_delay = get_structure_rate_limit_cooldown_seconds()
+        self.stdout.write("=== Indy Hub ESI status (local cache only) ===")
+        self.stdout.write(f"Tranquility global cooldown: {remaining}s remaining")
+        self.stdout.write(f"Structure lookup recorded retry delay: {structure_delay}s")
+        self.stdout.write(
+            "Type and character names use local SDE/Alliance Auth data. "
+            "Legacy per-type/per-character circuit breakers are not used."
         )
-
-        self.stdout.write("=== ESI Protection Status ===")
-
-        # Circuit breakers
-        type_cb = "OPEN" if not status["type_circuit_breaker"] else "CLOSED"
-        char_cb = "OPEN" if not status["character_circuit_breaker"] else "CLOSED"
-
-        self.stdout.write(f"Type Circuit Breaker: {type_cb}")
-        self.stdout.write(f"Character Circuit Breaker: {char_cb}")
-
-        # Backoff status
-        type_backoff = "ACTIVE" if status["type_backoff"] else "INACTIVE"
-        char_backoff = "ACTIVE" if status["character_backoff"] else "INACTIVE"
-
-        self.stdout.write(f"Type Backoff: {type_backoff}")
-        self.stdout.write(f"Character Backoff: {char_backoff}")
-
-        # Error counts
-        self.stdout.write(f"Type Errors: {status['type_errors']}")
-        self.stdout.write(f"Character Errors: {status['character_errors']}")
-
-        # Recommendations
-        if (
-            not status["type_circuit_breaker"]
-            or not status["character_circuit_breaker"]
-        ):
-            self.stdout.write(
-                self.style.WARNING(
-                    "\nWARNING: Circuit breakers are open! ESI calls are being blocked."
-                )
-            )
-            self.stdout.write(
-                "Use --reset-circuit-breakers to reset them if the issue is resolved."
-            )
-
-        if status["type_backoff"] or status["character_backoff"]:
-            self.stdout.write(
-                self.style.WARNING(
-                    "\nINFO: Backoff is active. ESI calls are being delayed."
-                )
-            )
+        self.stdout.write(
+            "This is not a live ESI health check; endpoint/token rate limits may also apply."
+        )

@@ -4121,7 +4121,6 @@ class ManualRefreshCooldownTests(TestCase):
             scheduled, remaining, reason = request_manual_refresh(
                 MANUAL_REFRESH_KIND_BLUEPRINTS,
                 self.user.id,
-                check_active=False,
             )
         self.assertTrue(scheduled)
         self.assertIsNone(remaining)
@@ -4141,7 +4140,6 @@ class ManualRefreshCooldownTests(TestCase):
             scheduled, remaining, reason = request_manual_refresh(
                 MANUAL_REFRESH_KIND_BLUEPRINTS,
                 self.user.id,
-                check_active=False,
                 scope="corporation",
             )
 
@@ -4150,7 +4148,12 @@ class ManualRefreshCooldownTests(TestCase):
         self.assertIsNone(reason)
         mock_apply.assert_called_once_with(
             args=(self.user.id,),
-            kwargs={"scope": "corporation", "force_refresh": True},
+            kwargs={
+                "scope": "corporation",
+                "character_id": None,
+                "queue_source": "manual",
+                "force_refresh": True,
+            },
             countdown=0,
             priority=None,
         )
@@ -4168,7 +4171,6 @@ class ManualRefreshCooldownTests(TestCase):
             scheduled, remaining, reason = request_manual_refresh(
                 MANUAL_REFRESH_KIND_BLUEPRINTS,
                 self.user.id,
-                check_active=False,
             )
             self.assertTrue(scheduled)
             self.assertIsNone(remaining)
@@ -4177,7 +4179,6 @@ class ManualRefreshCooldownTests(TestCase):
             scheduled_2, remaining_2, reason_2 = request_manual_refresh(
                 MANUAL_REFRESH_KIND_BLUEPRINTS,
                 self.user.id,
-                check_active=False,
             )
 
         self.assertFalse(scheduled_2)
@@ -4192,7 +4193,6 @@ class ManualRefreshCooldownTests(TestCase):
             scheduled, _, _ = request_manual_refresh(
                 MANUAL_REFRESH_KIND_JOBS,
                 self.user.id,
-                check_active=False,
             )
         self.assertTrue(scheduled)
         mock_apply.assert_called_once()
@@ -5117,6 +5117,166 @@ class PersonnalBlueprintViewTests(TestCase):
         self.assertRedirects(response, reverse("indy_hub:personnal_bp_list"))
 
 
+@override_settings(
+    CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+)
+class BlueprintAjaxTests(TestCase):
+    def setUp(self) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.user = User.objects.create_user("ajax-blueprints")
+        assign_main_character(self.user, character_id=102301)
+        ensure_base_eve_sde_loaded()
+        grant_indy_permissions(self.user)
+        self.client.force_login(self.user)
+        self.url = reverse("indy_hub:personnal_bp_list")
+        self.blueprint = Blueprint.objects.create(
+            owner_user=self.user,
+            character_id=102301,
+            item_id=9052301,
+            blueprint_id=9052302,
+            type_id=999001,
+            location_id=PUBLIC_STATION_ID,
+            location_flag="hangar",
+            quantity=-1,
+            type_name="Local Blueprint",
+        )
+        connection_patch = patch("indy_hub.views.industry.connection")
+        connection_mock = connection_patch.start()
+        connection_mock.cursor.return_value.__enter__.return_value.fetchall.return_value = [
+            (999001,)
+        ]
+        self.addCleanup(connection_patch.stop)
+
+    def test_initial_page_and_fragment_never_validate_oauth_tokens(self):
+        with (
+            patch("esi.managers.TokenQueryset.require_valid") as validate,
+            patch("indy_hub.views.industry.request_manual_refresh") as refresh,
+        ):
+            response = self.client.get(self.url)
+            fragment = self.client.get(self.url, {"fragment": "1", "refresh": "1"})
+        self.assertContains(response, "Local Blueprint")
+        self.assertContains(response, 'id="blueprintResults"')
+        self.assertContains(response, "personal_bp_list.js")
+        self.assertNotContains(response, "/js/blueprints.js")
+        self.assertEqual(fragment.status_code, 200)
+        self.assertIn("Local Blueprint", fragment.json()["html"])
+        self.assertNotIn("<script", fragment.json()["html"])
+        self.assertNotIn("fragment%3D1", fragment.json()["html"])
+        self.assertEqual(fragment["Cache-Control"], "no-store")
+        validate.assert_not_called()
+        refresh.assert_not_called()
+
+    def test_fragment_reads_new_snapshot_and_removal(self):
+        first = self.client.get(self.url, {"fragment": "1"}).json()
+        self.assertIn("Local Blueprint", first["html"])
+        Blueprint.objects.filter(pk=self.blueprint.pk).update(
+            type_name="Updated Blueprint"
+        )
+        updated = self.client.get(self.url, {"fragment": "1"}).json()
+        self.assertIn("Updated Blueprint", updated["html"])
+        self.assertNotIn("Local Blueprint", updated["html"])
+        self.blueprint.delete()
+        empty = self.client.get(self.url, {"fragment": "1"}).json()
+        self.assertIn("No Blueprints Found", empty["html"])
+        self.assertEqual(empty["owner_options"], [])
+
+    def test_fragment_preserves_filters_and_bounds_page_size(self):
+        response = self.client.get(
+            self.url,
+            {
+                "fragment": "1",
+                "search": "unmatched",
+                "owner": "102301",
+                "per_page": "0",
+                "page": "invalid",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("No Blueprints Found", response.json()["html"])
+        response = self.client.get(self.url, {"fragment": "1", "per_page": "999999"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('value="200" selected', response.json()["html"])
+
+    def test_fragment_does_not_expose_other_users_blueprints(self):
+        other = User.objects.create_user("ajax-other-owner")
+        Blueprint.objects.filter(pk=self.blueprint.pk).update(owner_user=other)
+        response = self.client.get(self.url, {"fragment": "1"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("Local Blueprint", response.json()["html"])
+
+    def test_fragment_rechecks_corporation_visibility(self):
+        response = self.client.get(
+            reverse("indy_hub:corporation_bp_list"), {"fragment": "1"}
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("error", response.json())
+
+    def test_shared_corporation_viewer_cannot_schedule_refresh(self):
+        provider = User.objects.create_user("ajax-corp-provider")
+        CorporationSharingSetting.objects.create(
+            user=provider,
+            corporation_id=2000000,
+            blueprint_catalog_scope=CharacterSettings.SCOPE_CORPORATION,
+        )
+        Blueprint.objects.filter(pk=self.blueprint.pk).update(
+            owner_user=provider,
+            owner_kind=Blueprint.OwnerKind.CORPORATION,
+            corporation_id=2000000,
+        )
+        corp_url = reverse("indy_hub:corporation_bp_list")
+        visible = self.client.get(corp_url, {"fragment": "1"})
+        self.assertEqual(visible.status_code, 200)
+        self.assertIn("Local Blueprint", visible.json()["html"])
+        with patch("indy_hub.views.industry.request_manual_refresh") as refresh:
+            denied = self.client.post(corp_url, {"action": "refresh"})
+        self.assertEqual(denied.status_code, 403)
+        refresh.assert_not_called()
+
+    def test_refresh_post_preserves_existing_cooldown_and_queue_contract(self):
+        for result in (
+            (True, None, None),
+            (False, None, "in_progress"),
+            (False, timedelta(minutes=3), "cooldown"),
+        ):
+            with (
+                self.subTest(result=result),
+                patch(
+                    "indy_hub.views.industry.request_manual_refresh",
+                    return_value=result,
+                ) as refresh,
+            ):
+                response = self.client.post(self.url, {"action": "refresh"})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["scheduled"], result[0])
+                self.assertTrue(response.json()["message"])
+                refresh.assert_called_once_with(
+                    MANUAL_REFRESH_KIND_BLUEPRINTS,
+                    self.user.pk,
+                    priority=5,
+                    scope="character",
+                )
+
+    def test_refresh_post_requires_csrf_and_known_action(self):
+        # Django
+        from django.test import Client
+
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.user)
+        with patch("indy_hub.views.industry.request_manual_refresh") as refresh:
+            self.assertEqual(
+                client.post(self.url, {"action": "refresh"}).status_code, 403
+            )
+            self.assertEqual(
+                self.client.post(self.url, {"action": "unknown"}).status_code, 400
+            )
+        refresh.assert_not_called()
+
+    def test_fragment_requires_base_permission(self):
+        self.user.user_permissions.clear()
+        self.assertEqual(self.client.get(self.url, {"fragment": "1"}).status_code, 403)
+
+
 class CorporationBlueprintCatalogSettingsTests(TestCase):
     def test_manager_can_update_corporation_blueprint_catalog_scope(self) -> None:
         # Standard Library
@@ -5614,7 +5774,7 @@ class CorporationJobListViewTests(TestCase):
         with patch(
             "indy_hub.services.industry_skills.Token.objects.filter"
         ) as mock_token_filter:
-            mock_token_filter.return_value.require_scopes.return_value.require_valid.return_value.values_list.return_value = [
+            mock_token_filter.return_value.require_scopes.return_value.filter.return_value.values_list.return_value = [
                 manager_character.character_id
             ]
             response = self.client.get(reverse("indy_hub:corporation_job_list"))
@@ -5671,7 +5831,7 @@ class CorporationJobListViewTests(TestCase):
         with patch(
             "indy_hub.services.industry_skills.Token.objects.filter"
         ) as mock_token_filter:
-            mock_token_filter.return_value.require_scopes.return_value.require_valid.return_value.values_list.return_value = [
+            mock_token_filter.return_value.require_scopes.return_value.filter.return_value.values_list.return_value = [
                 manager_character.character_id
             ]
             response = self.client.get(reverse("indy_hub:corporation_job_list"))

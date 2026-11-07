@@ -29,6 +29,7 @@ from ..tasks.industry import (
     MATERIAL_EXCHANGE_SCOPE_SET,
     STRUCTURE_SCOPE,
 )
+from ..utils.token_status import invalidate_token_status_cache
 
 ASSETS_SCOPE = "esi-assets.read_assets.v1"
 
@@ -48,10 +49,6 @@ PERSONAL_SCOPE_SET = sorted(
 )
 CORPORATION_SCOPE_SET = sorted({*CORP_BLUEPRINT_SCOPE_SET, *CORP_JOBS_SCOPE_SET})
 MATERIAL_HUB_SCOPE_SET = sorted(set(MATERIAL_EXCHANGE_SCOPE_SET))
-
-
-def _token_management_cache_key(user_id: int) -> str:
-    return f"indy_hub:token_management_live:{int(user_id)}"
 
 
 def _character_name(character_id: int) -> str:
@@ -90,7 +87,6 @@ def _has_scope_coverage(character: EveCharacter, scope_names: list[str]) -> bool
             character_id=int(character.character_id),
             user_id=int(owner_user_id),
         )
-        .require_valid()
         .filter(scopes__name__in=scope_names)
         .values("pk")
         .annotate(scope_count=Count("scopes__name", distinct=True))
@@ -114,10 +110,7 @@ def _users_with_permission(codename: str) -> QuerySet[User]:
 
 
 def _clear_user_live_cache(user_id: int) -> None:
-    # Django
-    from django.core.cache import cache
-
-    cache.delete(_token_management_cache_key(int(user_id)))
+    invalidate_token_status_cache(user_id)
 
 
 def _post_link_message(request, token: Token, message_template) -> None:
@@ -133,7 +126,7 @@ def _add_personal_character(request, token: Token) -> None:
         request,
         token,
         _(
-            "Indy Hub personal scopes linked for %(character)s. Blueprints, jobs, assets, and skills will refresh automatically."
+            "Indy Hub personal scopes linked for %(character)s. Eligible synchronization tasks will use this authorization."
         ),
     )
 
@@ -143,7 +136,7 @@ def _add_corporation_character(request, token: Token) -> None:
         request,
         token,
         _(
-            "Indy Hub corporation scopes linked for %(character)s. Corporation blueprint and job access will be available after synchronization."
+            "Indy Hub corporation scopes linked for %(character)s. Operations still require corporation permissions, authorized character selection, and current roles."
         ),
     )
 
@@ -153,7 +146,7 @@ def _add_material_exchange_character(request, token: Token) -> None:
         request,
         token,
         _(
-            "Indy Hub Mat Exchange scopes linked for %(character)s. Structure, asset, and contract access will refresh automatically."
+            "Indy Hub Mat Exchange scopes linked for %(character)s. Operations still require the applicable permissions, scopes, and corporation roles."
         ),
     )
 

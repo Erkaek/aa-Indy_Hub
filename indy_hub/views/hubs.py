@@ -14,9 +14,11 @@ from django.db.models import (
     BooleanField,
     Case,
     CharField,
+    Exists,
     ExpressionWrapper,
     F,
     IntegerField,
+    OuterRef,
     Q,
     Value,
     When,
@@ -27,8 +29,10 @@ from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.views.decorators.http import require_GET
 
 # Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
 
 # Local
@@ -87,6 +91,7 @@ def _build_admin_users_queryset(user, params):
     queryset = (
         get_visible_indy_hub_users_for_admin_scope(user)
         .select_related("indy_hub_admin_status")
+        .defer("password", "email", "first_name", "last_name")
         .distinct()
     )
 
@@ -235,6 +240,11 @@ def _build_admin_users_queryset(user, params):
             search_filter |= Q(id=numeric_search) | Q(
                 indy_hub_admin_status__main_character_id=numeric_search
             )
+        owned_characters = CharacterOwnership.objects.filter(user_id=OuterRef("pk"))
+        character_search = Q(character__character_name__icontains=search_query)
+        if numeric_search is not None:
+            character_search |= Q(character__character_id=numeric_search)
+        search_filter |= Q(Exists(owned_characters.filter(character_search)))
         queryset = queryset.filter(search_filter)
 
     corporation_query = str(params.get("corporation") or "").strip()[:100]
@@ -262,16 +272,57 @@ def _build_admin_users_queryset(user, params):
     scope_filter = str(params.get("scopes") or "").strip().lower()
     if not scope_filter and _parse_bool_filter(params.get("incomplete")):
         scope_filter = "incomplete"
-    if scope_filter not in {"complete", "incomplete"}:
+    if scope_filter not in {
+        "complete",
+        "incomplete",
+        "blueprints",
+        "jobs",
+        "assets",
+        "skills",
+    }:
         scope_filter = ""
-    if scope_filter:
+    if scope_filter in {"complete", "incomplete"}:
         queryset = queryset.filter(admin_scope_complete=scope_filter == "complete")
+    elif scope_filter:
+        queryset = queryset.filter(**{f"admin_scope_{scope_filter}": False})
 
     health_filter = str(params.get("health_level") or "").strip().lower()
     if health_filter not in {"good", "medium", "critical"}:
         health_filter = ""
     if health_filter:
-        queryset = queryset.filter(admin_health_level=health_filter)
+        queryset = queryset.filter(
+            admin_status_exists=True, admin_health_level=health_filter
+        )
+
+    account_filter = str(params.get("account") or "").strip().lower()
+    if account_filter not in {"enabled", "disabled"}:
+        account_filter = ""
+    if account_filter:
+        queryset = queryset.filter(is_active=account_filter == "enabled")
+    notification_filter = str(params.get("notifications") or "").strip().lower()
+    if notification_filter not in {"enabled", "disabled"}:
+        notification_filter = ""
+    if notification_filter:
+        queryset = queryset.filter(
+            admin_notifications_enabled=notification_filter == "enabled"
+        )
+    status_filter = str(params.get("status") or "").strip().lower()
+    if status_filter not in {"ready", "pending"}:
+        status_filter = ""
+    if status_filter:
+        queryset = queryset.filter(admin_status_exists=status_filter == "ready")
+    role_filter = str(params.get("role") or "").strip().lower()
+    if role_filter not in {"superuser", "staff", "member"}:
+        role_filter = ""
+    if role_filter == "superuser":
+        queryset = queryset.filter(is_superuser=True)
+    elif role_filter == "staff":
+        queryset = queryset.filter(is_staff=True, is_superuser=False)
+    elif role_filter == "member":
+        queryset = queryset.filter(is_staff=False, is_superuser=False)
+    page_size = _parse_optional_int(params.get("per_page"))
+    if page_size not in {25, 50, 100}:
+        page_size = _ADMIN_USERS_PAGE_SIZE
 
     max_health_score = _parse_optional_int(params.get("max_health_score"))
     if max_health_score is not None:
@@ -319,6 +370,11 @@ def _build_admin_users_queryset(user, params):
         "usage_filter": usage_filter,
         "sort_key": sort_key,
         "sort_direction": sort_direction,
+        "account_filter": account_filter,
+        "notification_filter": notification_filter,
+        "status_filter": status_filter,
+        "role_filter": role_filter,
+        "page_size": page_size,
     }
     return queryset, filters
 
@@ -346,6 +402,16 @@ def _build_admin_user_filters_query(
         query["max_health_score"] = str(filters["max_health_score"])
     if filters.get("usage_filter"):
         query["usage"] = str(filters["usage_filter"])
+    for key, value in (
+        ("account", "account_filter"),
+        ("notifications", "notification_filter"),
+        ("status", "status_filter"),
+        ("role", "role_filter"),
+    ):
+        if filters.get(value):
+            query[key] = str(filters[value])
+    if filters.get("page_size", 25) != 25:
+        query["per_page"] = str(filters["page_size"])
     query["sort"] = str(sort_key or filters.get("sort_key") or "username")
     query["direction"] = str(sort_direction or filters.get("sort_direction") or "asc")
     return urlencode(query)
@@ -357,10 +423,13 @@ def _build_settings_admin_users_state(
     *,
     include_page_usage_details: bool = False,
     include_global_usage_detail: bool = False,
+    target_user_id: int | None = None,
 ) -> dict[str, object]:
     filtered_users_qs, filters = _build_admin_users_queryset(user, params)
+    if target_user_id is not None:
+        filtered_users_qs = filtered_users_qs.filter(pk=target_user_id)
 
-    paginator = Paginator(filtered_users_qs, _ADMIN_USERS_PAGE_SIZE)
+    paginator = Paginator(filtered_users_qs, filters["page_size"])
     page_obj = paginator.get_page(_parse_optional_int(params.get("page")) or 1)
     page_users = list(page_obj.object_list)
     page_rows: list[dict[str, object]] = []
@@ -422,6 +491,11 @@ def _build_settings_admin_users_state(
                 "total_usage_count": int(user_obj.admin_total_usage_count or 0),
                 "health": health,
                 "status_is_pending": not bool(user_obj.admin_status_exists),
+                "notifications_enabled": bool(user_obj.admin_notifications_enabled),
+                "status_updated_at": getattr(
+                    getattr(user_obj, "indy_hub_admin_status", None), "updated_at", None
+                ),
+                "problems": problems,
                 "problem_counts": {
                     "blocking": blocking_problem_count,
                     "advisory": advisory_problem_count,
@@ -495,6 +569,10 @@ def _build_settings_admin_users_state(
                 filters["health_filter"],
                 filters["max_health_score"] is not None,
                 filters["usage_filter"],
+                filters["account_filter"],
+                filters["notification_filter"],
+                filters["status_filter"],
+                filters["role_filter"],
             )
         ),
         "selected_corporation_id": filters["selected_corporation_id"],
@@ -586,10 +664,13 @@ def settings_hub(request):
 
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
+@require_GET
 def settings_admin_users(request):
     emit_view_analytics_event(view_name="settings_admin_users", request=request)
 
     if not _settings_admin_users_scope_allowed(request.user):
+        if request.GET.get("fragment") == "1":
+            return JsonResponse({"error": "forbidden"}, status=403)
         messages.error(
             request,
             _("You do not have permission to access Indy Hub user administration."),
@@ -604,18 +685,35 @@ def settings_admin_users(request):
     )
 
     context = {
-        **_build_settings_admin_users_context(request.user),
         "page_title": _("Settings - User Admin"),
         **state,
         "inactive_window_days": _INACTIVITY_WINDOW_DAYS,
         "notify_disabled": CharacterSettings.NOTIFY_DISABLED,
     }
-
-    return render(request, "indy_hub/settings/admin_users.html", context)
+    if request.GET.get("fragment") == "1":
+        response = JsonResponse(
+            {
+                "html": render_to_string(
+                    "indy_hub/settings/partials/admin_users_results.html",
+                    context,
+                    request=request,
+                ),
+                "count": state["all_rows_count"],
+                "page": state["page_obj"].number,
+                "query": state["current_query"],
+                "filters": state["filters"],
+            }
+        )
+    else:
+        context.update(_build_settings_admin_users_context(request.user))
+        response = render(request, "indy_hub/settings/admin_users.html", context)
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
+@require_GET
 def settings_admin_users_global_usage_fragment(request):
     emit_view_analytics_event(
         view_name="settings_admin_users_global_usage_fragment", request=request
@@ -635,11 +733,14 @@ def settings_admin_users_global_usage_fragment(request):
         },
         request=request,
     )
-    return JsonResponse({"html": html})
+    response = JsonResponse({"html": html})
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @indy_hub_permission_required("can_access_indy_hub")
 @login_required
+@require_GET
 def settings_admin_users_usage_detail_fragment(request, user_id: int):
     emit_view_analytics_event(
         view_name="settings_admin_users_usage_detail_fragment", request=request
@@ -667,7 +768,9 @@ def settings_admin_users_usage_detail_fragment(request, user_id: int):
         },
         request=request,
     )
-    return JsonResponse({"html": html})
+    response = JsonResponse({"html": html})
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @indy_hub_permission_required("can_access_indy_hub")

@@ -6,7 +6,9 @@ from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.db import transaction
 from django.test import RequestFactory, TestCase
+from django.utils import timezone
 
 # AA Example App
 from indy_hub.models import MaterialExchangeAcceptedLocation, MaterialExchangeConfig
@@ -221,3 +223,141 @@ class MaterialExchangeConfigSaveCheckboxTests(TestCase):
                 (60000002, "Secondary Structure", 3),
             ],
         )
+
+    def _save_locations(self, locations, *, corporation_id=None):
+        post_data = self._base_post_data()
+        post_data["accepted_locations_json"] = json.dumps(locations)
+        if corporation_id is not None:
+            post_data["corporation_id"] = str(corporation_id)
+        with (
+            patch(
+                "indy_hub.views.material_exchange_config._get_token_for_corp",
+                return_value=None,
+            ),
+            patch(
+                "indy_hub.views.material_exchange_config.resolve_structure_names",
+                return_value={},
+            ),
+        ):
+            return _handle_config_save(self._build_request(post_data), self.config)
+
+    @patch("indy_hub.tasks.material_exchange._sync_stock_impl")
+    @patch("indy_hub.tasks.material_exchange.sync_material_exchange_stock.apply_async")
+    def test_new_configuration_queues_only_after_commit(self, publish, stock_impl):
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with transaction.atomic():
+                MaterialExchangeConfig.objects.create(
+                    corporation_id=123456, structure_id=60000003, hangar_division=1
+                )
+                publish.assert_not_called()
+                stock_impl.assert_not_called()
+        self.assertEqual(len(callbacks), 1)
+        publish.assert_called_once_with(retry=False)
+        stock_impl.assert_not_called()
+
+    @patch("indy_hub.tasks.material_exchange.sync_material_exchange_stock.apply_async")
+    def test_rollback_discards_refresh(self, publish):
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            with self.assertRaisesMessage(RuntimeError, "rollback"):
+                with transaction.atomic():
+                    MaterialExchangeConfig.objects.create(
+                        corporation_id=123456, structure_id=60000003, hangar_division=1
+                    )
+                    raise RuntimeError("rollback")
+        self.assertEqual(callbacks, [])
+        publish.assert_not_called()
+
+    @patch("indy_hub.tasks.material_exchange._sync_stock_impl")
+    @patch("indy_hub.tasks.material_exchange.sync_material_exchange_stock.apply_async")
+    def test_secondary_location_refresh_sees_all_saved_locations(
+        self, publish, stock_impl
+    ):
+        seen_locations = []
+
+        def observe_publication(**kwargs):
+            seen_locations.extend(
+                self.config.accepted_locations.order_by("sort_order").values_list(
+                    "structure_id", flat=True
+                )
+            )
+
+        publish.side_effect = observe_publication
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._save_locations(
+                [
+                    {"structure_id": 60000001, "hangar_division": 1},
+                    {"structure_id": 60000002, "hangar_division": 3},
+                ]
+            )
+            publish.assert_not_called()
+            stock_impl.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(seen_locations, [60000001, 60000002])
+        publish.assert_called_once_with(retry=False)
+        stock_impl.assert_not_called()
+
+    @patch("indy_hub.tasks.material_exchange.sync_material_exchange_stock.apply_async")
+    def test_primary_location_change_queues_one_refresh(self, publish):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._save_locations(
+                [
+                    {"structure_id": 60000004, "hangar_division": 2},
+                    {"structure_id": 60000005, "hangar_division": 3},
+                ]
+            )
+            publish.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        publish.assert_called_once_with(retry=False)
+
+    @patch("indy_hub.tasks.material_exchange.sync_material_exchange_stock.apply_async")
+    def test_corporation_and_secondary_location_change_do_not_duplicate_refresh(
+        self, publish
+    ):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._save_locations(
+                [
+                    {"structure_id": 60000001, "hangar_division": 1},
+                    {"structure_id": 60000002, "hangar_division": 3},
+                ],
+                corporation_id=654321,
+            )
+        self.assertEqual(response.status_code, 302)
+        publish.assert_called_once_with(retry=False)
+
+    @patch("indy_hub.tasks.material_exchange.sync_material_exchange_stock.apply_async")
+    def test_timestamp_save_does_not_reuse_creation_refresh_flag(self, publish):
+        self.config.last_stock_sync = timezone.now()
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            self.config.save(update_fields=["last_stock_sync"])
+        self.assertEqual(callbacks, [])
+        publish.assert_not_called()
+
+    @patch("indy_hub.tasks.material_exchange._sync_stock_impl")
+    @patch("indy_hub.tasks.material_exchange.sync_material_exchange_stock.apply_async")
+    def test_broker_failure_preserves_configuration_without_inline_fallback(
+        self, publish, stock_impl
+    ):
+        publish.side_effect = RuntimeError("broker unavailable")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._save_locations(
+                [
+                    {"structure_id": 60000006, "hangar_division": 2},
+                ]
+            )
+        self.assertEqual(response.status_code, 302)
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.structure_id, 60000006)
+        publish.assert_called_once_with(retry=False)
+        stock_impl.assert_not_called()
+
+    @patch("indy_hub.tasks.material_exchange.sync_material_exchange_prices.run")
+    @patch(
+        "indy_hub.tasks.material_exchange.get_corp_assets_cached",
+        return_value=([], False),
+    )
+    def test_worker_stock_sync_keeps_single_price_follow_up(self, assets, prices):
+        # AA Example App
+        from indy_hub.tasks.material_exchange import sync_material_exchange_stock
+
+        sync_material_exchange_stock()
+        prices.assert_called_once_with()

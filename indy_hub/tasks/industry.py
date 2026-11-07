@@ -278,7 +278,6 @@ SKILL_REFRESH_MIN_AGE = timedelta(days=1)
 
 _OPTIONAL_CORPORATION_SCOPES = {STRUCTURE_SCOPE}
 REQUIRED_CORPORATION_ROLES = {"DIRECTOR", "FACTORY_MANAGER"}
-_CORPORATION_ROLE_CACHE: dict[int, set[str]] = {}
 _SKILLS_OPERATION_UNAVAILABLE = False
 
 
@@ -323,11 +322,19 @@ _roles_from_snapshot = roles_from_snapshot
 
 
 def get_character_corporation_roles(character_id: int) -> set[str]:
-    if character_id in _CORPORATION_ROLE_CACHE:
-        return _CORPORATION_ROLE_CACHE[character_id]
-
     table_empty = not CharacterRoles.objects.exists()
-    snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+    ownership = (
+        CharacterOwnership.objects.filter(character__character_id=character_id)
+        .select_related("character", "user")
+        .first()
+    )
+    if not ownership:
+        return set()
+    snapshot = CharacterRoles.objects.filter(
+        character_id=character_id,
+        owner_user=ownership.user,
+        corporation_id=ownership.character.corporation_id,
+    ).first()
     now = timezone.now()
     snapshot_stale = bool(
         snapshot
@@ -335,7 +342,6 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
     )
     if snapshot and not snapshot_stale:
         roles = _roles_from_snapshot(snapshot)
-        _CORPORATION_ROLE_CACHE[character_id] = roles
         return roles
     try:
         payload = shared_client.fetch_character_corporation_roles(
@@ -343,33 +349,9 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
             force_refresh=table_empty or snapshot is None,
         )
     except ESIUnmodifiedError:
-        cached = _CORPORATION_ROLE_CACHE.get(character_id)
-        if cached is not None:
-            return cached
-        if snapshot:
-            roles = _roles_from_snapshot(snapshot)
-            _CORPORATION_ROLE_CACHE[character_id] = roles
-            return roles
-        logger.debug(
-            "Corporation roles not modified for character %s; no cache available",
-            character_id,
-        )
         return set()
-    except (ESIErrorLimitException, ESIBucketLimitException) as exc:
-        delay = get_rate_limit_reset_seconds(exc)
-        logger.warning(
-            "ESI rate limit hit while fetching roles for character %s; using cached roles when available (retry in %ss): %s",
-            character_id,
-            delay,
-            exc,
-        )
-        cached = _CORPORATION_ROLE_CACHE.get(character_id)
-        if cached is not None:
-            return cached
-        if snapshot:
-            roles = _roles_from_snapshot(snapshot)
-            _CORPORATION_ROLE_CACHE[character_id] = roles
-            return roles
+    except (ESIErrorLimitException, ESIBucketLimitException):
+        # A stale role snapshot cannot grant business eligibility during outage.
         return set()
     except (ESITokenError, ESIForbiddenError, ESIClientError) as exc:
         logger.warning(
@@ -409,7 +391,6 @@ def get_character_corporation_roles(character_id: int) -> set[str]:
     for key in ("roles", "roles_at_hq", "roles_at_base", "roles_at_other"):
         collected.update(_normalized_roles(payload.get(key)))
 
-    _CORPORATION_ROLE_CACHE[character_id] = collected
     return collected
 
 
@@ -438,6 +419,7 @@ def _collect_corporation_contexts(
         for snapshot in CharacterRoles.objects.filter(
             character_id__in=owned_character_ids,
             last_updated__gte=fresh_roles_cutoff,
+            owner_user=user,
         ):
             snapshot_corp_id = getattr(snapshot, "corporation_id", None)
             if not snapshot_corp_id:
@@ -812,6 +794,13 @@ def _clear_manual_refresh_inflight(
     cache.delete(_manual_refresh_inflight_key(kind, user_id, scope))
 
 
+def manual_refresh_in_progress(
+    kind: str, user_id: int, scope: str | None = None
+) -> bool:
+    """Read the existing refresh marker without dispatching or validating tokens."""
+    return cache.get(_manual_refresh_inflight_key(kind, user_id, scope)) is not None
+
+
 def _select_blueprint_sync_user_ids(
     *,
     last_user_id: int | None = None,
@@ -1155,16 +1144,18 @@ def queue_blueprint_update_for_user(
     force_refresh: bool = False,
     queue_source: str | None = None,
 ) -> bool:
-    kwargs = {"character_id": int(character_id) if character_id else None}
-    if scope:
-        kwargs["scope"] = scope
+    # QueueOnce only binds supplied arguments, so every lock key must be explicit.
+    kwargs = {
+        "scope": scope,
+        "character_id": int(character_id) if character_id else None,
+    }
     if force_refresh:
         kwargs["force_refresh"] = True
     normalized_source = (queue_source or "auto").strip().lower() or "auto"
     user = User.objects.filter(id=user_id).first()
     if not user:
         return False
-    if not _is_user_active(user):
+    if normalized_source != "manual" and not _is_user_active(user):
         logger.debug(
             "Skipping blueprint sync for inactive user %s before queueing",
             user.username,
@@ -1221,14 +1212,12 @@ def queue_industry_job_update_for_user(
     character_id: int | None = None,
     queue_source: str | None = None,
 ) -> bool:
-    kwargs = {"character_id": int(character_id) if character_id else 0}
-    if scope:
-        kwargs["scope"] = scope
+    kwargs = {"scope": scope, "character_id": int(character_id) if character_id else 0}
     normalized_source = (queue_source or "auto").strip().lower() or "auto"
     user = User.objects.filter(id=user_id).first()
     if not user:
         return False
-    if not _is_user_active(user):
+    if normalized_source != "manual" and not _is_user_active(user):
         logger.debug(
             "Skipping industry jobs sync for inactive user %s before queueing",
             user.username,
@@ -1283,8 +1272,8 @@ def request_manual_refresh(
     *,
     priority: int | None = None,
     scope: str | None = None,
-    check_active: bool = True,
 ) -> tuple[bool, timedelta | None, str | None]:
+    """Dispatch explicit requests regardless of the user's automatic-sync activity."""
     allowed, remaining = manual_refresh_allowed(kind, user_id, scope)
     if not allowed:
         return False, remaining, "cooldown"
@@ -1292,57 +1281,39 @@ def request_manual_refresh(
     if not _mark_manual_refresh_inflight(kind, user_id, scope):
         return False, None, "in_progress"
 
-    if check_active:
-        user = User.objects.filter(id=user_id).first()
-        if not user:
-            _clear_manual_refresh_inflight(kind, user_id, scope)
-            return False, None, "inactive_or_missing_scope"
-        if not _is_user_active(user):
-            _clear_manual_refresh_inflight(kind, user_id, scope)
-            return False, None, "inactive_or_missing_scope"
-
-    if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
-        if check_active:
-            queue_blueprint_update_for_user(
-                user_id,
-                priority=priority,
-                scope=scope,
-                force_refresh=True,
-                queue_source="manual",
-            )
-        else:
-            kwargs = {"force_refresh": True}
-            if scope:
-                kwargs["scope"] = scope
+    try:
+        if kind == MANUAL_REFRESH_KIND_BLUEPRINTS:
             update_blueprints_for_user.apply_async(
                 args=(user_id,),
-                kwargs=kwargs,
+                kwargs={
+                    "scope": scope,
+                    "character_id": None,
+                    "queue_source": "manual",
+                    "force_refresh": True,
+                },
                 countdown=0,
                 priority=priority,
             )
-    elif kind == MANUAL_REFRESH_KIND_JOBS:
-        if check_active:
-            queue_industry_job_update_for_user(
-                user_id,
-                priority=priority,
-                scope=scope,
-                queue_source="manual",
-            )
-        else:
-            kwargs = {}
-            if scope:
-                kwargs["scope"] = scope
+        elif kind == MANUAL_REFRESH_KIND_JOBS:
             update_industry_jobs_for_user.apply_async(
                 args=(user_id,),
-                kwargs=kwargs,
+                kwargs={
+                    "scope": scope,
+                    "character_id": 0,
+                    "queue_source": "manual",
+                    "force_refresh": True,
+                },
                 countdown=0,
                 priority=priority,
             )
-    else:
-        _clear_manual_refresh_inflight(kind, user_id, scope)
-        raise ValueError(f"Unknown manual refresh kind: {kind}")
+        else:
+            raise ValueError(f"Unknown manual refresh kind: {kind}")
 
-    _record_manual_refresh(kind, user_id, scope)
+        _record_manual_refresh(kind, user_id, scope)
+    except Exception:
+        # A dispatch failure must allow another attempt, not leave a 15-minute lock.
+        _clear_manual_refresh_inflight(kind, user_id, scope)
+        raise
     return True, None, None
 
 
@@ -1437,13 +1408,14 @@ def update_blueprints_for_user(
         raise self.retry(exc=exc, countdown=60 * (2**self.request.retries))
 
     now = timezone.now()
-    if not _is_user_active(user, now=now):
-        logger.debug("Skipping blueprint sync for inactive user %s", user.username)
-        return {"success": True, "skipped": "inactive_user"}
-
     try:
+        if queue_source != "manual" and not _is_user_active(user, now=now):
+            logger.debug("Skipping blueprint sync for inactive user %s", user.username)
+            return {"success": True, "skipped": "inactive_user"}
+
         if (
-            not force_refresh
+            queue_source != "manual"
+            and not force_refresh
             and character_id is None
             and normalized_scope is None
             and _user_recent_blueprint_sync(user, now=now)
@@ -1906,14 +1878,15 @@ def update_industry_jobs_for_user(
     try:
         user = User.objects.get(id=user_id)
         now = timezone.now()
-        if not _is_user_active(user, now=now):
+        if queue_source != "manual" and not _is_user_active(user, now=now):
             logger.debug(
                 "Skipping industry jobs sync for inactive user %s", user.username
             )
             return {"success": True, "skipped": "inactive_user"}
 
         if (
-            not force_refresh
+            queue_source != "manual"
+            and not force_refresh
             and character_id is None
             and normalized_scope is None
             and _user_recent_job_sync(user, now=now)
@@ -3030,6 +3003,7 @@ def update_all_industry_jobs(
 def update_character_skill_snapshot_for_character(
     user_id: int,
     character_id: int,
+    force_refresh: bool = False,
 ) -> dict[str, object]:
     """Refresh skill snapshot for a single character."""
     if _SKILLS_OPERATION_UNAVAILABLE:
@@ -3058,7 +3032,7 @@ def update_character_skill_snapshot_for_character(
         snapshot,
         timedelta(hours=SKILL_SNAPSHOT_STALE_HOURS),
     )
-    if snapshot and not snapshot_stale:
+    if snapshot and not snapshot_stale and not force_refresh:
         return {"status": "skipped", "reason": "fresh"}
 
     token = (
@@ -3080,7 +3054,7 @@ def update_character_skill_snapshot_for_character(
     try:
         levels = _fetch_character_skill_levels_with_token(
             token,
-            force_refresh=table_empty or snapshot is None,
+            force_refresh=force_refresh or table_empty or snapshot is None,
         )
     except ESIUnmodifiedError:
         # ESI confirmed nothing changed since our last successful fetch (304
@@ -3101,6 +3075,7 @@ def update_character_skill_snapshot_for_character(
         )
         update_character_skill_snapshot_for_character.apply_async(
             args=(int(user_id), int(character_id)),
+            kwargs={"force_refresh": force_refresh},
             countdown=delay,
         )
         return {"status": "rate_limited", "retry_in": delay}
@@ -3146,7 +3121,9 @@ def update_character_skill_snapshot_for_character(
 
 
 @shared_task
-def update_user_skill_snapshots(user_id: int) -> dict[str, int]:
+def update_user_skill_snapshots(
+    user_id: int, force_refresh: bool = False
+) -> dict[str, int]:
     """Refresh skill snapshots for all characters of a user with skills scope."""
     if _SKILLS_OPERATION_UNAVAILABLE:
         return {"updated": 0, "skipped": 0, "failures": 0}
@@ -3182,6 +3159,7 @@ def update_user_skill_snapshots(user_id: int) -> dict[str, int]:
         result = update_character_skill_snapshot_for_character(
             int(user_id),
             int(character_id),
+            **({"force_refresh": True} if force_refresh else {}),
         )
         status = result.get("status") if isinstance(result, dict) else None
         if status == "updated":

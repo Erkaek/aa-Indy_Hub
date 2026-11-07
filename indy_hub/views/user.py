@@ -38,7 +38,6 @@ from django.views.decorators.http import require_POST
 from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from allianceauth.services.hooks import get_extension_logger
-from esi import app_settings as esi_app_settings
 from esi.decorators import tokens_required
 from esi.models import CallbackRedirect, Token
 from esi.views import sso_redirect
@@ -93,6 +92,16 @@ from ..tasks.industry import (
 )
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import get_character_name, get_corporation_name, get_type_name
+from ..utils.token_status import (
+    apply_token_validity_filter as _apply_token_validity_filter,
+)
+from ..utils.token_status import (
+    corporation_scope_status_cache_key,
+    invalidate_token_status_cache,
+)
+from ..utils.token_status import (
+    token_management_live_cache_key as _token_management_live_cache_key,
+)
 from .navigation import build_nav_context
 
 User = get_user_model()
@@ -100,22 +109,6 @@ User = get_user_model()
 logger = get_extension_logger(__name__)
 
 _TOKEN_MANAGEMENT_LIVE_CACHE_TTL_SECONDS = 300
-
-
-def _apply_token_validity_filter(token_queryset, *, validate_tokens: bool):
-    """Filter tokens by validity while optionally avoiding live refresh side effects."""
-
-    if validate_tokens:
-        return token_queryset.require_valid()
-
-    max_age = timezone.now() - timedelta(
-        seconds=esi_app_settings.ESI_TOKEN_VALID_DURATION
-    )
-    return token_queryset.filter(created__gt=max_age)
-
-
-def _token_management_live_cache_key(user_id: int) -> str:
-    return f"indy_hub:token_management_live:{int(user_id)}"
 
 
 def _token_management_payload_hash(
@@ -138,6 +131,7 @@ def _build_token_management_live_payload(user) -> dict[str, Any]:
         user,
         include_warnings=True,
         allow_live_role_fetch=False,
+        validate_tokens=False,
     )
     corp_scope_status = [
         status
@@ -150,6 +144,7 @@ def _build_token_management_live_payload(user) -> dict[str, Any]:
     corporation_sharing = build_corporation_sharing_context(
         user,
         allow_live_role_fetch=False,
+        validate_tokens=False,
         corp_scope_status=full_corp_scope_status,
     )
     payload_hash = _token_management_payload_hash(
@@ -269,8 +264,6 @@ def _fetch_character_corporation_roles_with_token(
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
     cache_key = f"indy_hub:corp_roles:{token_obj.character_id}"
     cached_roles = cache.get(cache_key)
-    if cached_roles:
-        return {str(role).upper() for role in cached_roles if role}
 
     def _coerce_list(value: object) -> list[str]:
         if isinstance(value, (list, tuple)):
@@ -305,7 +298,9 @@ def _fetch_character_corporation_roles_with_token(
         return collected
 
     snapshot = CharacterRoles.objects.filter(
-        character_id=token_obj.character_id
+        character_id=token_obj.character_id,
+        owner_user=owner_user or token_obj.user,
+        corporation_id=corporation_id,
     ).first()
     snapshot_stale = bool(
         snapshot
@@ -316,8 +311,6 @@ def _fetch_character_corporation_roles_with_token(
         return _roles_from_snapshot(snapshot)
 
     if not allow_remote_fetch:
-        if snapshot:
-            return _roles_from_snapshot(snapshot)
         return None
 
     force_refresh = cached_roles is None and (snapshot is None)
@@ -328,18 +321,7 @@ def _fetch_character_corporation_roles_with_token(
             token_obj=token_obj,
         )
     except ESIUnmodifiedError:
-        cached_roles = cache.get(cache_key)
-        if cached_roles:
-            return {str(role).upper() for role in cached_roles if role}
-        snapshot = CharacterRoles.objects.filter(
-            character_id=token_obj.character_id
-        ).first()
-        if snapshot:
-            return _roles_from_snapshot(snapshot)
-        logger.debug(
-            "ESI roles endpoint returned 304 without cache for character %s",
-            token_obj.character_id,
-        )
+        # A stale or unqualified role cache cannot establish eligibility.
         return None
     except Exception as exc:
         raise ESIClientError(
@@ -494,46 +476,6 @@ def _collect_corporation_scope_status(
     corp_role_state: dict[int, dict[str, bool]] = {}
     warnings: list[dict[str, Any]] = [] if include_warnings else []
 
-    def _revoke_corporation_tokens(
-        token_queryset,
-        character_id: int,
-        character_name: str | None,
-        corporation_id: int,
-        corporation_name: str | None,
-        *,
-        scopes_to_revoke: Iterable[str] | None = None,
-    ) -> int:
-        if not Token:
-            return 0
-
-        normalized_scopes = sorted({scope for scope in scopes_to_revoke or [] if scope})
-        if not normalized_scopes:
-            return 0
-
-        token_ids: set[int] = set()
-        for scope in normalized_scopes:
-            token_ids.update(
-                _apply_token_validity_filter(
-                    token_queryset.require_scopes([scope]),
-                    validate_tokens=validate_tokens,
-                ).values_list("pk", flat=True)
-            )
-
-        if not token_ids:
-            return 0
-
-        token_queryset.filter(pk__in=token_ids).delete()
-        logger.info(
-            "Revoked %s corporate tokens for character %s (%s) and corporation %s (%s)",
-            len(token_ids),
-            character_id,
-            character_name,
-            corporation_id,
-            corporation_name,
-            extra={"scopes": normalized_scopes},
-        )
-        return len(token_ids)
-
     def _select_corporation_token(token_qs, primary_scope: str):
         """Return the newest token covering the scope (roles required, structures optional)."""
 
@@ -633,7 +575,7 @@ def _collect_corporation_scope_status(
             if CORP_ROLES_SCOPE in present_scopes
             else None
         )
-        if not blueprint_token and not jobs_token and not roles_token:
+        if not present_scopes:
             continue
 
         role_state = corp_role_state.setdefault(
@@ -641,11 +583,7 @@ def _collect_corporation_scope_status(
         )
         roles_unavailable = False
         roles: set[str] = set()
-        if not allow_live_role_fetch:
-            roles = set(REQUIRED_CORPORATION_ROLES)
-            role_state["verified"] = True
-            role_state["unavailable"] = False
-        elif roles_token:
+        if roles_token:
             try:
                 fetched_roles = _fetch_character_corporation_roles_with_token(
                     roles_token,
@@ -668,19 +606,6 @@ def _collect_corporation_scope_status(
                     character_id,
                     corp_id,
                 )
-                scopes_to_revoke: list[str] = []
-                if blueprint_token:
-                    scopes_to_revoke.append(CORP_BLUEPRINT_SCOPE)
-                if jobs_token:
-                    scopes_to_revoke.append(CORP_JOBS_SCOPE)
-                revoked_count = _revoke_corporation_tokens(
-                    token_qs,
-                    character_id,
-                    character_name,
-                    corp_id,
-                    corp_name,
-                    scopes_to_revoke=scopes_to_revoke,
-                )
                 if include_warnings:
                     warnings.append(
                         {
@@ -689,9 +614,7 @@ def _collect_corporation_scope_status(
                             "character_name": character_name,
                             "corporation_id": corp_id,
                             "corporation_name": corp_name,
-                            "tokens_revoked": bool(revoked_count),
-                            "revoked_token_count": revoked_count,
-                            "revoked_token_scopes": sorted(set(scopes_to_revoke)),
+                            "token_retained": True,
                         }
                     )
                 roles_unavailable = True
@@ -725,19 +648,6 @@ def _collect_corporation_scope_status(
                 character_id,
                 corp_id,
             )
-            scopes_to_revoke = []
-            if blueprint_token:
-                scopes_to_revoke.append(CORP_BLUEPRINT_SCOPE)
-            if jobs_token:
-                scopes_to_revoke.append(CORP_JOBS_SCOPE)
-            revoked_count = _revoke_corporation_tokens(
-                token_qs,
-                character_id,
-                character_name,
-                corp_id,
-                corp_name,
-                scopes_to_revoke=scopes_to_revoke,
-            )
             if include_warnings:
                 warnings.append(
                     {
@@ -746,37 +656,18 @@ def _collect_corporation_scope_status(
                         "character_name": character_name,
                         "corporation_id": corp_id,
                         "corporation_name": corp_name,
-                        "tokens_revoked": bool(revoked_count),
-                        "revoked_token_count": revoked_count,
-                        "revoked_token_scopes": sorted(set(scopes_to_revoke)),
+                        "token_retained": True,
                     }
                 )
             roles_unavailable = True
             if not role_state["verified"]:
                 role_state["unavailable"] = True
-        if (
-            allow_live_role_fetch
-            and not roles_unavailable
-            and not roles.intersection(REQUIRED_CORPORATION_ROLES)
-        ):
+        if not roles_unavailable and not roles.intersection(REQUIRED_CORPORATION_ROLES):
             logger.info(
                 "Character %s lacks required roles %s for corporation %s",
                 character_id,
                 ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
                 corp_id,
-            )
-            scopes_to_revoke = []
-            if blueprint_token:
-                scopes_to_revoke.append(CORP_BLUEPRINT_SCOPE)
-            if jobs_token:
-                scopes_to_revoke.append(CORP_JOBS_SCOPE)
-            revoked_count = _revoke_corporation_tokens(
-                token_qs,
-                character_id,
-                character_name,
-                corp_id,
-                corp_name,
-                scopes_to_revoke=scopes_to_revoke,
             )
             if include_warnings:
                 warnings.append(
@@ -788,9 +679,7 @@ def _collect_corporation_scope_status(
                         "corporation_name": corp_name,
                         "character_roles": sorted(roles),
                         "required_roles": sorted(REQUIRED_CORPORATION_ROLES),
-                        "tokens_revoked": bool(revoked_count),
-                        "revoked_token_count": revoked_count,
-                        "revoked_token_scopes": sorted(set(scopes_to_revoke)),
+                        "token_retained": True,
                     }
                 )
             continue
@@ -828,7 +717,9 @@ def _collect_corporation_scope_status(
                     "last_updated": None,
                 },
                 "authorization": _build_corporation_authorization_summary(setting),
-                "has_director_role": True,
+                "has_director_role": bool(
+                    roles.intersection(REQUIRED_CORPORATION_ROLES)
+                ),
                 "roles_unavailable": role_state.get("unavailable", roles_unavailable),
             },
         )
@@ -837,12 +728,17 @@ def _collect_corporation_scope_status(
             entry["corporation_name"] = corp_name
 
         entry["authorization"] = _build_corporation_authorization_summary(setting)
-        entry["has_director_role"] = True
+        entry["has_director_role"] = entry["has_director_role"] or bool(
+            roles.intersection(REQUIRED_CORPORATION_ROLES)
+        )
         entry["roles_unavailable"] = role_state.get(
             "unavailable", entry.get("roles_unavailable") or roles_unavailable
         )
 
-        if blueprint_token and not entry["blueprint"]["has_scope"]:
+        eligible = not roles_unavailable and bool(
+            roles.intersection(REQUIRED_CORPORATION_ROLES)
+        )
+        if eligible and blueprint_token and not entry["blueprint"]["has_scope"]:
             entry["blueprint"] = {
                 "has_scope": True,
                 "character_id": character_id,
@@ -850,7 +746,7 @@ def _collect_corporation_scope_status(
                 "last_updated": getattr(blueprint_token, "created", None),
             }
 
-        if jobs_token and not entry["jobs"]["has_scope"]:
+        if eligible and jobs_token and not entry["jobs"]["has_scope"]:
             entry["jobs"] = {
                 "has_scope": True,
                 "character_id": character_id,
@@ -863,7 +759,7 @@ def _collect_corporation_scope_status(
             if CORP_ASSETS_SCOPE in present_scopes
             else None
         )
-        if assets_token and not entry["assets"]["has_scope"]:
+        if eligible and assets_token and not entry["assets"]["has_scope"]:
             entry["assets"] = {
                 "has_scope": True,
                 "character_id": character_id,
@@ -883,7 +779,11 @@ def _collect_corporation_scope_status(
             if _has_all_scopes(MATERIAL_EXCHANGE_SCOPE_SET)
             else None
         )
-        if material_exchange_token and not entry["material_exchange"]["has_scope"]:
+        if (
+            eligible
+            and material_exchange_token
+            and not entry["material_exchange"]["has_scope"]
+        ):
             entry["material_exchange"] = {
                 "has_scope": True,
                 "character_id": character_id,
@@ -1991,8 +1891,8 @@ def _build_dashboard_context(request):
     can_manage_corp = request.user.has_perm("indy_hub.can_manage_corp_bp_requests")
     can_view_corporation_bp = can_view_corporation_blueprints(request.user)
     can_view_corporation_jobs_flag = can_view_corporation_jobs(request.user)
-    corp_scope_status_cache_key = (
-        f"indy_hub:corp_scope_status:dashboard:{int(request.user.id)}"
+    corp_scope_status_cache_key = corporation_scope_status_cache_key(
+        request.user.id, "dashboard"
     )
     if can_manage_corp:
         corp_scope_status = cache.get(corp_scope_status_cache_key)
@@ -2290,8 +2190,8 @@ def _build_settings_hub_context(request) -> dict[str, Any]:
     can_view_corporation_jobs_flag = can_view_corporation_jobs(request.user)
 
     if can_manage_corp:
-        corp_scope_status_cache_key = (
-            f"indy_hub:corp_scope_status:settings:{int(request.user.id)}"
+        corp_scope_status_cache_key = corporation_scope_status_cache_key(
+            request.user.id, "settings"
         )
         corp_scope_status = cache.get(corp_scope_status_cache_key)
         if corp_scope_status is None:
@@ -2513,6 +2413,7 @@ def index(request):
         character_contexts = build_user_character_skill_contexts(
             request.user,
             skill_cache_ttl=timedelta(hours=1),
+            allow_live_fetch=False,
         )
         character_ids: list[int] = []
         character_context_by_id: dict[int, dict[str, object]] = {}
@@ -2820,17 +2721,17 @@ def token_management(request):
 
             if reason == "missing_roles_scope":
                 message = _(
-                    "%(character)s must authorize the corporation roles scope before Indy Hub can use %(corporation)s director tokens."
+                    "%(character)s must authorize the corporation roles scope before Indy Hub can use corporation operations for %(corporation)s. The shared authorization is retained."
                 ) % {
                     "character": character_name,
                     "corporation": corp_name,
                 }
-                if warning.get("tokens_revoked"):
-                    message += " " + _("Indy Hub removed the unusable tokens.")
                 level = "warning"
             elif reason == "missing_required_roles":
-                # Hide required-role warnings on the ESI page.
-                continue
+                message = _(
+                    "Indy Hub cannot use %(character)s for %(corporation)s: required corporation roles are missing. The shared authorization is retained."
+                ) % {"character": character_name, "corporation": corp_name}
+                level = "warning"
             elif reason == "roles_unavailable":
                 message = _(
                     "Indy Hub could not verify corporation roles for %(corporation)s. The corporation is still listed, but scopes remain unverified."
@@ -2953,6 +2854,7 @@ def token_management_live_refresh(request):
     current_hash = str(request.GET.get("current_hash") or "")
     try:
         live_payload = _build_token_management_live_payload(request.user)
+        invalidate_token_status_cache(request.user.id)
         cache.set(
             _token_management_live_cache_key(int(request.user.id)),
             live_payload,
@@ -3287,7 +3189,7 @@ def sync_all_tokens(request, tokens):
                     messages.warning(
                         request,
                         _(
-                            "Blueprint synchronization skipped: user considered inactive."
+                            "Unable to schedule blueprint synchronization. Please try again."
                         ),
                     )
                 else:
@@ -3327,7 +3229,7 @@ def sync_all_tokens(request, tokens):
                 elif remaining is None:
                     messages.warning(
                         request,
-                        _("Jobs synchronization skipped: user considered inactive."),
+                        _("Unable to schedule jobs synchronization. Please try again."),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
@@ -3391,7 +3293,7 @@ def sync_blueprints(request, tokens):
                     messages.warning(
                         request,
                         _(
-                            "Blueprint synchronization skipped: user considered inactive."
+                            "Unable to schedule blueprint synchronization. Please try again."
                         ),
                     )
                 else:
@@ -3448,7 +3350,7 @@ def sync_jobs(request, tokens):
                 elif remaining is None:
                     messages.warning(
                         request,
-                        _("Jobs synchronization skipped: user considered inactive."),
+                        _("Unable to schedule jobs synchronization. Please try again."),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))

@@ -11,10 +11,12 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import transaction
+from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.views.decorators.http import require_http_methods
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
@@ -38,6 +40,7 @@ from ..services.asset_cache import (
     resolve_structure_names,
 )
 from ..services.esi_client import ESIUnmodifiedError
+from ..services.material_exchange_sync import enqueue_material_exchange_sync
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.eve import PLACEHOLDER_PREFIX
 from ..utils.material_exchange_pricing import MATERIAL_EXCHANGE_PRICE_MAX
@@ -447,8 +450,8 @@ def _get_token_for_corp(user, corp_id, scope, require_corporation_token: bool = 
 
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
-@tokens_required(scopes="esi-characters.read_corporation_roles.v1")
-def material_exchange_config(request, tokens):
+@require_http_methods(["GET", "POST"])
+def material_exchange_config(request, tokens=None):
     emit_view_analytics_event(
         view_name="material_exchange_config.page", request=request
     )
@@ -458,48 +461,46 @@ def material_exchange_config(request, tokens):
     """
     config = MaterialExchangeConfig.objects.first()
 
-    # Get available corporations from user's ESI tokens
-    available_corps = _get_user_corporations(request.user)
+    if request.method == "POST":
+        return _material_exchange_config_post(request)
 
-    # Do NOT load structures on initial page load - wait for AJAX after corp selection
+    if request.GET.get("fragment") == "1":
+        try:
+            response = JsonResponse(
+                {"corporations": _get_user_corporations(request.user)}
+            )
+            response["Cache-Control"] = "no-store"
+            return response
+        except Exception:
+            logger.exception(
+                "Unable to load Material Exchange corporations for user %s",
+                request.user.id,
+            )
+            return JsonResponse(
+                {"error": _("Unable to load corporations. Please try again.")},
+                status=503,
+            )
+
+    available_corps = []
+    if config and config.corporation_id:
+        # A saved selection remains visible until the asynchronous options arrive.
+        available_corps = [
+            {
+                "id": config.corporation_id,
+                "name": str(config.corporation_id),
+                "ticker": "",
+            }
+        ]
     available_structures = []
     hangar_divisions = {}
     division_scope_missing = False
     assets_scope_missing = False
     current_corp_ticker = ""
-    current_hangar_name = ""
-
-    if config and getattr(config, "corporation_id", None):
-        try:
-            hangar_divisions, division_scope_missing = _get_corp_hangar_divisions(
-                request.user, config.corporation_id
-            )
-            current_hangar_name = hangar_divisions.get(
-                int(config.hangar_division),
-                f"Hangar Division {config.hangar_division}",
-            )
-        except Exception:
-            current_hangar_name = f"Hangar Division {config.hangar_division}"
-
-        for corp in available_corps:
-            if corp.get("id") == config.corporation_id:
-                current_corp_ticker = corp.get("ticker", "")
-                break
-
+    current_hangar_name = f"Hangar Division {config.hangar_division}" if config else ""
     accepted_locations = _hydrate_material_exchange_locations(
         _get_material_exchange_config_locations(config),
         hangar_divisions,
     )
-
-    if request.method == "POST":
-        if request.POST.get("delete_config") == "1":
-            if config:
-                config.delete()
-                messages.success(request, _("Configuration deleted."))
-            else:
-                messages.info(request, _("No configuration to delete."))
-            return redirect("indy_hub:material_exchange_config")
-        return _handle_config_save(request, config)
 
     market_group_choices: list[dict[str, str | int]] = []
     try:
@@ -607,6 +608,19 @@ def material_exchange_config(request, tokens):
     return render(request, "indy_hub/material_exchange/config.html", context)
 
 
+@tokens_required(scopes="esi-characters.read_corporation_roles.v1")
+def _material_exchange_config_post(request, tokens):
+    config = MaterialExchangeConfig.objects.first()
+    if request.POST.get("delete_config") == "1":
+        if config:
+            config.delete()
+            messages.success(request, _("Configuration deleted."))
+        else:
+            messages.info(request, _("No configuration to delete."))
+        return redirect("indy_hub:material_exchange_config")
+    return _handle_config_save(request, config)
+
+
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 def material_exchange_toggle_active(request):
@@ -660,10 +674,27 @@ def material_exchange_toggle_active(request):
 
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
+@require_http_methods(["GET"])
+def material_exchange_get_structures(request, corp_id):
+    response = _material_exchange_get_structures(request, corp_id=corp_id)
+    if response.status_code in {301, 302}:
+        response = JsonResponse(
+            {
+                "structures": [],
+                "hangar_divisions": {},
+                "division_scope_missing": True,
+                "assets_scope_missing": True,
+                "authorization_required": True,
+            }
+        )
+    response["Cache-Control"] = "no-store"
+    return response
+
+
 @tokens_required(
     scopes="esi-assets.read_corporation_assets.v1 esi-corporations.read_divisions.v1"
 )
-def material_exchange_get_structures(request, tokens, corp_id):
+def _material_exchange_get_structures(request, tokens, corp_id):
     emit_view_analytics_event(
         view_name="material_exchange_config.get_structures", request=request
     )
@@ -710,7 +741,11 @@ def _find_director_character(user, corp_id):
 
     # Get ALL character tokens for the user first
     try:
-        all_tokens = Token.objects.filter(user=user).require_valid()
+        all_tokens = (
+            Token.objects.filter(user=user)
+            .require_scopes(["esi-characters.read_corporation_roles.v1"])
+            .require_valid()
+        )
         all_tokens_list = list(all_tokens)
         logger.warning(
             "Found %s valid tokens for user %s: %s",
@@ -869,7 +904,11 @@ def _find_director_character(user, corp_id):
         user.username,
     )
 
-    all_tokens = Token.objects.filter(user=user).require_valid()
+    all_tokens = (
+        Token.objects.filter(user=user)
+        .require_scopes(["esi-characters.read_corporation_roles.v1"])
+        .require_valid()
+    )
     for token in all_tokens:
         try:
             character_id = token.character_id
@@ -1842,7 +1881,9 @@ def _handle_config_save(request, existing_config):
     previous_primary = previous_locations[0] if previous_locations else None
     new_primary = new_locations[0] if new_locations else None
     needs_additional_location_sync = bool(existing_config) and (
-        previous_locations != new_locations and previous_primary == new_primary
+        previous_locations != new_locations
+        and previous_primary == new_primary
+        and existing_config.corporation_id == corporation_id
     )
 
     # Save or update config
@@ -1955,19 +1996,9 @@ def _handle_config_save(request, existing_config):
             )
 
         if needs_additional_location_sync:
-            transaction.on_commit(_run_material_exchange_follow_up_sync)
+            transaction.on_commit(enqueue_material_exchange_sync)
 
     return redirect("indy_hub:material_exchange_index")
-
-
-def _run_material_exchange_follow_up_sync() -> None:
-    from ..tasks.material_exchange import (
-        sync_material_exchange_prices,
-        sync_material_exchange_stock,
-    )
-
-    sync_material_exchange_stock()
-    sync_material_exchange_prices()
 
 
 @login_required

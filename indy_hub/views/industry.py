@@ -23,6 +23,7 @@ from django.db import connection, transaction
 from django.db.models import Case, Count, Max, Prefetch, Q, Sum, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.html import escape, mark_safe
@@ -238,7 +239,9 @@ from ..tasks.industry import (
     MANUAL_REFRESH_KIND_BLUEPRINTS,
     MANUAL_REFRESH_KIND_JOBS,
     STRUCTURE_SCOPE,
+    manual_refresh_in_progress,
     request_manual_refresh,
+    update_user_skill_snapshots,
 )
 from ..utils.analytics import emit_view_analytics_event
 from ..utils.discord_actions import (
@@ -257,6 +260,7 @@ from ..utils.eve import (
     get_type_name,
     is_reaction_blueprint,
 )
+from ..utils.token_status import apply_token_validity_filter
 from .navigation import build_nav_context
 
 # ESI skills scope + industry slot calculations
@@ -410,17 +414,17 @@ def _build_slot_overview_summary(
     return _build_slot_overview_summary_service(rows)
 
 
-def _has_required_scopes(user, scopes: list[str]) -> bool:
+def _has_required_scopes(
+    user, scopes: list[str], *, validate_tokens: bool = True
+) -> bool:
     try:
         # Alliance Auth
         from esi.models import Token
 
-        return (
-            Token.objects.filter(user=user)
-            .require_scopes(scopes)
-            .require_valid()
-            .exists()
-        )
+        return apply_token_validity_filter(
+            Token.objects.filter(user=user).require_scopes(scopes),
+            validate_tokens=validate_tokens,
+        ).exists()
     except Exception:
         return False
 
@@ -933,6 +937,7 @@ def _mark_offer_seller_accept(offer: BlueprintCopyOffer) -> bool:
 # --- Blueprint and job views ---
 @indy_hub_access_required
 @login_required
+@require_http_methods(["GET", "POST"])
 def personnal_bp_list(request, scope="character"):
     emit_view_analytics_event(view_name="industry.personnal_bp_list", request=request)
     # Copy of the old blueprints_list code
@@ -948,20 +953,80 @@ def personnal_bp_list(request, scope="character"):
     if is_corporation_scope:
         accessible_corporation_ids = sorted(get_viewable_corporation_ids(request.user))
 
+    is_fragment = request.GET.get("fragment") == "1"
+    if request.method == "POST":
+        if request.POST.get("action") != "refresh":
+            return JsonResponse({"error": _("Unknown action.")}, status=400)
+        if is_corporation_scope and (
+            not has_corporate_perm or not accessible_corporation_ids
+        ):
+            return JsonResponse(
+                {
+                    "error": _(
+                        "You do not have permission to refresh corporation blueprints."
+                    )
+                },
+                status=403,
+            )
+        try:
+            scheduled, remaining, reason = request_manual_refresh(
+                MANUAL_REFRESH_KIND_BLUEPRINTS,
+                request.user.id,
+                priority=5,
+                scope=scope,
+            )
+        except Exception:
+            logger.exception(
+                "Unable to schedule blueprint refresh for %s", request.user.id
+            )
+            return JsonResponse(
+                {"error": _("Unable to schedule blueprint refresh. Please try again.")},
+                status=503,
+            )
+        if scheduled:
+            message = _(
+                "Blueprint refresh scheduled. Updated data will appear shortly."
+            )
+        elif reason == "in_progress":
+            message = _(
+                "A blueprint refresh is already running. Updated data will appear shortly."
+            )
+        elif remaining is None:
+            message = _("Unable to schedule blueprint refresh. Please try again.")
+        else:
+            message = _(
+                "A blueprint refresh was already requested recently. Please try again in %(minutes)s minute(s)."
+            ) % {"minutes": max(1, ceil(remaining.total_seconds() / 60))}
+        return JsonResponse(
+            {
+                "scheduled": scheduled,
+                "message": message,
+                "refresh_running": manual_refresh_in_progress(
+                    MANUAL_REFRESH_KIND_BLUEPRINTS, request.user.id, scope
+                ),
+            }
+        )
+
     requires_own_tokens = not is_corporation_scope or has_corporate_perm
     required_scopes = (
         list(CORP_BLUEPRINT_SCOPE_SET)
         if is_corporation_scope
         else [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
     )
-    if requires_own_tokens and not _has_required_scopes(request.user, required_scopes):
+    if (
+        not is_fragment
+        and requires_own_tokens
+        and not _has_required_scopes(
+            request.user, required_scopes, validate_tokens=False
+        )
+    ):
         messages.warning(
             request,
             _("ESI: missing blueprint scope/tokens. Add a character in the ESI tab."),
         )
     try:
         # Check if we need to sync data
-        force_update = request.GET.get("refresh") == "1"
+        force_update = not is_fragment and request.GET.get("refresh") == "1"
         if force_update:
             logger.info(
                 f"User {request.user.username} requested blueprint refresh; enqueuing Celery task"
@@ -977,7 +1042,6 @@ def personnal_bp_list(request, scope="character"):
                     request.user.id,
                     priority=5,
                     scope=scope,
-                    check_active=not is_corporation_scope,
                 )
                 if scheduled:
                     messages.success(
@@ -996,7 +1060,7 @@ def personnal_bp_list(request, scope="character"):
                 elif remaining is None:
                     messages.warning(
                         request,
-                        _("Blueprint refresh skipped: user considered inactive."),
+                        _("Unable to schedule blueprint refresh. Please try again."),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
@@ -1007,11 +1071,24 @@ def personnal_bp_list(request, scope="character"):
                         )
                         % {"minutes": wait_minutes},
                     )
-    except Exception as e:
-        logger.error(f"Error handling blueprint refresh: {e}")
-        messages.error(request, f"Error handling blueprint refresh: {e}")
+    except Exception:
+        logger.exception(
+            "Error handling blueprint refresh for user %s", request.user.id
+        )
+        messages.error(
+            request, _("Unable to schedule blueprint refresh. Please try again.")
+        )
 
     if is_corporation_scope and not accessible_corporation_ids:
+        if is_fragment:
+            return JsonResponse(
+                {
+                    "error": _(
+                        "You do not have permission to view corporation blueprints."
+                    )
+                },
+                status=403,
+            )
         messages.error(
             request,
             _("You do not have permission to view corporation blueprints."),
@@ -1027,8 +1104,8 @@ def personnal_bp_list(request, scope="character"):
     owner_filter = owner_filter.strip() if isinstance(owner_filter, str) else ""
     activity_id = request.GET.get("activity_id", "")
     sort_order = request.GET.get("order", "asc")
-    page = int(request.GET.get("page", 1))
-    per_page = int(request.GET.get("per_page", 25))
+    page = _parse_bounded_int(request.GET.get("page"), default=1)
+    per_page = _parse_bounded_int(request.GET.get("per_page"), default=25, maximum=200)
 
     if activity_id == "1":
         filter_names = ["manufacturing"]
@@ -1316,7 +1393,13 @@ def personnal_bp_list(request, scope="character"):
             ("1", activity_labels[1]),
             ("9,11", activity_labels[9]),
         ]
+        return_params = request.GET.copy()
+        return_params.pop("fragment", None)
+        return_params.pop("refresh", None)
+        return_query = return_params.urlencode()
         context = {
+            "blueprint_return_url": request.path
+            + (f"?{return_query}" if return_query else ""),
             "blueprints": blueprints_page,
             "statistics": {
                 "total_count": total_blueprints,
@@ -1364,17 +1447,38 @@ def personnal_bp_list(request, scope="character"):
             "can_manage_corp_bp_requests": has_corporate_perm,
             "back_to_overview_url": reverse("indy_hub:index"),
         }
+        if is_fragment:
+            response = JsonResponse(
+                {
+                    "html": render_to_string(
+                        "indy_hub/blueprints/_personal_bp_results.html",
+                        context,
+                        request=request,
+                    ),
+                    "owner_options": owner_options,
+                    "refresh_running": manual_refresh_in_progress(
+                        MANUAL_REFRESH_KIND_BLUEPRINTS, request.user.id, scope
+                    ),
+                }
+            )
+            response["Cache-Control"] = "no-store"
+            return response
         context.update(
             build_nav_context(
                 request.user,
                 active_tab="blueprints",
                 can_manage_corp=has_corporate_perm,
+                validate_esi_tokens=False,
             )
         )
 
         return render(request, "indy_hub/blueprints/Personnal_BP_list.html", context)
     except Exception as e:
         logger.error(f"Error displaying blueprints: {e}")
+        if is_fragment:
+            return JsonResponse(
+                {"error": _("Unable to load blueprints. Please try again.")}, status=503
+            )
         messages.error(request, f"Error displaying blueprints: {e}")
         return redirect("indy_hub:index")
 
@@ -1511,8 +1615,10 @@ def all_bp_list(request):
 
 @indy_hub_access_required
 @login_required
+@require_http_methods(["GET", "POST"])
 def personnal_job_list(request, scope="character"):
     emit_view_analytics_event(view_name="industry.personnal_job_list", request=request)
+    is_fragment = request.method == "GET" and request.GET.get("fragment") == "1"
     owner_options: list[tuple[int, str]] = []
     scope_param = request.GET.get("scope")
     scope = (scope_param or scope or "character").lower()
@@ -1528,20 +1634,80 @@ def personnal_job_list(request, scope="character"):
     if is_corporation_scope:
         accessible_corporation_ids = viewable_corporation_job_ids
 
+    if request.method == "POST":
+        if request.POST.get("action") != "refresh":
+            return JsonResponse({"error": _("Unknown action.")}, status=400)
+        if is_corporation_scope and (
+            not has_corporate_perm or not accessible_corporation_ids
+        ):
+            return JsonResponse(
+                {"error": _("You do not have permission to refresh corporation jobs.")},
+                status=403,
+            )
+        try:
+            scheduled, remaining, reason = request_manual_refresh(
+                MANUAL_REFRESH_KIND_JOBS,
+                request.user.id,
+                priority=5,
+                scope=scope,
+            )
+        except Exception:
+            logger.exception("Unable to schedule job refresh for %s", request.user.id)
+            return JsonResponse(
+                {"error": _("Unable to schedule job refresh. Please try again.")},
+                status=503,
+            )
+        if scheduled:
+            try:
+                update_user_skill_snapshots.apply_async(
+                    args=(request.user.id,), kwargs={"force_refresh": True}, priority=5
+                )
+            except Exception:
+                logger.exception(
+                    "Unable to schedule skill refresh for user %s", request.user.id
+                )
+            message = _(
+                "Industry job refresh scheduled. Updated data will appear shortly."
+            )
+        elif reason == "in_progress":
+            message = _(
+                "A job refresh is already running. Updated data will appear shortly."
+            )
+        elif remaining is None:
+            message = _("Unable to schedule industry job refresh. Please try again.")
+        else:
+            message = _(
+                "A job refresh was already requested recently. Please try again in %(minutes)s minute(s)."
+            ) % {"minutes": max(1, ceil(remaining.total_seconds() / 60))}
+        return JsonResponse(
+            {
+                "scheduled": scheduled,
+                "message": message,
+                "refresh_running": manual_refresh_in_progress(
+                    MANUAL_REFRESH_KIND_JOBS, request.user.id, scope
+                ),
+            }
+        )
+
     requires_own_tokens = not is_corporation_scope or has_corporate_perm
     required_scopes = (
         list(CORP_JOBS_SCOPE_SET)
         if is_corporation_scope
         else [JOBS_SCOPE, STRUCTURE_SCOPE]
     )
-    if requires_own_tokens and not _has_required_scopes(request.user, required_scopes):
+    if (
+        not is_fragment
+        and requires_own_tokens
+        and not _has_required_scopes(
+            request.user, required_scopes, validate_tokens=False
+        )
+    ):
         messages.warning(
             request,
             _("ESI: missing job scope/tokens. Add a character in the ESI tab."),
         )
     try:
-        force_update = request.GET.get("refresh") == "1"
-        force_skill_refresh = request.GET.get("force_refresh") == "1" or force_update
+        force_update = not is_fragment and request.GET.get("refresh") == "1"
         if force_update:
             logger.info(
                 f"User {request.user.username} requested jobs refresh; enqueuing Celery task"
@@ -1557,9 +1723,13 @@ def personnal_job_list(request, scope="character"):
                     request.user.id,
                     priority=5,
                     scope=scope,
-                    check_active=not is_corporation_scope,
                 )
                 if scheduled:
+                    update_user_skill_snapshots.apply_async(
+                        args=(request.user.id,),
+                        kwargs={"force_refresh": True},
+                        priority=5,
+                    )
                     messages.success(
                         request,
                         _(
@@ -1576,7 +1746,9 @@ def personnal_job_list(request, scope="character"):
                 elif remaining is None:
                     messages.warning(
                         request,
-                        _("Industry jobs refresh skipped: user considered inactive."),
+                        _(
+                            "Unable to schedule industry jobs refresh. Please try again."
+                        ),
                     )
                 else:
                     wait_minutes = max(1, ceil(remaining.total_seconds() / 60))
@@ -1592,6 +1764,15 @@ def personnal_job_list(request, scope="character"):
         messages.error(request, f"Error handling jobs refresh: {e}")
 
     if is_corporation_scope and not accessible_corporation_ids:
+        if is_fragment:
+            return JsonResponse(
+                {
+                    "error": _(
+                        "You do not have permission to view corporation industry jobs."
+                    )
+                },
+                status=403,
+            )
         messages.error(
             request,
             _("You do not have permission to view corporation industry jobs."),
@@ -1957,8 +2138,7 @@ def personnal_job_list(request, scope="character"):
 
         slot_overview_rows = _build_slot_overview_rows(
             request.user,
-            allow_live_fetch=force_skill_refresh,
-            force_refresh=force_skill_refresh,
+            allow_live_fetch=False,
         )
         latest_skill_snapshot_at = (
             IndustrySkillSnapshot.objects.filter(owner_user=request.user)
@@ -2014,6 +2194,27 @@ def personnal_job_list(request, scope="character"):
             "skills_scope": SKILLS_SCOPE,
             "last_data_refresh_at": last_data_refresh_at,
         }
+        if is_fragment:
+            response = JsonResponse(
+                {
+                    "html": render_to_string(
+                        "indy_hub/industry/_job_results.html", context, request=request
+                    ),
+                    "extra_html": {
+                        "jobSlots": render_to_string(
+                            "indy_hub/industry/_job_slots.html",
+                            context,
+                            request=request,
+                        )
+                    },
+                    "owner_options": owner_options,
+                    "refresh_running": manual_refresh_in_progress(
+                        MANUAL_REFRESH_KIND_JOBS, request.user.id, scope
+                    ),
+                }
+            )
+            response["Cache-Control"] = "no-store"
+            return response
         context.update(
             build_nav_context(
                 request.user,
@@ -2030,6 +2231,11 @@ def personnal_job_list(request, scope="character"):
         return render(request, "indy_hub/industry/Personnal_Job_list.html", context)
     except Exception as e:
         logger.error(f"Error displaying industry jobs: {e}")
+        if is_fragment:
+            return JsonResponse(
+                {"error": _("Unable to load industry jobs. Please try again.")},
+                status=503,
+            )
         messages.error(request, f"Error displaying industry jobs: {e}")
         return redirect("indy_hub:index")
 

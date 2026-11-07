@@ -1,0 +1,4 @@
+{% load i18n %}
+{% if usage_timeline %}
+<div class="mt-4"><h3 class="h6">{% trans "Daily activity" %}</h3><div class="admin-users-timeline" style="--timeline-days: {{ usage_timeline|length }}" role="group" aria-label="{% trans 'Recorded visits per day' %}">{% for day in usage_timeline %}<div class="admin-users-timeline-bar" style="height: {{ day.percent }}%" tabindex="0" title="{{ day.iso }} · {{ day.count }} {% trans 'visits' %}" aria-label="{{ day.iso }} · {{ day.count }} {% trans 'visits' %}"></div>{% endfor %}</div><div class="d-flex justify-content-between text-body-secondary small mt-1"><span>{{ usage_timeline.0.date|date:"d M" }}</span><span>{% trans "Today" %}</span></div></div>
+{% endif %}

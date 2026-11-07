@@ -28,6 +28,7 @@ ESI_REQUIRED_OPERATIONS = [
     "GetCorporationsCorporationIdBlueprints",
     "GetCorporationsCorporationIdContracts",
     "GetCorporationsCorporationIdContractsContractIdItems",
+    "GetCorporationsCorporationIdDivisions",
     "GetCorporationsCorporationIdIndustryJobs",
     "GetCorporationsCorporationIdStructures",
     "GetIndustrySystems",

@@ -20,6 +20,7 @@
     </div>
 </div>
 
+{% include "indy_hub/settings/partials/admin_users_timeline.html" with usage_timeline=usage_detail.overall_timeline %}
 <div class="mt-4">
     <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mb-3">
         <h3 class="h6 mb-0">{% trans "Top pages" %}</h3>

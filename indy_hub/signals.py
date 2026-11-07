@@ -1,7 +1,6 @@
 # Django
-from django.contrib.auth.models import User
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.db.models.signals import m2m_changed, post_delete, post_save, pre_save
 from django.dispatch import receiver
 
@@ -15,7 +14,9 @@ from .models import (
     BlueprintCopyChat,
     BlueprintCopyOffer,
     BlueprintCopyRequest,
+    CharacterRoles,
     CharacterSettings,
+    CorporationSharingSetting,
     IndustryJob,
     IndyHubUserUsage,
     MaterialExchangeBuyOrder,
@@ -26,10 +27,7 @@ from .services.admin_user_status import (
     rebuild_admin_user_statuses,
     update_admin_user_status_usage,
 )
-from .tasks.material_exchange import (
-    sync_material_exchange_prices,
-    sync_material_exchange_stock,
-)
+from .services.material_exchange_sync import enqueue_material_exchange_sync
 from .utils.eve import PLACEHOLDER_PREFIX, resolve_location_name
 from .utils.job_notifications import process_job_completion_notification
 
@@ -45,25 +43,15 @@ except ImportError:
 from indy_hub.tasks.industry import (
     BLUEPRINT_SCOPE,
     CORP_ASSETS_SCOPE,
-    CORP_BLUEPRINT_SCOPE,
     CORP_BLUEPRINT_SCOPE_SET,
-    CORP_JOBS_SCOPE,
     CORP_JOBS_SCOPE_SET,
     CORP_STRUCTURES_SCOPE,
     JOBS_SCOPE,
-    REQUIRED_CORPORATION_ROLES,
-    SKILLS_SCOPE,
     STRUCTURE_SCOPE,
-    _is_user_active,
-    get_character_corporation_roles,
-    queue_blueprint_update_for_user,
-    queue_industry_job_update_for_user,
-    update_character_skill_snapshot_for_character,
 )
 
-from .services.esi_client import ESITokenError
-from .tasks.user import update_character_roles_for_character
 from .utils.menu_badge import invalidate_menu_badge_cache
+from .utils.token_status import invalidate_token_status_cache
 
 logger = get_extension_logger(__name__)
 
@@ -304,7 +292,33 @@ if Token is not None:
         Without this, the AA-side badge would keep its cached value even
         after the user re-authorizes the missing scopes, which is misleading.
         """
-        invalidate_menu_badge_cache(getattr(instance, "user_id", None))
+        _invalidate_token_views(
+            getattr(instance, "user_id", None), using=kwargs.get("using", "default")
+        )
+
+
+@receiver(post_save, sender=CorporationSharingSetting)
+@receiver(post_delete, sender=CorporationSharingSetting)
+def invalidate_corporation_token_status(sender, instance, **kwargs):
+    invalidate_token_status_cache(instance.user_id)
+
+
+def _invalidate_token_views(*user_ids, using="default"):
+    def invalidate():
+        invalidate_menu_badge_cache(*user_ids)
+        invalidate_token_status_cache(*user_ids)
+
+    invalidate()
+    # Another request can refill a cache before this transaction commits.
+    transaction.on_commit(invalidate, using=using)
+
+
+@receiver(post_save, sender=CharacterRoles)
+@receiver(post_delete, sender=CharacterRoles)
+def invalidate_role_token_status(sender, instance, **kwargs):
+    _invalidate_token_views(
+        instance.owner_user_id, using=kwargs.get("using", "default")
+    )
 
 
 def _refresh_admin_user_status_safely(*user_ids) -> None:
@@ -388,6 +402,9 @@ if Token is not None:
         if action not in {"post_add", "post_remove", "post_clear"}:
             return
         if not reverse:
+            _invalidate_token_views(
+                getattr(instance, "user_id", None), using=kwargs.get("using", "default")
+            )
             _refresh_admin_user_status_safely(getattr(instance, "user_id", None))
             return
         if action == "post_clear":
@@ -402,6 +419,8 @@ if Token is not None:
             token_user_ids = Token.objects.filter(pk__in=pk_set or []).values_list(
                 "user_id", flat=True
             )
+        token_user_ids = list(token_user_ids)
+        _invalidate_token_views(*token_user_ids, using=kwargs.get("using", "default"))
         _refresh_admin_user_status_safely(*token_user_ids)
 
 
@@ -411,6 +430,7 @@ if Token is not None:
 @receiver(pre_save, sender=MaterialExchangeConfig)
 def detect_config_change(sender, instance, **kwargs):
     """Flag the instance when key fields change so we can act post-commit."""
+    instance._needs_exchange_sync = False
     pk = getattr(instance, "pk", None)
     logger.info(
         "MaterialExchangeConfig pre_save: pk=%s, structure_id=%s, corporation_id=%s, hangar_division=%s",
@@ -494,9 +514,10 @@ def detect_config_change(sender, instance, **kwargs):
 def auto_sync_stock_on_config_change(sender, instance, created, **kwargs):
     """
     When Material Exchange configuration is created or key fields change,
-    immediately refresh stock (and prices) so pages reflect the new structure.
+    queue stock (and its price follow-up) after the configuration commits.
     """
     needs_sync = created or getattr(instance, "_needs_exchange_sync", False)
+    instance._needs_exchange_sync = False
 
     logger.info(
         "MaterialExchangeConfig post_save: created=%s, needs_sync=%s, pk=%s",
@@ -509,157 +530,52 @@ def auto_sync_stock_on_config_change(sender, instance, created, **kwargs):
         logger.debug("No sync needed for MaterialExchangeConfig pk=%s", instance.pk)
         return
 
-    logger.info("SYNCING MATERIAL EXCHANGE STOCK/PRICES for config pk=%s", instance.pk)
-
-    try:
-        sync_material_exchange_stock()
-        logger.info("Stock sync completed for config pk=%s", instance.pk)
-    except Exception:
-        logger.exception("Stock sync failed for config pk=%s", instance.pk)
-
-    try:
-        sync_material_exchange_prices()
-        logger.info("Price sync completed for config pk=%s", instance.pk)
-    except Exception:
-        logger.exception("Price sync failed for config pk=%s", instance.pk)
+    transaction.on_commit(enqueue_material_exchange_sync, using=kwargs.get("using"))
 
 
-# --- NEW: Combined token sync trigger ---
-if Token:
+# Scope changes are hints, never a global OAuth-finalized event.
+if Token is not None:
+
+    @receiver(pre_save, sender=Token)
+    def remember_token_owner(sender, instance, **kwargs):
+        instance._indy_hub_previous_user_id = _get_previous_field_value(
+            Token, instance.pk, "user_id"
+        )
 
     @receiver(post_save, sender=Token)
-    def enforce_corporation_role_tokens(sender, instance, created, **kwargs):
-        if not created:
-            return
-
-        scope_names = set(instance.scopes.values_list("name", flat=True))
-        relevant_scopes = {CORP_BLUEPRINT_SCOPE, CORP_JOBS_SCOPE}
-        if not scope_names.intersection(relevant_scopes):
-            return
-
-        try:
-            roles = get_character_corporation_roles(instance.character_id)
-        except ESITokenError:
-            logger.info(
-                "Removing corporation token %s for character %s: missing roles scope",
-                instance.pk,
-                instance.character_id,
-                extra={"scopes": sorted(scope_names)},
-            )
-            instance.delete()
-            return
-
-        if roles.intersection(REQUIRED_CORPORATION_ROLES):
-            return
-
-        logger.info(
-            "Removing corporation token %s for character %s: lacks required roles %s",
-            instance.pk,
-            instance.character_id,
-            ", ".join(sorted(REQUIRED_CORPORATION_ROLES)),
-            extra={"scopes": sorted(scope_names)},
+    def trigger_sync_on_token_save(
+        sender, instance, created, using="default", **kwargs
+    ):
+        previous_user_id = getattr(
+            instance, "_indy_hub_previous_user_id", instance.user_id
         )
-        instance.delete()
+        if not created and previous_user_id != instance.user_id:
+            from .services.token_sync import schedule_token_sync
 
-    @receiver(post_save, sender=Token)
-    def trigger_sync_on_token_save(sender, instance, created, **kwargs):
-        """
-        When a new ESI token is saved, trigger appropriate sync based on scopes.
-        """
-        if not instance.user_id:
-            logger.debug(f"Token {instance.pk} has no user_id, skipping sync")
+            _invalidate_token_views(previous_user_id, using=using)
+            _refresh_admin_user_status_safely(previous_user_id)
+            schedule_token_sync(instance.user_id, instance.character_id, using=using)
+
+    @receiver(m2m_changed, sender=Token.scopes.through)
+    def trigger_sync_on_token_scopes(
+        sender, instance, action, reverse, pk_set, using="default", **kwargs
+    ):
+        if action != "post_add" or not pk_set:
             return
+        from .services.token_sync import schedule_token_sync
 
-        # Only trigger sync for newly created tokens or significant updates
-        if not created:
-            return
-
-        user = instance.user if getattr(instance, "user", None) else None
-        if user is None and instance.user_id:
-            user = User.objects.filter(id=instance.user_id).first()
-        if user and not _is_user_active(user):
-            logger.debug(
-                "Skipping token-triggered sync for inactive user %s",
-                user.username,
+        if reverse:
+            scope_names = {instance.name}
+            tokens = Token.objects.filter(pk__in=pk_set)
+        else:
+            scope_names = set(
+                instance.scopes.filter(pk__in=pk_set).values_list("name", flat=True)
             )
-            return
-
-        logger.info(
-            f"New token created for user {instance.user_id}, character {instance.character_id}"
-        )
-
-        # Check blueprint scope
-        blueprint_scopes = instance.scopes.filter(
-            name="esi-characters.read_blueprints.v1"
-        )
-        if blueprint_scopes.exists():
-            logger.info(f"Triggering blueprint sync for user {instance.user_id}")
-            try:
-                queue_blueprint_update_for_user(
-                    int(instance.user_id),
-                    scope="character",
-                    character_id=int(instance.character_id),
-                )
-            except Exception as e:
-                logger.error(f"Failed to trigger blueprint sync: {e}")
-
-        # Check jobs scope
-        jobs_scopes = instance.scopes.filter(name="esi-industry.read_character_jobs.v1")
-        if jobs_scopes.exists():
-            logger.info(f"Triggering jobs sync for user {instance.user_id}")
-            try:
-                queue_industry_job_update_for_user(
-                    int(instance.user_id),
-                    scope="character",
-                    character_id=int(instance.character_id),
-                )
-            except Exception as e:
-                logger.error(f"Failed to trigger jobs sync: {e}")
-
-        skills_scopes = instance.scopes.filter(name=SKILLS_SCOPE)
-        if skills_scopes.exists():
-            logger.info(
-                "Triggering skill snapshot sync for user %s, character %s",
-                instance.user_id,
-                instance.character_id,
+            tokens = [instance]
+        for token in tokens:
+            schedule_token_sync(
+                token.user_id, token.character_id, scopes=scope_names, using=using
             )
-            try:
-                update_character_skill_snapshot_for_character.apply_async(
-                    args=(int(instance.user_id), int(instance.character_id))
-                )
-            except Exception as e:
-                logger.error(f"Failed to trigger skill snapshot sync: {e}")
-
-        roles_scopes = instance.scopes.filter(
-            name="esi-characters.read_corporation_roles.v1"
-        )
-        if roles_scopes.exists():
-            logger.info(
-                "Triggering role snapshot sync for user %s, character %s",
-                instance.user_id,
-                instance.character_id,
-            )
-            try:
-                update_character_roles_for_character.apply_async(
-                    args=(int(instance.user_id), int(instance.character_id)),
-                    kwargs={"force_refresh": True},
-                )
-            except Exception as e:
-                logger.error(f"Failed to trigger role snapshot sync: {e}")
-
-
-@receiver(post_save, sender=Token)
-def remove_duplicate_tokens(sender, instance, created, **kwargs):
-    # After saving a new token, delete any older duplicates for the same character and scopes
-    tokens = Token.objects.filter(
-        user=instance.user,
-        character_id=instance.character_id,
-    ).exclude(pk=instance.pk)
-    # Compare exact scope sets to identify duplicates
-    instance_scope_ids = set(instance.scopes.values_list("id", flat=True))
-    for token in tokens:
-        if set(token.scopes.values_list("id", flat=True)) == instance_scope_ids:
-            token.delete()
 
 
 @receiver(post_save, sender=MaterialExchangeBuyOrder)
