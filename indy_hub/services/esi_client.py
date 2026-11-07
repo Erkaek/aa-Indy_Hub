@@ -13,6 +13,9 @@ try:
 except ImportError:  # pragma: no cover - celery always available in runtime
     current_task = None
 
+# Third Party
+from pydantic import BaseModel
+
 # Django
 from django.core.cache import cache
 
@@ -200,18 +203,19 @@ def get_retry_after_seconds(
     """Best-effort Retry-After extraction for transient ESI failures."""
 
     raw_delay = getattr(exc, "retry_after", None)
-    response = getattr(exc, "response", None)
-    if raw_delay is None and response is not None:
-        headers = getattr(response, "headers", None)
-        if headers is not None:
-            for header in (
-                "Retry-After",
-                "X-Esi-Error-Limit-Reset",
-                "X-Ratelimit-Reset",
-            ):
-                raw_delay = headers.get(header)
-                if raw_delay is not None:
-                    break
+    headers = getattr(exc, "headers", None)
+    if headers is None:
+        # This utility also accepts exceptions carrying a response object.
+        headers = getattr(getattr(exc, "response", None), "headers", None)
+    if raw_delay is None and headers is not None:
+        for header in (
+            "Retry-After",
+            "X-Esi-Error-Limit-Reset",
+            "X-Ratelimit-Reset",
+        ):
+            raw_delay = headers.get(header)
+            if raw_delay is not None:
+                break
 
     delay = 0
     if raw_delay is not None:
@@ -620,12 +624,13 @@ class ESIClient:
         self, character_id: int, *, force_refresh: bool = False
     ) -> list[dict]:
         """Return the list of blueprints for a character."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-characters.read_blueprints.v1",
             endpoint=f"/characters/{character_id}/blueprints/",
-            resource="Character",
-            operation="get_characters_character_id_blueprints",
+            operation=lambda **kwargs: self.client.Character.GetCharactersCharacterIdBlueprints(
+                **kwargs
+            ),
             params={"character_id": character_id},
             force_refresh=force_refresh,
         )
@@ -634,12 +639,14 @@ class ESIClient:
         self, character_id: int, *, force_refresh: bool = False
     ) -> list[dict]:
         """Return the list of industry jobs for a character."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-industry.read_character_jobs.v1",
             endpoint=f"/characters/{character_id}/industry/jobs/",
-            resource="Industry",
-            operation="get_characters_character_id_industry_jobs",
+            operation=lambda **kwargs: self.client.Industry.GetCharactersCharacterIdIndustryJobs(
+                **kwargs
+            ),
+            paginated=False,
             params={"character_id": character_id},
             throttle_key=f"char:{int(character_id)}",
             force_refresh=force_refresh,
@@ -657,30 +664,13 @@ class ESIClient:
             character_id, "esi-skills.read_skills.v1"
         )
 
-        skills_resource = getattr(self.client, "Skills", None)
-        operation_fn = None
-        if skills_resource is not None:
-            operation_fn = getattr(
-                skills_resource,
-                "get_characters_character_id_skills",
-                None,
-            ) or getattr(skills_resource, "GetCharactersCharacterIdSkills", None)
-
-        if operation_fn is None:
-            character_resource = getattr(self.client, "Character", None)
-            if character_resource is not None:
-                operation_fn = getattr(
-                    character_resource,
-                    "get_characters_character_id_skills",
-                    None,
-                ) or getattr(
-                    character_resource,
-                    "GetCharactersCharacterIdSkills",
-                    None,
+        def operation(token):
+            try:
+                return self.client.Skills.GetCharactersCharacterIdSkills(
+                    character_id=int(character_id), token=token, **request_kwargs
                 )
-
-        if not callable(operation_fn):
-            raise ESIClientError("ESI skills operation unavailable")
+            except AttributeError as exc:
+                raise ESIClientError("ESI skills operation unavailable") from exc
 
         request_kwargs = {"If-None-Match": ""} if force_refresh else {}
         results_kwargs = (
@@ -694,15 +684,9 @@ class ESIClient:
             scope="esi-skills.read_skills.v1",
             throttle_key=f"char:{int(character_id)}",
             results_kwargs=results_kwargs,
-            operation=lambda token: operation_fn(
-                character_id=int(character_id),
-                token=token,
-                **request_kwargs,
-            ),
+            operation=operation,
         )
 
-        if isinstance(payload, list):
-            payload = payload[0] if payload else {}
         if isinstance(payload, dict):
             return payload
         coerced = self._coerce_mapping(payload)
@@ -720,12 +704,13 @@ class ESIClient:
         force_refresh: bool = False,
     ) -> list[dict]:
         """Return the list of blueprints owned by a corporation."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-corporations.read_blueprints.v1",
             endpoint=f"/corporations/{corporation_id}/blueprints/",
-            resource="Corporation",
-            operation="get_corporations_corporation_id_blueprints",
+            operation=lambda **kwargs: self.client.Corporation.GetCorporationsCorporationIdBlueprints(
+                **kwargs
+            ),
             params={"corporation_id": corporation_id},
             force_refresh=force_refresh,
         )
@@ -738,12 +723,13 @@ class ESIClient:
         force_refresh: bool = False,
     ) -> list[dict]:
         """Return the list of industry jobs owned by a corporation."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-industry.read_corporation_jobs.v1",
             endpoint=f"/corporations/{corporation_id}/industry/jobs/",
-            resource="Industry",
-            operation="get_corporations_corporation_id_industry_jobs",
+            operation=lambda **kwargs: self.client.Industry.GetCorporationsCorporationIdIndustryJobs(
+                **kwargs
+            ),
             params={"corporation_id": corporation_id},
             throttle_key=f"char:{int(character_id)}",
             force_refresh=force_refresh,
@@ -760,40 +746,25 @@ class ESIClient:
         token_obj = token_obj or self._get_token(
             character_id, "esi-characters.read_corporation_roles.v1"
         )
-        operation_fn = self._resolve_operation(
-            "Character", "get_characters_character_id_roles"
-        )
         request_kwargs = {}
         if force_refresh:
             request_kwargs["If-None-Match"] = ""
 
-        results_kwargs = None
-        if force_refresh:
-            results_kwargs = {"use_etag": False, "force_refresh": True}
-        results_kwargs = None
-        if force_refresh:
-            # django-esi can return cached results without hitting ESI; when a caller
-            # explicitly requests a refresh (e.g. after DB cache reset), bypass its
-            # caching/etag behavior.
-            results_kwargs = {"use_etag": False, "force_refresh": True}
+        results_kwargs = (
+            {"use_etag": False, "force_refresh": True} if force_refresh else None
+        )
         payload = self._call_authed(
             token_obj,
             character_id=character_id,
             endpoint=f"/characters/{character_id}/roles/",
             scope="esi-characters.read_corporation_roles.v1",
             results_kwargs=results_kwargs,
-            operation=lambda token: operation_fn(
+            operation=lambda token: self.client.Character.GetCharactersCharacterIdRoles(
                 character_id=character_id,
                 token=token,
                 **request_kwargs,
             ),
         )
-        if isinstance(payload, list):
-            if not payload:
-                raise ESIClientError(
-                    "ESI /characters/{character_id}/roles returned an empty payload"
-                )
-            payload = payload[0]
         if isinstance(payload, dict):
             return payload
         coerced = self._coerce_mapping(payload)
@@ -816,9 +787,6 @@ class ESIClient:
             int(character_id),
             "esi-corporations.read_divisions.v1",
         )
-        operation_fn = self._resolve_operation(
-            "Corporation", "get_corporations_corporation_id_divisions"
-        )
         request_kwargs = {"If-None-Match": ""} if force_refresh else {}
         results_kwargs = (
             {"use_etag": False, "force_refresh": True} if force_refresh else None
@@ -831,15 +799,13 @@ class ESIClient:
             scope="esi-corporations.read_divisions.v1",
             throttle_key=f"char:{int(character_id)}",
             results_kwargs=results_kwargs,
-            operation=lambda token: operation_fn(
+            operation=lambda token: self.client.Corporation.GetCorporationsCorporationIdDivisions(
                 corporation_id=int(corporation_id),
                 token=token,
                 **request_kwargs,
             ),
         )
 
-        if isinstance(payload, list):
-            payload = payload[0] if payload else {}
         if isinstance(payload, dict):
             return payload
         coerced = self._coerce_mapping(payload)
@@ -872,9 +838,6 @@ class ESIClient:
             return None
 
         try:
-            operation_fn = self._resolve_operation(
-                "Universe", "get_universe_structures_structure_id"
-            )
             payload = self._call_authed(
                 token_obj,
                 character_id=int(character_id),
@@ -882,7 +845,7 @@ class ESIClient:
                 endpoint=f"/universe/structures/{int(structure_id)}/",
                 scope="esi-universe.read_structures.v1",
                 results_kwargs={"use_etag": False},
-                operation=lambda token: operation_fn(
+                operation=lambda token: self.client.Universe.GetUniverseStructuresStructureId(
                     structure_id=int(structure_id),
                     token=token,
                 ),
@@ -896,7 +859,7 @@ class ESIClient:
                     endpoint=f"/universe/structures/{int(structure_id)}/",
                     scope="esi-universe.read_structures.v1",
                     results_kwargs={"use_etag": False, "force_refresh": True},
-                    operation=lambda token: operation_fn(
+                    operation=lambda token: self.client.Universe.GetUniverseStructuresStructureId(
                         structure_id=int(structure_id),
                         token=token,
                         **{"If-None-Match": ""},
@@ -915,45 +878,32 @@ class ESIClient:
         except ESIClientError:
             return None
 
-        if isinstance(payload, list):
-            if not payload:
-                return None
-            payload = payload[0]
         if isinstance(payload, dict):
             return payload.get("name")
         coerced = self._coerce_mapping(payload)
         if isinstance(coerced, dict):
             return coerced.get("name")
-        if payload is not None:
-            name = getattr(payload, "name", None)
-            if name:
-                return str(name)
         return None
 
     def fetch_industry_systems(self, *, force_refresh: bool = False) -> list[dict]:
         """Fetch public industry system cost indices from ESI."""
         self._enforce_tranquility_cooldown("/industry/systems/")
-        try:
-            operation_fn = self._resolve_operation("Industry", "get_industry_systems")
-        except AttributeError as exc:
-            raise ESIClientError(
-                "ESI operation Industry.get_industry_systems is not available"
-            ) from exc
-
         results_kwargs = None
         if force_refresh:
             results_kwargs = {"use_etag": False, "force_refresh": True}
 
         try:
-            operation_call = operation_fn()
+            operation_call = self.client.Industry.GetIndustrySystems()
             if results_kwargs is None:
-                payload = operation_call.results()
+                payload = operation_call.result()
             else:
-                payload = operation_call.results(**results_kwargs)
+                payload = operation_call.result(**results_kwargs)
         except HTTPNotModified:
             return []
         except _HTTP_ERROR_TYPES as exc:
             self._handle_http_error(exc, endpoint="/industry/systems/")
+            raise
+        except _DJANGO_ESI_RATE_LIMIT_ERRORS:
             raise
         except Exception as exc:
             raise ESIClientError(
@@ -966,14 +916,14 @@ class ESIClient:
             )
         return [self._coerce_mapping(item) for item in payload]
 
-    def _fetch_paginated(
+    def _fetch_list(
         self,
         *,
         character_id: int,
         scope: str,
         endpoint: str,
-        resource: str,
-        operation: str,
+        operation,
+        paginated: bool = True,
         params: dict,
         throttle_key: str | None = None,
         force_refresh: bool = False,
@@ -986,19 +936,7 @@ class ESIClient:
             throttle_key=throttle_key,
         )
         token_obj = self._get_token(character_id, scope)
-        try:
-            token_obj.valid_access_token()
-        except Exception as exc:
-            raise ESITokenError(
-                f"No valid token for character {character_id} and scope {scope}"
-            ) from exc
-
-        try:
-            operation_fn = self._resolve_operation(resource, operation)
-        except AttributeError as exc:
-            raise ESIClientError(
-                f"ESI operation {resource}.{operation} is not available"
-            ) from exc
+        self._validate_token_context(token_obj, character_id=character_id, scope=scope)
 
         request_kwargs = {}
         if force_refresh:
@@ -1010,11 +948,12 @@ class ESIClient:
 
         last_response = None
         try:
-            operation_call = operation_fn(**params, token=token_obj, **request_kwargs)
+            operation_call = operation(**params, token=token_obj, **request_kwargs)
+            execute = operation_call.results if paginated else operation_call.result
             if results_kwargs is None:
-                payload, last_response = operation_call.results(return_response=True)
+                payload, last_response = execute(return_response=True)
             else:
-                payload, last_response = operation_call.results(
+                payload, last_response = execute(
                     return_response=True,
                     **results_kwargs,
                 )
@@ -1034,43 +973,10 @@ class ESIClient:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
+        except _DJANGO_ESI_RATE_LIMIT_ERRORS:
+            raise
         except Exception as exc:
-            if "is not of type 'string'" not in str(exc):
-                raise ESIClientError(
-                    f"ESI request failed for {endpoint}: {exc}"
-                ) from exc
-
-            access_token = token_obj.valid_access_token()
-            try:
-                operation_call = operation_fn(
-                    **params, token=access_token, **request_kwargs
-                )
-                if results_kwargs is None:
-                    payload = operation_call.results()
-                else:
-                    payload = operation_call.results(**results_kwargs)
-            except HTTPNotModified as retry_exc:
-                raise ESIUnmodifiedError(
-                    f"ESI returned 304 for {endpoint}"
-                ) from retry_exc
-            except _HTTP_ERROR_TYPES as retry_exc:
-                self._handle_http_error(
-                    retry_exc,
-                    character_id=character_id,
-                    endpoint=endpoint,
-                    token_obj=token_obj,
-                    scope=scope,
-                    throttle_key=throttle_key,
-                )
-                raise
-            except TokenError as retry_exc:
-                raise ESITokenError(
-                    f"No valid token for character {character_id} and scope {scope}"
-                ) from retry_exc
-            except Exception as retry_exc:
-                raise ESIClientError(
-                    f"ESI request failed for {endpoint}: {retry_exc}"
-                ) from retry_exc
+            raise ESIClientError(f"ESI request failed for {endpoint}: {exc}") from exc
 
         if not isinstance(payload, list):
             raise ESIClientError(
@@ -1083,15 +989,16 @@ class ESIClient:
             throttle_key=throttle_key,
         )
 
-        self._validate_paginated_last_modified(
-            operation_fn=operation_fn,
-            params=params,
-            token_obj=token_obj,
-            request_kwargs=request_kwargs,
-            endpoint=endpoint,
-            force_refresh=force_refresh,
-            last_response=last_response,
-        )
+        if paginated:
+            self._validate_paginated_last_modified(
+                operation_fn=operation,
+                params=params,
+                token_obj=token_obj,
+                request_kwargs=request_kwargs,
+                endpoint=endpoint,
+                force_refresh=force_refresh,
+                last_response=last_response,
+            )
 
         return [self._coerce_mapping(item) for item in payload]
 
@@ -1176,18 +1083,33 @@ class ESIClient:
 
     @staticmethod
     def _coerce_mapping(item):
-        if isinstance(item, dict):
-            return item
-        for attr in ("model_dump", "dict", "to_dict"):
-            converter = getattr(item, attr, None)
-            if callable(converter):
-                try:
-                    result = converter()
-                except Exception:
-                    result = None
-                if isinstance(result, dict):
-                    return result
-        return item
+        return item.model_dump() if isinstance(item, BaseModel) else item
+
+    @staticmethod
+    def _validate_token_context(
+        token_obj: Token, *, character_id: int | None, scope: str | None
+    ) -> None:
+        """Check current ownership/scopes before native cache can return data.
+
+        Caller business permissions/corporation roles remain its responsibility.
+        django-esi validates OAuth on network access, not on every cache hit.
+        """
+        candidates = Token.objects.filter(
+            pk=token_obj.pk,
+            user_id=token_obj.user_id,
+            character_id=(
+                character_id if character_id is not None else token_obj.character_id
+            ),
+        )
+        if scope:
+            candidates = candidates.require_scopes([scope])
+        if not candidates.exists() or (
+            character_id is not None
+            and int(token_obj.character_id) != int(character_id)
+        ):
+            raise ESITokenError(
+                f"No eligible token for character {character_id} and scope {scope}"
+            )
 
     def _get_token(self, character_id: int, scope: str) -> Token:
         token = (
@@ -1210,12 +1132,13 @@ class ESIClient:
         force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch all contracts for a corporation using character's token."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-contracts.read_corporation_contracts.v1",
             endpoint=f"/corporations/{corporation_id}/contracts/",
-            resource="Contracts",
-            operation="get_corporations_corporation_id_contracts",
+            operation=lambda **kwargs: self.client.Contracts.GetCorporationsCorporationIdContracts(
+                **kwargs
+            ),
             params={"corporation_id": corporation_id},
             force_refresh=force_refresh,
         )
@@ -1228,24 +1151,27 @@ class ESIClient:
         force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch items for a specific corporation contract."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-contracts.read_corporation_contracts.v1",
             endpoint=f"/corporations/{corporation_id}/contracts/{contract_id}/items/",
-            resource="Contracts",
-            operation="get_corporations_corporation_id_contracts_contract_id_items",
+            operation=lambda **kwargs: self.client.Contracts.GetCorporationsCorporationIdContractsContractIdItems(
+                **kwargs
+            ),
+            paginated=False,
             params={"corporation_id": corporation_id, "contract_id": contract_id},
             force_refresh=force_refresh,
         )
 
     def fetch_character_contracts(self, character_id: int) -> list[dict]:
         """Fetch all contracts for a character using their token."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-contracts.read_character_contracts.v1",
             endpoint=f"/characters/{character_id}/contracts/",
-            resource="Contracts",
-            operation="get_characters_character_id_contracts",
+            operation=lambda **kwargs: self.client.Contracts.GetCharactersCharacterIdContracts(
+                **kwargs
+            ),
             params={"character_id": character_id},
         )
 
@@ -1255,12 +1181,14 @@ class ESIClient:
         contract_id: int,
     ) -> list[dict]:
         """Fetch items for a specific character contract."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-contracts.read_character_contracts.v1",
             endpoint=f"/characters/{character_id}/contracts/{contract_id}/items/",
-            resource="Contracts",
-            operation="get_characters_character_id_contracts_contract_id_items",
+            operation=lambda **kwargs: self.client.Contracts.GetCharactersCharacterIdContractsContractIdItems(
+                **kwargs
+            ),
+            paginated=False,
             params={"character_id": character_id, "contract_id": contract_id},
         )
 
@@ -1272,12 +1200,13 @@ class ESIClient:
         force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch all corporation assets for the given corp using a character token."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-assets.read_corporation_assets.v1",
             endpoint=f"/corporations/{corporation_id}/assets/",
-            resource="Assets",
-            operation="get_corporations_corporation_id_assets",
+            operation=lambda **kwargs: self.client.Assets.GetCorporationsCorporationIdAssets(
+                **kwargs
+            ),
             params={"corporation_id": corporation_id},
             force_refresh=force_refresh,
         )
@@ -1289,12 +1218,13 @@ class ESIClient:
         force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch all assets for a character using their token."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-assets.read_assets.v1",
             endpoint=f"/characters/{character_id}/assets/",
-            resource="Assets",
-            operation="get_characters_character_id_assets",
+            operation=lambda **kwargs: self.client.Assets.GetCharactersCharacterIdAssets(
+                **kwargs
+            ),
             params={"character_id": character_id},
             force_refresh=force_refresh,
         )
@@ -1307,12 +1237,13 @@ class ESIClient:
         force_refresh: bool = False,
     ) -> list[dict]:
         """Fetch corporation structures (includes names) using corp structures scope."""
-        return self._fetch_paginated(
+        return self._fetch_list(
             character_id=character_id,
             scope="esi-corporations.read_structures.v1",
             endpoint=f"/corporations/{corporation_id}/structures/",
-            resource="Corporation",
-            operation="get_corporations_corporation_id_structures",
+            operation=lambda **kwargs: self.client.Corporation.GetCorporationsCorporationIdStructures(
+                **kwargs
+            ),
             params={"corporation_id": corporation_id},
             force_refresh=force_refresh,
         )
@@ -1323,15 +1254,11 @@ class ESIClient:
             return None
         endpoint = f"/universe/stations/{int(station_id)}/"
         throttle_key = "public-station"
-        try:
-            operation_fn = self._resolve_operation(
-                "Universe", "get_universe_stations_station_id"
-            )
-        except AttributeError:
-            return None
         self._enforce_task_scope_budget(None, endpoint, throttle_key=throttle_key)
         try:
-            payload, response = operation_fn(station_id=int(station_id)).results(
+            payload, response = self.client.Universe.GetUniverseStationsStationId(
+                station_id=int(station_id)
+            ).result(
                 return_response=True,
                 use_etag=False,
             )
@@ -1343,7 +1270,9 @@ class ESIClient:
         except HTTPNotModified:
             # django-esi cache was stale; retry bypassing ETags entirely
             try:
-                payload, response = operation_fn(station_id=int(station_id)).results(
+                payload, response = self.client.Universe.GetUniverseStationsStationId(
+                    station_id=int(station_id)
+                ).result(
                     return_response=True,
                     use_etag=False,
                     force_refresh=True,
@@ -1371,17 +1300,11 @@ class ESIClient:
         except Exception as exc:
             logger.debug("fetch_station_name failed for %s: %s", station_id, exc)
             return None
-        if isinstance(payload, list):
-            payload = payload[0] if payload else None
         if isinstance(payload, dict):
             return str(payload.get("name") or "") or None
         coerced = self._coerce_mapping(payload) if payload is not None else None
         if isinstance(coerced, dict):
             return str(coerced.get("name") or "") or None
-        if payload is not None:
-            name = getattr(payload, "name", None)
-            if name:
-                return str(name)
         return None
 
     def resolve_ids_to_names(self, ids: list[int]) -> dict[int, str]:
@@ -1399,13 +1322,13 @@ class ESIClient:
 
         # ESI accepts max 1000 IDs per request
         result: dict[int, str] = {}
-        try:
-            operation_fn = self._resolve_operation("Universe", "post_universe_names")
-        except AttributeError:
-            return result
         for batch in chunks(ids, 1000):
             try:
-                payload = operation_fn(ids=batch).results()
+                # django-esi 10.1 removes body before constructing its cache key.
+                # Different ID batches must never share a cached POST response.
+                payload = self.client.Universe.PostUniverseNames(body=batch).result(
+                    use_etag=False, use_cache=False, store_cache=False
+                )
             except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc:
                 logger.warning(
                     "resolve_ids_to_names hit django-esi rate limit: %s",
@@ -1428,37 +1351,13 @@ class ESIClient:
                     endpoint="/universe/names/",
                 )
                 continue
-            except Exception:
-                try:
-                    payload = operation_fn(body=batch).results()
-                except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc2:
-                    logger.warning(
-                        "resolve_ids_to_names hit django-esi rate limit: %s",
-                        exc2,
-                    )
-                    break
-                except _HTTP_ERROR_TYPES as exc2:
-                    status_code = getattr(exc2, "status_code", None)
-                    if status_code is None:
-                        response = getattr(exc2, "response", None)
-                        status_code = getattr(response, "status_code", None)
-                    if status_code == 404:
-                        logger.debug(
-                            "resolve_ids_to_names skipped invalid IDs batch (size=%s)",
-                            len(batch),
-                        )
-                        continue
-                    self._handle_http_error(
-                        exc2,
-                        endpoint="/universe/names/",
-                    )
-                    continue
-                except Exception as exc2:
-                    logger.warning("Resolve IDs request failed: %s", exc2)
-                    continue
+            except Exception as exc:
+                logger.warning("Resolve IDs request failed: %s", exc)
+                continue
 
             try:
                 for item in payload or []:
+                    item = self._coerce_mapping(item)
                     if "id" in item and "name" in item:
                         result[int(item["id"])] = str(item["name"])
             except (ValueError, KeyError, TypeError) as exc:
@@ -1484,36 +1383,20 @@ class ESIClient:
         if throttle_key is None and character_id:
             throttle_key = f"char:{int(character_id)}"
         self._enforce_task_scope_budget(scope, endpoint, throttle_key=throttle_key)
+        self._validate_token_context(token_obj, character_id=character_id, scope=scope)
         try:
-            access_token = token_obj.valid_access_token()
+            # Native cache hits skip OAuth validation. Preserve this existing
+            # guard for tokens supplied by an eligible caller (skills/roles/etc.).
+            token_obj.valid_access_token()
         except Exception as exc:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
 
-        def _execute(token_value):
-            try:
-                if results_kwargs is None:
-                    return operation(token_value).results(return_response=True)
-                return operation(token_value).results(
-                    return_response=True,
-                    **results_kwargs,
-                )
-            except TypeError:
-                if results_kwargs is None:
-                    payload = operation(token_value).results()
-                else:
-                    payload = operation(token_value).results(**results_kwargs)
-                return payload, None
-
         try:
-            payload, response = _execute(token_obj)
-            self._update_rate_limit_state_from_response(
-                response=response,
-                endpoint=endpoint,
-                throttle_key=throttle_key,
+            payload, response = operation(token_obj).result(
+                return_response=True, **(results_kwargs or {})
             )
-            return payload
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
@@ -1533,86 +1416,14 @@ class ESIClient:
             raise ESITokenError(
                 f"No valid token for character {character_id} and scope {scope}"
             ) from exc
-        except Exception as exc:
-            if "is not of type 'string'" not in str(exc):
-                raise ESIClientError(
-                    f"ESI request failed for {endpoint}: {exc}"
-                ) from exc
-
-        try:
-            payload, response = _execute(access_token)
-            self._update_rate_limit_state_from_response(
-                response=response,
-                endpoint=endpoint,
-                throttle_key=throttle_key,
-            )
-            return payload
-        except HTTPNotModified as exc:
-            raise ESIUnmodifiedError(
-                f"ESI returned 304 for {endpoint or 'request'}"
-            ) from exc
-        except _HTTP_ERROR_TYPES as exc:
-            self._handle_http_error(
-                exc,
-                character_id=character_id,
-                structure_id=structure_id,
-                endpoint=endpoint,
-                token_obj=token_obj,
-                scope=scope,
-                throttle_key=throttle_key,
-            )
+        except _DJANGO_ESI_RATE_LIMIT_ERRORS:
             raise
-        except TokenError as exc:
-            raise ESITokenError(
-                f"No valid token for character {character_id} and scope {scope}"
-            ) from exc
-        except Exception as exc:
-            if "is not of type 'string'" not in str(exc):
-                raise ESIClientError(
-                    f"ESI request failed for {endpoint}: {exc}"
-                ) from exc
-
-        try:
-            payload, response = _execute(access_token)
-            self._update_rate_limit_state_from_response(
-                response=response,
-                endpoint=endpoint,
-                throttle_key=throttle_key,
-            )
-            return payload
-        except HTTPNotModified as exc:
-            raise ESIUnmodifiedError(
-                f"ESI returned 304 for {endpoint or 'request'}"
-            ) from exc
-        except _HTTP_ERROR_TYPES as exc:
-            self._handle_http_error(
-                exc,
-                character_id=character_id,
-                structure_id=structure_id,
-                endpoint=endpoint,
-                token_obj=token_obj,
-                scope=scope,
-                throttle_key=throttle_key,
-            )
-            raise
-        except TokenError as exc:
-            raise ESITokenError(
-                f"No valid token for character {character_id} and scope {scope}"
-            ) from exc
         except Exception as exc:
             raise ESIClientError(f"ESI request failed for {endpoint}: {exc}") from exc
-
-    def _resolve_operation(self, resource: str, operation: str):
-        """Resolve an ESI operation name for OpenAPI clients."""
-        resource_obj = getattr(self.client, resource)
-        if hasattr(resource_obj, operation):
-            return getattr(resource_obj, operation)
-
-        camel = "".join(part.capitalize() for part in operation.split("_"))
-        if hasattr(resource_obj, camel):
-            return getattr(resource_obj, camel)
-
-        raise AttributeError(f"{resource}.{operation}")
+        self._update_rate_limit_state_from_response(
+            response=response, endpoint=endpoint, throttle_key=throttle_key
+        )
+        return payload
 
     def _handle_http_error(
         self,
@@ -1625,26 +1436,23 @@ class ESIClient:
         scope: str | None = None,
         throttle_key: str | None = None,
     ) -> None:
-        status_code = getattr(exc, "status_code", None) or getattr(
-            exc.response, "status_code", None
-        )
+        status_code = exc.status_code
         if status_code == 420:
-            sleep_for, remaining = rate_limit_wait_seconds(exc.response)
+            sleep_for, remaining = rate_limit_wait_seconds(exc)
             raise ESIErrorLimitException(
                 reset=sleep_for or 1,
                 message=f"ESI error limit reached (remaining={remaining})",
             ) from exc
 
         if status_code == 429:
-            sleep_for, remaining = token_rate_limit_wait_seconds(exc.response)
+            sleep_for, remaining = token_rate_limit_wait_seconds(exc)
             self._update_rate_limit_state_from_response(
-                response=getattr(exc, "response", None),
+                response=exc,
                 endpoint=endpoint,
                 throttle_key=throttle_key,
             )
             if sleep_for and throttle_key:
-                response = getattr(exc, "response", None)
-                headers = getattr(response, "headers", None)
+                headers = exc.headers
                 group = ""
                 if headers is not None:
                     group = str(headers.get("X-Ratelimit-Group") or "").strip()

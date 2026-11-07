@@ -21,6 +21,24 @@ Restart the web and Celery processes after updating so they load the new library
 This dependency update introduces no Indy Hub migration. django-esi 10 replaces
 its OpenAPI HTTP transport with `httpx2`; custom clients must use that transport.
 
+## Native ESI client and role status (unreleased)
+
+The client now uses django-esi's public OpenAPI operations and Token-object
+authentication directly. The existing `django-esi>=10.1,<11` requirement is
+unchanged. No new migration, dependency update or token reauthorization is
+required for this client change.
+
+Reauthorization can refresh corporation roles even when Corptools records an old
+game login. Other automatic industry activity limits remain in place. Passive
+status pages still require a fresh role snapshot and report stale roles as
+unverified without refreshing OAuth. Structure-name candidate discovery reads
+recorded scopes; actual authenticated requests retain native validity checks.
+
+Deploy the updated web and Celery code together through the normal restart
+procedure. Preserve shared tokens, response caches, cooldowns and task locks.
+An invalid grant may still be removed by django-esi during real use; a structure
+403 retains its authorization and uses the existing placeholder/cooldown path.
+
 ## Shared token eligibility (unreleased)
 
 Indy Hub no longer deletes shared ESI tokens for duplicate scopes or insufficient

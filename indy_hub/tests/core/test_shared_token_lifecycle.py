@@ -171,6 +171,37 @@ class SharedTokenTests(TokenFixture, TestCase):
         self.roles_publish.assert_called_once()
         self.assertTrue(AdminUserStatus.objects.get(user=self.user).scope_jobs)
 
+    def test_role_reauthorization_bypasses_only_the_industry_activity_gate(self):
+        with patch("indy_hub.tasks.industry._is_user_active", return_value=False):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.token(
+                    [BLUEPRINT_SCOPE, JOBS_SCOPE, SKILLS_SCOPE, CORP_ROLES_SCOPE]
+                )
+                self.roles_publish.assert_not_called()
+        self.roles_publish.assert_called_once_with(
+            args=(self.user.pk, self.character.character_id),
+            kwargs={"force_refresh": True},
+            retry=False,
+        )
+        for publisher in self.publishers.values():
+            publisher.assert_not_called()
+
+    def test_roles_only_link_does_not_consult_corptools_activity(self):
+        with patch(
+            "indy_hub.tasks.industry._is_user_active", return_value=False
+        ) as activity:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.token([CORP_ROLES_SCOPE])
+        activity.assert_not_called()
+        self.roles_publish.assert_called_once()
+
+    def test_disabled_account_cannot_publish_roles(self):
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        with self.captureOnCommitCallbacks(execute=True):
+            self.token([CORP_ROLES_SCOPE])
+        self.roles_publish.assert_not_called()
+
     def test_rollback_publishes_nothing_and_does_not_reserve_debounce(self):
         with self.captureOnCommitCallbacks(execute=True):
             try:

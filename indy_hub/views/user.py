@@ -263,7 +263,6 @@ def _fetch_character_corporation_roles_with_token(
 ) -> set[str] | None:
     """Fetch corporation roles using a specific token instead of Token.get_token()."""
     cache_key = f"indy_hub:corp_roles:{token_obj.character_id}"
-    cached_roles = cache.get(cache_key)
 
     def _coerce_list(value: object) -> list[str]:
         if isinstance(value, (list, tuple)):
@@ -313,7 +312,9 @@ def _fetch_character_corporation_roles_with_token(
     if not allow_remote_fetch:
         return None
 
-    force_refresh = cached_roles is None and (snapshot is None)
+    # A stale/missing qualified snapshot needs a full response. An ETag-only
+    # 304 or an unqualified cache entry cannot re-establish role eligibility.
+    force_refresh = snapshot is None or snapshot_stale
     try:
         payload = shared_client.fetch_character_corporation_roles(
             int(token_obj.character_id),
