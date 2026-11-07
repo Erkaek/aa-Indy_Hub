@@ -1572,7 +1572,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             }
 
             if (error) {
-                if (error === 'esi_down') {
+                if (error === 'esi_down' || error === 'incomplete_snapshot') {
                     await swapSellDynamicContent(window.location.href, captureSellState());
                     return;
                 }

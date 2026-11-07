@@ -40,6 +40,7 @@ from indy_hub.services.esi_client import (
     ESIClientError,
     ESIForbiddenError,
     ESITokenError,
+    ESIUnmodifiedError,
     get_rate_limit_reset_seconds,
     get_retry_after_seconds,
     shared_client,
@@ -374,6 +375,8 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     done = 0
     failed = 0
     all_rows: list[CachedCharacterAsset] = []
+    complete_character_ids: set[int] = set()
+    unchanged_character_ids: set[int] = set()
     structure_ids_by_character: dict[int, set[int]] = {}
 
     for character_id in character_ids:
@@ -415,6 +418,18 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
                 character_id=int(character_id),
                 force_refresh=True,
             )
+        except ESIUnmodifiedError:
+            unchanged_character_ids.add(int(character_id))
+            done += 1
+            _set_progress(
+                running=True,
+                finished=False,
+                error=None,
+                total=total,
+                done=done,
+                failed=failed,
+            )
+            continue
         except (ESIErrorLimitException, ESIBucketLimitException) as exc:
             delay = get_rate_limit_reset_seconds(exc)
             logger.warning(
@@ -479,6 +494,7 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             )
             continue
 
+        complete_character_ids.add(int(character_id))
         index_by_item_id = build_asset_index_by_item_id(assets or [])
 
         character_structure_ids = structure_ids_by_character.setdefault(
@@ -542,23 +558,24 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             failed=failed,
         )
 
-    _set_progress(
-        running=False,
-        finished=True,
-        error=None,
-        total=total,
-        done=done,
-        failed=failed,
-    )
-
-    # Only replace cached rows if we managed to fetch at least some assets.
-    # This prevents the sell page from losing previously cached data when ESI is down
-    # or when all characters are missing the required scope.
-    if not all_rows:
+    if failed or not (complete_character_ids or unchanged_character_ids):
+        # A partial multi-character response must not replace the user's
+        # inventory or advance its success marker. Keep every previous row.
         _set_progress(
             running=False,
             finished=True,
-            error="no_assets_fetched",
+            error="incomplete_snapshot" if failed else "no_assets_fetched",
+            total=total,
+            done=done,
+            failed=failed,
+        )
+        return
+
+    if not complete_character_ids:
+        _set_progress(
+            running=False,
+            finished=True,
+            error=None,
             total=total,
             done=done,
             failed=failed,
@@ -566,8 +583,13 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
         return
 
     with transaction.atomic():
-        CachedCharacterAsset.objects.filter(user=user).delete()
-        CachedCharacterAsset.objects.bulk_create(all_rows, batch_size=1000)
+        # Empty complete results deliberately remove that character's rows.
+        # Characters without an eligible grant were not fetched and stay intact.
+        CachedCharacterAsset.objects.filter(
+            user=user, character_id__in=complete_character_ids
+        ).delete()
+        if all_rows:
+            CachedCharacterAsset.objects.bulk_create(all_rows, batch_size=1000)
 
     # Warm structure/station names after updating the cache.
     # Do not fail the refresh if name resolution is forbidden or errors.
@@ -593,6 +615,15 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
         me_user_assets_cache_version_key(int(user.id)),
         int(ME_USER_ASSETS_CACHE_VERSION),
         _ME_CACHE_VERSION_TTL_SECONDS,
+    )
+
+    _set_progress(
+        running=False,
+        finished=True,
+        error=None,
+        total=total,
+        done=done,
+        failed=failed,
     )
 
     logger.info(

@@ -70,7 +70,9 @@ Existing pagination-consistency probes use the same protocol bridge. An
 interrupted probe now rejects the fetched result rather than silently returning
 it as a complete snapshot. Limits propagate to the task's retry owner; HTTP
 outages keep their cooldown, and other probe failures preserve their cause.
-The pagination strategy and number of requested validation pages are unchanged.
+Native pagination remains unchanged. Validation now reuses the native final
+page and probes only earlier pages; see [pagination guarantees](ESI_PAGINATION.md)
+for the stricter completeness checks and measured costs.
 
 ## Task retry owners
 
