@@ -774,7 +774,9 @@ def resolve_structure_names(
             or _is_stale_name(int(sid))
         ]
 
-    # Try direct structure lookups with the provided character first, then fall back to any corp token with the universe scope
+    # Candidate discovery is passive, including for async/public-only resolution.
+    # The shared client validates scoped tokens when an authenticated lookup runs.
+    # Try the provided character first, then corp tokens with the universe scope.
     candidate_characters: list[int] = []
     if character_id:
         candidate_characters.append(int(character_id))
@@ -784,7 +786,6 @@ def resolve_structure_names(
             extra_chars = list(
                 Token.objects.filter(character__corporation_id=int(corporation_id))
                 .require_scopes(["esi-universe.read_structures.v1"])
-                .require_valid()
                 .values_list("character_id", flat=True)
             )
             for cid in extra_chars:
@@ -804,7 +805,6 @@ def resolve_structure_names(
             alt_chars = list(
                 Token.objects.filter(character_id__in=asset_chars)
                 .require_scopes(["esi-universe.read_structures.v1"])
-                .require_valid()
                 .values_list("character_id", flat=True)
             )
             for cid in alt_chars:
@@ -834,7 +834,6 @@ def resolve_structure_names(
             user_tokens_with_scope = list(
                 Token.objects.filter(character_id__in=user_char_ids)
                 .require_scopes(["esi-universe.read_structures.v1"])
-                .require_valid()
                 .values_list("character_id", flat=True)
             )
 

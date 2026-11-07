@@ -183,6 +183,53 @@ class CorporationScopeStatusTests(TestCase):
             ).exists()
         )
 
+    def test_stale_roles_page_is_passive_and_does_not_claim_an_esi_failure(self):
+        self._make_token(CORP_BLUEPRINT_SCOPE_SET)
+        CharacterRoles.objects.filter(character_id=self.character.character_id).update(
+            last_updated=timezone.now() - timedelta(days=2)
+        )
+        self.user.profile.main_character = self.character
+        self.user.profile.save()
+        self.client.force_login(self.user)
+        with (
+            patch("esi.managers.TokenQueryset.require_valid") as valid,
+            patch.object(Token, "refresh") as refresh,
+            patch(
+                "indy_hub.views.user.shared_client.fetch_character_corporation_roles"
+            ) as fetch,
+        ):
+            response = self.client.get("/indy_hub/esi/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Roles unverified")
+        self.assertContains(response, "A recent corporation roles check is required")
+        self.assertNotContains(response, "ESI roles check failed")
+        valid.assert_not_called()
+        refresh.assert_not_called()
+        fetch.assert_not_called()
+
+    def test_explicit_role_check_for_stale_snapshot_bypasses_cached_etag(self):
+        self._make_token(CORP_BLUEPRINT_SCOPE_SET)
+        CharacterRoles.objects.filter(character_id=self.character.character_id).update(
+            last_updated=timezone.now() - timedelta(days=2)
+        )
+        cache.set(
+            f"indy_hub:corp_roles:{self.character.character_id}", ["DIRECTOR"], 600
+        )
+        with patch(
+            "indy_hub.views.user.shared_client.fetch_character_corporation_roles",
+            return_value={"roles": ["Director"]},
+        ) as fetch:
+            status = _collect_corporation_scope_status(self.user)
+        self.assertTrue(fetch.call_args.kwargs["force_refresh"])
+        self.assertFalse(status[0]["roles_unavailable"])
+        self.assertTrue(status[0]["has_director_role"])
+        self.assertGreater(
+            CharacterRoles.objects.get(
+                character_id=self.character.character_id
+            ).last_updated,
+            timezone.now() - timedelta(minutes=1),
+        )
+
     def _warm_status_caches(self):
         keys = [
             token_management_live_cache_key(self.user.pk),

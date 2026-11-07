@@ -6,11 +6,19 @@ from unittest.mock import patch
 
 # Django
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
+# Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
+from allianceauth.eveonline.models import EveCharacter
+from esi.errors import TokenError
+from esi.managers import TokenQueryset
+from esi.models import Scope, Token
+
 # AA Example App
-from indy_hub.models import CachedCharacterAsset
+from indy_hub.models import CachedCharacterAsset, CharacterRoles
 from indy_hub.services import asset_cache
 
 
@@ -32,6 +40,93 @@ class _FakeTokenQuerySet(list):
 
 
 class CharacterAssetRefreshStructureNameTests(TestCase):
+    @override_settings(CELERY_TASK_ALWAYS_EAGER=False)
+    def test_name_candidate_discovery_does_not_refresh_or_delete_shared_grants(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        user = User.objects.create_user("structure-candidate-owner")
+        character = EveCharacter.objects.create(
+            character_id=199998201,
+            character_name="Candidate Pilot",
+            corporation_id=2000082,
+            corporation_name="Candidate Corp",
+            corporation_ticker="SYN",
+        )
+        CharacterOwnership.objects.create(
+            user=user, character=character, owner_hash="synthetic-candidate"
+        )
+        CharacterRoles.objects.create(
+            owner_user=user,
+            character_id=character.character_id,
+            corporation_id=character.corporation_id,
+            roles=["Director"],
+        )
+        scope = Scope.objects.get_or_create(name="esi-universe.read_structures.v1")[0]
+        tokens = Token.objects.bulk_create(
+            [
+                Token(
+                    user=user,
+                    character_id=character.character_id,
+                    character_name=character.character_name,
+                    character_owner_hash="synthetic-candidate",
+                    access_token="synthetic-access",
+                    refresh_token="synthetic-refresh",
+                    token_type="Character",
+                )
+                for _ in range(2)
+            ]
+        )
+        Token.objects.filter(pk=tokens[0].pk).update(
+            created=timezone.now() - timedelta(days=1)
+        )
+        Token.scopes.through.objects.bulk_create(
+            [Token.scopes.through(token=token, scope=scope) for token in tokens]
+        )
+        private_structure = 1045806039392
+        CachedCharacterAsset.objects.create(
+            user=user,
+            character_id=character.character_id,
+            location_id=private_structure,
+            location_flag="Hangar",
+            type_id=34,
+            quantity=1,
+        )
+        with (
+            patch(
+                "esi.managers.TokenQueryset.require_valid",
+                autospec=True,
+                side_effect=TokenQueryset.require_valid,
+            ) as validate,
+            patch.object(
+                Token, "refresh", side_effect=TokenError("old grant")
+            ) as renew,
+            patch.object(asset_cache, "_cache_corp_structure_names", return_value={}),
+            patch.object(
+                asset_cache.shared_client,
+                "resolve_ids_to_names",
+                return_value={60003760: "Public station"},
+            ),
+            patch.object(asset_cache.shared_client, "fetch_structure_name") as fetch,
+            patch("indy_hub.tasks.location.cache_structure_names_bulk.delay") as queue,
+        ):
+            result = asset_cache.resolve_structure_names(
+                [60003760, private_structure],
+                character_id=character.character_id,
+                corporation_id=character.corporation_id,
+                user=user,
+                schedule_async=True,
+            )
+        self.assertEqual(result[60003760], "Public station")
+        validate.assert_not_called()
+        renew.assert_not_called()
+        fetch.assert_not_called()
+        queue.assert_called_once_with(
+            [private_structure],
+            character_id=character.character_id,
+            owner_user_id=user.pk,
+        )
+        self.assertEqual(Token.objects.filter(pk__in=[t.pk for t in tokens]).count(), 2)
+
     def test_user_assets_cached_skips_esi_when_cache_is_younger_than_one_hour(
         self,
     ) -> None:

@@ -51,8 +51,8 @@ def _publish_ready_capabilities(user_id, character_id, *, scopes=None):
         user = get_user_model().objects.filter(pk=user_id).first()
         if (
             not user
+            or not user.is_active
             or not user.has_perm("indy_hub.can_access_indy_hub")
-            or not _is_user_active(user)
             or not CharacterOwnership.objects.filter(
                 user_id=user_id, character__character_id=character_id
             ).exists()
@@ -114,11 +114,20 @@ def _publish_ready_capabilities(user_id, character_id, *, scopes=None):
                     ),
                 ]
             )
+        industry_active = None
         for capability, required_scopes, publish in publishers:
             if scopes is not None and not set(required_scopes).intersection(scopes):
                 continue
             if not tokens.require_scopes(required_scopes).exists():
                 continue
+            # Authorization freshness must not depend on Corptools' industry
+            # activity heuristic. Reauthorization can happen with old login data.
+            # Keep the existing activity gate for the other industry snapshots.
+            if capability != "roles":
+                if industry_active is None:
+                    industry_active = _is_user_active(user)
+                if not industry_active:
+                    continue
             # Coalesce successive M2M events/commits, also for snapshot tasks
             # which do not use QueueOnce. Existing industry lock keys stay intact.
             key = f"indy_hub:token_sync:{user_id}:{character_id}:{capability}"

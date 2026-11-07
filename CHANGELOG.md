@@ -11,6 +11,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Changed
 
+- ESI client: use explicit django-esi OpenAPI operations and Token objects, remove compatibility replays, and preserve authorization checks before cached responses. Keep distinct universe-name request bodies isolated from the native response cache.
 - User administration: add asynchronous account diagnostics, alternate-character search, focused filters, bounded maintenance actions, CSV export, and browser history with recoverable AJAX reads.
 - Blueprint and job lists: show local snapshots immediately and update filtered results in the background. Explicit manual refreshes also work for users outside the automatic activity window while retaining scope and corporation checks.
 - Material Exchange: defer inventory, prices and corporation/hangar options until after the initial page render, retaining entered quantities and displayed data when refreshes fail.
@@ -23,6 +24,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Fixed
 
+- ESI roles: refresh role eligibility after reauthorization even when Corptools considers the owner inactive, and describe stale role snapshots as unverified. Structure-name candidate discovery no longer renews shared tokens before an authenticated lookup is needed.
 - Blueprint lists: restore the missing icon fallback so unavailable EVE images do not raise JavaScript errors during background updates.
 - Shared ESI tokens: preserve authorizations when Indy Hub corporation roles are insufficient, leave equivalence/reuse to django-esi, and dispatch ready scope capabilities after commit. Token and CharLink status screens remain passive and no longer refresh OAuth while listing coverage.
 - Material Exchange: configuration saves now queue one stock refresh after commit, with prices refreshed by the worker afterward. Rolled-back changes publish no refresh, and broker failures no longer trigger synchronous work during the save.
