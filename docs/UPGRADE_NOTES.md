@@ -39,6 +39,21 @@ procedure. Preserve shared tokens, response caches, cooldowns and task locks.
 An invalid grant may still be removed by django-esi during real use; a structure
 403 retains its authorization and uses the existing placeholder/cooldown path.
 
+## ESI limits and deferred refreshes (unreleased)
+
+Rate-limit handling now uses native django-esi buckets for declared operations
+and preserves the existing local guards where equivalent native protection is
+unavailable. Missing/malformed reset metadata is handled conservatively and
+fractional waits are rounded up. Asset pages report deferred work while keeping
+cached data and entered quantities. Contract/structure synchronization preserves
+incomplete snapshots and identifies the task responsible for retrying.
+
+No new migration, dependency update or cache purge is required. Deploy web and
+workers together through the normal restart procedure. Old cooldown keys are
+read until expiry; do not clear native ESI caches or business locks. See
+[ESI limit responsibilities](ESI_LIMITS.md) for the native/fallback boundaries,
+cache formats, delay units and retry ownership.
+
 ## Shared token eligibility (unreleased)
 
 Indy Hub no longer deletes shared ESI tokens for duplicate scopes or insufficient

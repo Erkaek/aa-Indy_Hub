@@ -747,6 +747,10 @@ def _finalize_sell_assets_progress_if_db_synced(user, state: dict) -> dict:
 
     if not state or not state.get("running"):
         return state
+    if state.get("error") == "rate_limited":
+        # Existing rows (or another character's update) do not establish that
+        # this deferred snapshot completed.
+        return state
 
     try:
         last_update = (

@@ -15,6 +15,32 @@ from indy_hub.tasks.industry_structure_sync import (
 
 
 class IndustryStructureSyncTaskTests(TestCase):
+    def test_last_failed_corporation_also_gets_one_retry(self):
+        summary = {
+            "corporations": 1,
+            "created": 0,
+            "updated": 0,
+            "unchanged": 0,
+            "rate_limited": 1,
+            "deferred_due_to_rate_limit": 0,
+            "retry_after_seconds": 13,
+            "errors": [],
+        }
+        with (
+            patch(
+                "indy_hub.tasks.industry_structure_sync.sync_persisted_industry_structures",
+                return_value=summary,
+            ),
+            patch.object(
+                sync_persisted_industry_structure_registry, "apply_async"
+            ) as publication,
+        ):
+            result = sync_persisted_industry_structure_registry(force_refresh=False)
+        self.assertEqual(result["status"], "deferred")
+        publication.assert_called_once_with(
+            kwargs={"force_refresh": False}, countdown=13
+        )
+
     @patch("indy_hub.tasks.industry_structure_sync.sync_persisted_industry_structures")
     def test_task_refreshes_persisted_synced_structures(self, mock_sync) -> None:
         mock_sync.return_value = {

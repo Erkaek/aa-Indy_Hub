@@ -1,5 +1,8 @@
 """Shared helpers for Material Exchange user asset refresh progress."""
 
+# Standard Library
+import math
+
 # Django
 from django.core.cache import cache
 from django.utils import timezone
@@ -63,6 +66,13 @@ def _mark_stale_progress_if_needed(state: dict, *, progress_key: str) -> dict:
     try:
         started_at = float(state.get("started_at") or 0)
         last_progress_at = float(state.get("last_progress_at") or started_at or 0)
+        if state.get("error") == "rate_limited":
+            # A scheduled ESI wait is not a stuck worker. Preserve the normal
+            # stale-progress grace after the reset, including old cache states
+            # which have no retry_at field.
+            retry_at = float(state.get("retry_at") or 0)
+            if math.isfinite(retry_at):
+                last_progress_at = max(last_progress_at, retry_at)
         elapsed = timezone.now().timestamp() - last_progress_at
     except (TypeError, ValueError):
         elapsed = 0

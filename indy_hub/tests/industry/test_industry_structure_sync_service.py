@@ -373,6 +373,7 @@ class IndustryStructureSyncServiceTests(TestCase):
 
         self.assertEqual(summary["rate_limited"], 1)
         self.assertEqual(summary["deferred_due_to_rate_limit"], 2)
+        self.assertEqual(summary["retry_after_seconds"], 30)
         self.assertEqual(summary["errors"], [])
         self.assertEqual(mock_fetch_corporation_structures.call_count, 1)
 
