@@ -1,0 +1,102 @@
+{% load i18n %}
+    <form id="adminUsersFilters" method="get" class="card admin-users-toolbar" aria-label="{% trans 'User administration filters' %}">
+        <div class="card-body p-3">{% if filters.max_health_score != None %}<input type="hidden" name="max_health_score" value="{{ filters.max_health_score }}">{% endif %}
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-lg-5">
+                    <label for="adminUsersSearch" class="form-label">{% trans "Search" %}</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text" aria-hidden="true"><i class="fas fa-magnifying-glass"></i></span>
+                        <input id="adminUsersSearch" name="q" type="search" class="form-control" value="{{ filters.search_query }}" placeholder="{% trans 'Username, character name or ID' %}">
+                    </div>
+                </div>
+                <div class="col-12 col-md-7 col-lg-4">
+                    <label for="adminUsersCorporation" class="form-label">{% trans "Corporation" %}</label>
+                    <input id="adminUsersCorporation" name="corporation" type="search" class="form-control form-control-sm" value="{{ corporation_filter_value }}" placeholder="{% trans 'Main corporation name or ID' %}">
+                </div>
+                <div class="col-12 col-md-5 col-lg-3">
+                    <div class="d-flex gap-2 justify-content-md-end">
+                        <button type="submit" class="btn btn-sm btn-primary flex-grow-1 flex-md-grow-0">
+                            <i class="fas fa-filter me-1" aria-hidden="true"></i>{% trans "Apply" %}
+                        </button>
+                        <button
+                            class="btn btn-sm btn-outline-secondary admin-users-filter-toggle d-lg-none"
+                            type="button"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#adminUsersAdvancedFilters"
+                            aria-expanded="{% if has_active_filters %}true{% else %}false{% endif %}"
+                            aria-controls="adminUsersAdvancedFilters"
+                        >
+                            {% trans "Filters" %}<i class="fas fa-chevron-down ms-1" aria-hidden="true"></i>
+                        </button>
+                        <a href="{% url 'indy_hub:settings_admin_users' %}" class="btn btn-sm btn-outline-secondary" aria-label="{% trans 'Reset all filters' %}">
+                            <i class="fas fa-rotate-left me-1" aria-hidden="true"></i>{% trans "Reset" %}
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div id="adminUsersAdvancedFilters" class="admin-users-filter-collapse collapse {% if has_active_filters %}show{% endif %}">
+                <div class="row g-2 align-items-end mt-1 pt-2 border-top">
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <label for="adminUsersActivity" class="form-label">{% trans "Activity" %}</label>
+                        <select id="adminUsersActivity" name="activity" class="form-select form-select-sm">
+                            <option value="">{% trans "Any activity" %}</option>
+                            <option value="active"{% if filters.activity_filter == 'active' %} selected{% endif %}>{% trans "Active in 30d" %}</option>
+                            <option value="inactive"{% if filters.activity_filter == 'inactive' %} selected{% endif %}>{% trans "Inactive in 30d" %}</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <label for="adminUsersHealth" class="form-label">{% trans "Health" %}</label>
+                        <select id="adminUsersHealth" name="health_level" class="form-select form-select-sm">
+                            <option value="">{% trans "Any health" %}</option>
+                            <option value="good"{% if filters.health_filter == 'good' %} selected{% endif %}>{% trans "Good" %}</option>
+                            <option value="medium"{% if filters.health_filter == 'medium' %} selected{% endif %}>{% trans "Needs attention" %}</option>
+                            <option value="critical"{% if filters.health_filter == 'critical' %} selected{% endif %}>{% trans "Critical" %}</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <label for="adminUsersScopes" class="form-label">{% trans "Scopes" %}</label>
+                        <select id="adminUsersScopes" name="scopes" class="form-select form-select-sm">
+                            <option value="">{% trans "Any coverage" %}</option>
+                            <option value="complete"{% if filters.scope_filter == 'complete' %} selected{% endif %}>{% trans "Complete" %}</option>
+                            <option value="incomplete"{% if filters.scope_filter == 'incomplete' %} selected{% endif %}>{% trans "Incomplete" %}</option>
+                            <option value="blueprints"{% if filters.scope_filter == 'blueprints' %} selected{% endif %}>{% trans "Missing blueprints" %}</option><option value="jobs"{% if filters.scope_filter == 'jobs' %} selected{% endif %}>{% trans "Missing jobs" %}</option><option value="assets"{% if filters.scope_filter == 'assets' %} selected{% endif %}>{% trans "Missing assets" %}</option><option value="skills"{% if filters.scope_filter == 'skills' %} selected{% endif %}>{% trans "Missing skills" %}</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <label for="adminUsersUsage" class="form-label">{% trans "Usage" %}</label>
+                        <select id="adminUsersUsage" name="usage" class="form-select form-select-sm">
+                            <option value="">{% trans "Any usage" %}</option>
+                            <option value="has_usage"{% if filters.usage_filter == 'has_usage' %} selected{% endif %}>{% trans "Recorded" %}</option>
+                            <option value="no_usage"{% if filters.usage_filter == 'no_usage' %} selected{% endif %}>{% trans "Never recorded" %}</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <label for="adminUsersSort" class="form-label">{% trans "Sort" %}</label>
+                        <select id="adminUsersSort" name="sort" class="form-select form-select-sm">
+                            <option value="username"{% if filters.sort_key == 'username' %} selected{% endif %}>{% trans "Username" %}</option>
+                            <option value="corporation"{% if filters.sort_key == 'corporation' %} selected{% endif %}>{% trans "Corporation" %}</option>
+                            <option value="health"{% if filters.sort_key == 'health' %} selected{% endif %}>{% trans "Health" %}</option>
+                            <option value="scopes"{% if filters.sort_key == 'scopes' %} selected{% endif %}>{% trans "Scopes" %}</option>
+                            <option value="activity"{% if filters.sort_key == 'activity' %} selected{% endif %}>{% trans "Last activity" %}</option>
+                            <option value="usage"{% if filters.sort_key == 'usage' %} selected{% endif %}>{% trans "Total usage" %}</option>
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-4 col-lg-2">
+                        <label for="adminUsersDirection" class="form-label">{% trans "Direction" %}</label>
+                        <select id="adminUsersDirection" name="direction" class="form-select form-select-sm">
+                            <option value="asc"{% if filters.sort_direction == 'asc' %} selected{% endif %}>{% trans "Ascending" %}</option>
+                            <option value="desc"{% if filters.sort_direction == 'desc' %} selected{% endif %}>{% trans "Descending" %}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row g-2 mt-1">
+                    <div class="col-6 col-lg-3"><label for="adminUsersAccount" class="form-label">{% trans "Auth account" %}</label><select id="adminUsersAccount" name="account" class="form-select form-select-sm"><option value="">{% trans "Any account" %}</option><option value="enabled"{% if filters.account_filter == 'enabled' %} selected{% endif %}>{% trans "Enabled" %}</option><option value="disabled"{% if filters.account_filter == 'disabled' %} selected{% endif %}>{% trans "Disabled" %}</option></select></div>
+                    <div class="col-6 col-lg-3"><label for="adminUsersNotifications" class="form-label">{% trans "Notifications" %}</label><select id="adminUsersNotifications" name="notifications" class="form-select form-select-sm"><option value="">{% trans "Any setting" %}</option><option value="enabled"{% if filters.notification_filter == 'enabled' %} selected{% endif %}>{% trans "Enabled" %}</option><option value="disabled"{% if filters.notification_filter == 'disabled' %} selected{% endif %}>{% trans "Disabled" %}</option></select></div>
+                    <div class="col-6 col-lg-3"><label for="adminUsersRole" class="form-label">{% trans "Auth role" %}</label><select id="adminUsersRole" name="role" class="form-select form-select-sm"><option value="">{% trans "Any role" %}</option><option value="superuser"{% if filters.role_filter == 'superuser' %} selected{% endif %}>{% trans "Superuser" %}</option><option value="staff"{% if filters.role_filter == 'staff' %} selected{% endif %}>{% trans "Staff" %}</option><option value="member"{% if filters.role_filter == 'member' %} selected{% endif %}>{% trans "Member" %}</option></select></div>
+                    <div class="col-6 col-lg-3"><label for="adminUsersStatus" class="form-label">{% trans "Diagnostics" %}</label><select id="adminUsersStatus" name="status" class="form-select form-select-sm"><option value="">{% trans "Any status" %}</option><option value="ready"{% if filters.status_filter == 'ready' %} selected{% endif %}>{% trans "Available" %}</option><option value="pending"{% if filters.status_filter == 'pending' %} selected{% endif %}>{% trans "Pending" %}</option></select></div>
+                </div>
+            </div>
+        </div>
+    </form>

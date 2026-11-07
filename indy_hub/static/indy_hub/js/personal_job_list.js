@@ -1,20 +1,7 @@
 /* Personal Job List JavaScript */
 
 function refreshJobs() {
-    const buttons = document.querySelectorAll('button[data-refresh-jobs]');
-    buttons.forEach(btn => {
-        const originalContent = btn.dataset.refreshOriginal || btn.innerHTML;
-        if (!btn.dataset.refreshOriginal) {
-            btn.dataset.refreshOriginal = originalContent;
-        }
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>' + btn.textContent.trim();
-        btn.disabled = true;
-    });
-
-    const url = new URL(window.location.href);
-    url.searchParams.set('refresh', '1');
-    url.searchParams.set('force_refresh', '1');
-    window.location.href = url.toString();
+    window.personalJobList?.refresh();
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -32,9 +19,9 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateJobProgressBars() {
         document.querySelectorAll('.progress.job-progress').forEach(function(bar) {
             var fill = bar.querySelector('.progress-bar');
-            var percentLabel = fill.querySelector('.job-progress-percent');
-            var etaLabel = bar.nextElementSibling.querySelector('.job-progress-eta');
             if (!fill) return;
+            var percentLabel = fill.querySelector('.job-progress-percent');
+            var etaLabel = bar.nextElementSibling?.querySelector('.job-progress-eta');
             var start = parseInt(fill.getAttribute('data-start'));
             var end = parseInt(fill.getAttribute('data-end'));
             var now = Math.floor(Date.now()/1000);
@@ -56,6 +43,11 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    window.personalJobList = new PersonalBlueprintList({
+        resultsId: 'jobResults', formId: 'jobFilters', statusId: 'jobLiveStatus',
+        searchId: 'jobSearch', refreshButtons: '[data-refresh-jobs]',
+        onUpdate: updateJobProgressBars
+    });
     updateJobProgressBars();
     setInterval(updateJobProgressBars,1000);
 });

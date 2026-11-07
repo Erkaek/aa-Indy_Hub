@@ -1,6 +1,7 @@
 # Standard Library
 import importlib.util
 from unittest import skipUnless
+from unittest.mock import patch
 
 # Django
 from django.apps import apps
@@ -85,6 +86,12 @@ class HasScopeCoverageTests(TestCase):
         _make_token(self.user, self.character, _SCOPES)
         self.assertTrue(self._check(self.character, _SCOPES))
 
+    def test_listing_never_validates_oauth(self):
+        _make_token(self.user, self.character, _SCOPES)
+        with patch("esi.managers.TokenQueryset.require_valid") as validate:
+            self.assertTrue(self._check(self.character, _SCOPES))
+        validate.assert_not_called()
+
     def test_returns_false_when_token_missing_one_scope(self):
         _make_token(self.user, self.character, _SCOPES[:-1])
         self.assertFalse(self._check(self.character, _SCOPES))
@@ -93,8 +100,9 @@ class HasScopeCoverageTests(TestCase):
         self.assertFalse(self._check(self.character, _SCOPES))
 
     def test_returns_false_when_no_character_ownership(self):
-        CharacterOwnership.objects.filter(character=self.character).delete()
         _make_token(self.user, self.character, _SCOPES)
+        # AA creates ownership on Token post_save; remove it after that boundary.
+        CharacterOwnership.objects.filter(character=self.character).delete()
         self.assertFalse(self._check(self.character, _SCOPES))
 
     def test_returns_false_when_scopes_spread_across_multiple_tokens(self):

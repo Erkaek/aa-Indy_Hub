@@ -30,6 +30,10 @@ _USAGE_EXCLUDED_PATHS = {
 _USAGE_EXCLUDED_PATH_PREFIXES = {
     "/indy_hub/settings/admin-users/global-usage-fragment",
     "/indy_hub/settings/admin-users/usage-detail-fragment",
+    "/indy_hub/settings/admin-users/summary",
+    "/indy_hub/settings/admin-users/detail",
+    "/indy_hub/settings/admin-users/actions",
+    "/indy_hub/settings/admin-users/export",
 }
 _USAGE_EXCLUDED_ROUTE_NAMES = {
     "indy_hub:settings_admin_users_global_usage_fragment",
@@ -38,6 +42,14 @@ _USAGE_EXCLUDED_ROUTE_NAMES = {
     "settings_admin_users_usage_detail_fragment",
 }
 _USAGE_REQUEST_DEBOUNCE_SECONDS = 60
+
+for _admin_endpoint in ("summary", "detail", "actions", "action_status", "export"):
+    _USAGE_EXCLUDED_ROUTE_NAMES.update(
+        {
+            f"settings_admin_users_{_admin_endpoint}",
+            f"indy_hub:settings_admin_users_{_admin_endpoint}",
+        }
+    )
 
 
 def is_usage_tracking_path_excluded(path: str | None) -> bool:
@@ -622,6 +634,11 @@ def track_indy_hub_usage_once_per_request(request) -> None:
         return
 
     request_path = str(getattr(request, "path", "") or "").strip()
+    if (
+        request_path.rstrip("/").endswith("/settings/admin-users")
+        and getattr(request, "GET", {}).get("fragment") == "1"
+    ):
+        return
     if is_usage_tracking_path_excluded(request_path):
         return
 

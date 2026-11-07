@@ -14,10 +14,6 @@
 {% endblock extra_css %}
 
 {% block content %}
-{% trans "Blueprint Reaction" as blueprint_reaction_label %}
-{% trans "Blueprint Original" as blueprint_original_label %}
-{% trans "Blueprint Copy" as blueprint_copy_label %}
-{% trans "Unknown Blueprint" as unknown_blueprint_label %}
 <div class="container-fluid py-4 indy-blueprints">
     <div class="page-header mb-4">
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
@@ -47,7 +43,8 @@
 
     <!-- Filter Section -->
     <div class="filter-section mb-4">
-        <form method="get">
+        {% csrf_token %}
+        <form method="get" id="blueprintFilters">
             <input type="hidden" name="scope" value="{{ scope }}">
             <div class="row g-3 align-items-end">
                 <div class="col-lg-2">
@@ -107,208 +104,14 @@
         </form>
     </div>
 
-    {% if blueprints %}
-    <!-- Stats Summary -->
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
-            <div class="stats-card">
-                <div class="card-body text-center">
-                    <div class="h4 text-primary mb-1">{{ statistics.total_count|default:0 }}</div>
-                    <small class="text-muted fw-bold">{% trans "Total Quantity" %}</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="stats-card">
-                <div class="card-body text-center">
-                    <div class="h4 text-success mb-1">{{ statistics.original_count|default:0 }}</div>
-                    <small class="text-muted fw-bold">{% trans "Original BPOs" %}</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-4">
-            <div class="stats-card">
-                <div class="card-body text-center">
-                    <div class="h4 text-info mb-1">{{ statistics.copy_count|default:0 }}</div>
-                    <small class="text-muted fw-bold">{% trans "Blueprint Copies" %}</small>
-                </div>
-            </div>
-        </div>
+    <div id="blueprintLiveStatus" class="small text-muted mb-3" role="status" aria-live="polite"
+        data-error-message="{% trans 'Unable to update blueprints. Your displayed data is still available; retrying shortly.' %}"
+        data-updating-message="{% trans 'Updating blueprints…' %}"
+        data-updated-message="{% trans 'Blueprints updated.' %}"
+        data-sync-message="{% trans 'ESI synchronization in progress. Displayed data will update automatically.' %}"></div>
+    <div id="blueprintResults" aria-busy="false">
+        {% include 'indy_hub/blueprints/_personal_bp_results.html' %}
     </div>
-    <!-- Blueprints Responsive List -->
-    <div class="blueprint-list-group w-100">
-        <div class="blueprint-list" id="blueprintsContainer">
-            {% for bp in blueprints %}
-            <div class="blueprint-item blueprint-list-item d-flex flex-wrap align-items-center gap-3"
-                data-type-id="{{ bp.type_id }}"
-                data-me="{{ bp.material_efficiency|default:0 }}"
-                data-te="{{ bp.time_efficiency|default:0 }}"
-                data-runs="{% if bp.is_original or bp.is_reaction %}-1{% else %}{{ bp.runs|default:0 }}{% endif %}"
-                data-owner-id="{{ bp.owner_id }}"
-                data-quantity="{{ bp.total_quantity|default:1 }}">
-                <!-- Blueprint icon -->
-                <div class="blueprint-icon flex-shrink-0 me-3">
-                        {% comment %} Reaction BPs always show original icon {% endcomment %}
-                        {% if bp.is_reaction %}
-                        <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
-                            alt="{{ bp.type_name|default:blueprint_reaction_label }}" loading="lazy"
-                            onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                        {% else %}
-                            {% if bp.is_original %}
-                            <img src="https://images.evetech.net/types/{{ bp.type_id }}/bp?size=64"
-                                alt="{{ bp.type_name|default:blueprint_original_label }}" loading="lazy"
-                                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                            {% else %}
-                            <img src="https://images.evetech.net/types/{{ bp.type_id }}/bpc?size=64"
-                                alt="{{ bp.type_name|default:blueprint_copy_label }}" loading="lazy"
-                                onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
-                            {% endif %}
-                        {% endif %}
-                </div>
-
-                <div class="flex-grow-1 min-width-0 blueprint-list-content">
-                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                        <h5 class="blueprint-title mb-0">{{ bp.type_name|default:unknown_blueprint_label }}</h5>
-                        <div class="blueprint-badges mb-0 ms-auto">
-                            {% if bp.is_reaction %}
-                                <span class="type-badge reaction"><i class="fas fa-flask"></i> {% trans 'Reaction' %}</span>
-                                <span class="runs-badge"><i class="fas fa-infinity me-1"></i>{% trans 'unlimited' %}</span>
-                                <span class="type-badge quantity"><i class="fas fa-layer-group"></i> {{ bp.total_quantity }}</span>
-                            {% else %}
-                                {% if bp.orig_quantity > 0 %}
-                                    <span class="type-badge original"><i class="fas fa-certificate"></i> {{ bp.orig_quantity }} {% trans 'Original' %}</span>
-                                    <span class="runs-badge"><i class="fas fa-infinity me-1"></i>{% trans 'unlimited' %}</span>
-                                {% endif %}
-                                {% if bp.copy_quantity > 0 %}
-                                    <span class="type-badge copy"><i class="fas fa-clone"></i> {{ bp.copy_quantity }} {% trans 'Copy' %}</span>
-                                    {% if bp.runs > 0 %}
-                                        <span class="runs-badge"><i class="fas fa-play me-1"></i>{{ bp.runs }} {% trans 'runs left' %}</span>
-                                    {% endif %}
-                                {% endif %}
-                                {% if bp.total_quantity > 0 %}
-                                    <span class="type-badge quantity"><i class="fas fa-layer-group"></i> {{ bp.total_quantity }}</span>
-                                {% endif %}
-                            {% endif %}
-                        </div>
-                    </div>  {# end badges/title row #}
-                    <div class="blueprint-meta mb-1">
-                        <span class="character-tag"><i class="{{ owner_icon }}"></i> {{ bp.owner_display|default:bp.owner_id }}</span>
-                        {% if bp.location_name %}
-                        <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_name }}</span>
-                        {% elif bp.location_path %}
-                        <span class="location-tag ms-2"><i class="fas fa-map-marker-alt me-1"></i>{{ bp.location_path }}</span>
-                        {% endif %}
-                        <a href="{% url 'indy_hub:craft_bp' bp.type_id %}?me={{ bp.material_efficiency|default:0 }}&te={{ bp.time_efficiency|default:0 }}&next={{ request.get_full_path|urlencode }}" class="btn btn-outline-info btn-sm">
-                            <i class="fas fa-tools me-1"></i>{% trans "View Craft" %}
-                        </a>
-                    </div>
-                    {% if not bp.is_reaction %}
-                    <div class="efficiency-grid d-flex flex-wrap gap-4 align-items-center mb-1">
-                        <div class="efficiency-item">
-                            <span class="efficiency-label">ME</span>
-                            <span class="efficiency-value text-primary ms-1">{{ bp.material_efficiency }}%</span>
-                            <div class="efficiency-bar mt-1">
-                                <div class="efficiency-fill me" style="--efficiency-width: {{ bp.material_efficiency }}0"></div>
-                            </div>
-                        </div>
-                        <div class="efficiency-item">
-                            <span class="efficiency-label">TE</span>
-                            <span class="efficiency-value text-success ms-1">{{ bp.time_efficiency }}%</span>
-                            <div class="efficiency-bar mt-1">
-                                <div class="efficiency-fill te" style="--efficiency-width: calc({{ bp.time_efficiency }} * 5)"></div>
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <!-- Pagination Controls + Page Size Filter -->
-    <div class="d-flex flex-wrap justify-content-between align-items-center mt-4 mb-2 gap-2">
-        <form method="get" class="d-flex align-items-center gap-2 mb-0">
-            <label for="perPage" class="form-label mb-0 text-muted small">{% trans "Per page" %}</label>
-            <select name="per_page" id="perPage" class="form-select form-select-sm w-auto"
-                onchange="this.form.submit()">
-                {% for n in per_page_options %}
-                <option value="{{ n }}" {% if current_filters.per_page|stringformat:'s' == n|stringformat:'s' %}selected{% endif %}>
-                    {{ n }}</option>
-                {% endfor %}
-            </select>
-            {# Preserve other filters #}
-            <input type="hidden" name="scope" value="{{ scope }}">
-            <input type="hidden" name="search" value="{{ current_filters.search }}">
-            <input type="hidden" name="efficiency" value="{{ current_filters.efficiency }}">
-            <input type="hidden" name="type" value="{{ current_filters.type }}">
-            <input type="hidden" name="owner" value="{{ current_filters.owner }}">
-            <input type="hidden" name="activity_id" value="{{ current_filters.activity_id }}">
-        </form>
-        {% if blueprints.has_other_pages %}
-        <nav aria-label="{% trans 'Blueprint pagination' %}">
-            <ul class="pagination pagination-sm justify-content-center mb-0 flex-wrap">
-                {% if blueprints.has_previous %}
-                <li class="page-item">
-                    <a class="page-link"
-                        href="?page={{ blueprints.previous_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1"
-                        aria-label="{% trans 'Previous' %}">
-                        <span aria-hidden="true">&laquo;</span>
-                    </a>
-                </li>
-                {% endif %}
-                {% for num in blueprints.paginator.page_range %}
-                {% if num == blueprints.number %}
-                <li class="page-item active"><span class="page-link">{{ num }}</span></li>
-                {% elif num >= blueprints.number|add:'-2' and num <= blueprints.number|add:'2' %}
-        <li class="page-item"><a class="page-link"
-            href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1">{{ num }}</a>
-                </li>
-                {% elif num == 1 or num == blueprints.paginator.num_pages %}
-        <li class="page-item"><a class="page-link"
-            href="?page={{ num }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1">{{ num }}</a>
-                </li>
-                {% if num < blueprints.number|add:'-2' or num > blueprints.number|add:'2' %}
-                <li class="page-item disabled"><span class="page-link">…</span></li>
-                {% endif %}
-                {% endif %}
-                {% endfor %}
-                {% if blueprints.has_next %}
-                <li class="page-item">
-                    <a class="page-link"
-                        href="?page={{ blueprints.next_page_number }}&per_page={{ blueprints.paginator.per_page }}&search={{ current_filters.search }}&efficiency={{ current_filters.efficiency }}&type={{ current_filters.type }}&owner={{ current_filters.owner }}&activity_id={{ current_filters.activity_id }}&scope={{ scope }}&applied=1"
-                        aria-label="{% trans 'Next' %}">
-                        <span aria-hidden="true">&raquo;</span>
-                    </a>
-                </li>
-                {% endif %}
-            </ul>
-        </nav>
-        {% endif %}
-    </div>
-    {% else %}
-    <!-- No Blueprints State -->
-    <div class="row justify-content-center">
-        <div class="col-md-6">
-            <div class="stats-card">
-                <div class="card-body text-center py-5">
-                    <i class="fas fa-scroll fa-4x text-muted mb-4"></i>
-                    <h5 class="text-muted mb-3">{% trans "No Blueprints Found" %}</h5>
-                    <p class="text-muted mb-4">{% trans "You don't have any blueprints yet, or your ESI data hasn't been synchronized." %}</p>
-                    <div class="d-grid gap-2 d-md-block">
-                        <a href="{% url 'indy_hub:token_management' %}" class="btn btn-primary">
-                            <i class="fas fa-key me-2"></i>{% trans "Setup ESI Access" %}
-                        </a>
-                        <button type="button" class="btn btn-outline-primary" onclick="refreshBlueprints()">
-                            <i class="fas fa-sync-alt me-2"></i>{% trans "Refresh Data" %}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
 
     <!-- Legend -->
     <div class="legend mt-4">
@@ -325,6 +128,5 @@
 {% endblock content %}
 
 {% block extra_javascript %}
-<script src="{% static 'indy_hub/js/blueprints.js' %}"></script>
 <script src="{% static 'indy_hub/js/personal_bp_list.js' %}"></script>
 {% endblock extra_javascript %}

@@ -1,331 +1,53 @@
 {% extends "indy_hub/base.html" %}
-{% load i18n %}
-{% load static %}
-
-{% blocktrans asvar adminUsersNoGlobalPageDetailText %}No page usage has been recorded yet.{% endblocktrans %}
-{% blocktrans asvar adminUsersGlobalUsageErrorText %}Unable to load usage analytics right now.{% endblocktrans %}
-{% blocktrans asvar adminUsersNoPageDetailText %}No page usage has been recorded yet.{% endblocktrans %}
-{% blocktrans asvar adminUsersUserUsageErrorText %}Unable to load user analytics right now.{% endblocktrans %}
-{% blocktrans asvar adminUsersUsageTimeoutText %}The analytics request timed out.{% endblocktrans %}
-{% blocktrans asvar adminUsersRetryText %}Retry{% endblocktrans %}
-{% blocktrans asvar adminUsersLoadingGlobalText %}Loading usage overview…{% endblocktrans %}
-{% blocktrans asvar adminUsersLoadingUserText %}Loading user usage…{% endblocktrans %}
-{% blocktrans asvar adminUsersUsageDetailText %}Usage detail{% endblocktrans %}
-
-{% block page_title %}{% trans "User administration" %}{% endblock page_title %}
-
-{% block extra_css %}
-<link rel="stylesheet" href="{% static 'indy_hub/css/admin_users.css' %}">
-{% endblock extra_css %}
-
+{% load i18n static %}
+{% block page_title %}{% trans "User administration" %}{% endblock %}
+{% block extra_css %}{{ block.super }}<link rel="stylesheet" href="{% static 'indy_hub/css/admin_users.css' %}">{% endblock %}
 {% block content %}
-<div
-    class="container-fluid py-4 admin-users-layout"
-    id="adminUsersPage"
-    data-global-error-text="{{ adminUsersGlobalUsageErrorText }}"
-    data-user-error-text="{{ adminUsersUserUsageErrorText }}"
-    data-timeout-text="{{ adminUsersUsageTimeoutText }}"
-    data-retry-text="{{ adminUsersRetryText }}"
-    data-no-global-text="{{ adminUsersNoGlobalPageDetailText }}"
-    data-no-user-text="{{ adminUsersNoPageDetailText }}"
-    data-loading-global-text="{{ adminUsersLoadingGlobalText }}"
-    data-loading-user-text="{{ adminUsersLoadingUserText }}"
-    data-usage-detail-text="{{ adminUsersUsageDetailText }}"
->
-    {% url 'indy_hub:settings_hub' as settings_hub_url %}
-    <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 border-bottom pb-3">
-        <div>
-            <h1 class="h3 mb-1"><i class="fas fa-user-shield text-primary me-2" aria-hidden="true"></i>{% trans "User administration" %}</h1>
-            <p class="text-body-secondary mb-0">{% trans "Review account setup and recent Indy Hub use." %}</p>
-        </div>
-        <a href="{{ settings_hub_url }}" class="btn btn-sm btn-outline-secondary">
-            <i class="fas fa-arrow-left me-1" aria-hidden="true"></i>{% trans "Back to Settings" %}
-        </a>
+<div class="container-fluid py-4 admin-users-layout" id="adminUsersPage"
+        data-list-url="{% url 'indy_hub:settings_admin_users' %}"
+        data-summary-url="{% url 'indy_hub:settings_admin_users_summary' %}"
+        data-status-url="{% url 'indy_hub:settings_admin_users_action_status' %}"
+        data-actions-url="{% url 'indy_hub:settings_admin_users_actions' %}"
+        data-export-url="{% url 'indy_hub:settings_admin_users_export' %}"
+        data-global-error-text="{% trans 'Unable to load usage analytics right now.' %}"
+        data-user-error-text="{% trans 'Unable to load user analytics right now.' %}"
+        data-list-error-text="{% trans 'Unable to update the list. The previous results are still displayed.' %}"
+        data-detail-error-text="{% trans 'Unable to load account diagnostics.' %}"
+        data-timeout-text="{% trans 'The request timed out.' %}"
+        data-retry-text="{% trans 'Retry' %}"
+        data-loading-global-text="{% trans 'Loading usage overview…' %}"
+        data-loading-user-text="{% trans 'Loading user usage…' %}"
+        data-usage-detail-text="{% trans 'Usage detail' %}"
+        data-selected-text="{% trans 'selected' %}"
+        data-selection-limit-text="{% trans 'Select at most 25 users per action.' %}"
+        data-action-error-text="{% trans 'Unable to submit the action. Refresh diagnostics before retrying.' %}"
+        data-action-failed-text="{% trans 'Maintenance failed. Review diagnostics before retrying.' %}"
+        data-action-still-running-text="{% trans 'The task is still running. Reload diagnostics shortly to check its progress.' %}"
+        data-action-status-error-text="{% trans 'Unable to check task progress. The request may still be running.' %}"
+        data-action-complete-text="{% trans 'Action results' %}">
+    <header class="admin-users-hero">
+        <div class="admin-users-hero-heading"><span class="admin-users-eyebrow"><i class="fas fa-user-shield" aria-hidden="true"></i> INDY HUB · {% trans "Administration" %}</span><h1>{% trans "User administration" %}</h1><p>{% trans "Diagnose access, monitor activity and keep industry data up to date." %}</p></div>
+        <div class="d-flex gap-2 flex-wrap"><button type="button" class="btn btn-outline-primary" id="adminUsersReload"><i class="fas fa-arrows-rotate me-1" aria-hidden="true"></i>{% trans "Reload list" %}</button><a id="adminUsersExport" class="btn btn-outline-secondary" href="{% url 'indy_hub:settings_admin_users_export' %}?{{ current_query }}"><i class="fas fa-download me-1" aria-hidden="true"></i>{% trans "Export CSV" %}</a><a href="{% url 'indy_hub:settings_hub' %}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-1" aria-hidden="true"></i>{% trans "Settings" %}</a></div>
     </header>
-
-    <form method="get" class="card admin-users-toolbar" aria-label="{% trans 'User administration filters' %}">
-        <div class="card-body p-3">
-            <div class="row g-2 align-items-end">
-                <div class="col-12 col-lg-5">
-                    <label for="adminUsersSearch" class="form-label">{% trans "Search" %}</label>
-                    <div class="input-group input-group-sm">
-                        <span class="input-group-text" aria-hidden="true"><i class="fas fa-magnifying-glass"></i></span>
-                        <input id="adminUsersSearch" name="q" type="search" class="form-control" value="{{ filters.search_query }}" placeholder="{% trans 'Username or main character' %}">
-                    </div>
-                </div>
-                <div class="col-12 col-md-7 col-lg-4">
-                    <label for="adminUsersCorporation" class="form-label">{% trans "Corporation" %}</label>
-                    <input id="adminUsersCorporation" name="corporation" type="search" class="form-control form-control-sm" value="{{ corporation_filter_value }}" placeholder="{% trans 'Main corporation name or ID' %}">
-                </div>
-                <div class="col-12 col-md-5 col-lg-3">
-                    <div class="d-flex gap-2 justify-content-md-end">
-                        <button type="submit" class="btn btn-sm btn-primary flex-grow-1 flex-md-grow-0">
-                            <i class="fas fa-filter me-1" aria-hidden="true"></i>{% trans "Apply" %}
-                        </button>
-                        <button
-                            class="btn btn-sm btn-outline-secondary admin-users-filter-toggle d-lg-none"
-                            type="button"
-                            data-bs-toggle="collapse"
-                            data-bs-target="#adminUsersAdvancedFilters"
-                            aria-expanded="{% if has_active_filters %}true{% else %}false{% endif %}"
-                            aria-controls="adminUsersAdvancedFilters"
-                        >
-                            {% trans "Filters" %}<i class="fas fa-chevron-down ms-1" aria-hidden="true"></i>
-                        </button>
-                        {% if has_active_filters %}
-                        <a href="{% url 'indy_hub:settings_admin_users' %}" class="btn btn-sm btn-outline-secondary" aria-label="{% trans 'Reset all filters' %}">
-                            <i class="fas fa-rotate-left me-1" aria-hidden="true"></i>{% trans "Reset" %}
-                        </a>
-                        {% endif %}
-                    </div>
-                </div>
-            </div>
-
-            <div id="adminUsersAdvancedFilters" class="admin-users-filter-collapse collapse {% if has_active_filters %}show{% endif %}">
-                <div class="row g-2 align-items-end mt-1 pt-2 border-top">
-                    <div class="col-6 col-md-4 col-lg-2">
-                        <label for="adminUsersActivity" class="form-label">{% trans "Activity" %}</label>
-                        <select id="adminUsersActivity" name="activity" class="form-select form-select-sm">
-                            <option value="">{% trans "Any activity" %}</option>
-                            <option value="active"{% if filters.activity_filter == 'active' %} selected{% endif %}>{% trans "Active in 30d" %}</option>
-                            <option value="inactive"{% if filters.activity_filter == 'inactive' %} selected{% endif %}>{% trans "Inactive in 30d" %}</option>
-                        </select>
-                    </div>
-                    <div class="col-6 col-md-4 col-lg-2">
-                        <label for="adminUsersHealth" class="form-label">{% trans "Health" %}</label>
-                        <select id="adminUsersHealth" name="health_level" class="form-select form-select-sm">
-                            <option value="">{% trans "Any health" %}</option>
-                            <option value="good"{% if filters.health_filter == 'good' %} selected{% endif %}>{% trans "Good" %}</option>
-                            <option value="medium"{% if filters.health_filter == 'medium' %} selected{% endif %}>{% trans "Needs attention" %}</option>
-                            <option value="critical"{% if filters.health_filter == 'critical' %} selected{% endif %}>{% trans "Critical" %}</option>
-                        </select>
-                    </div>
-                    <div class="col-6 col-md-4 col-lg-2">
-                        <label for="adminUsersScopes" class="form-label">{% trans "Scopes" %}</label>
-                        <select id="adminUsersScopes" name="scopes" class="form-select form-select-sm">
-                            <option value="">{% trans "Any coverage" %}</option>
-                            <option value="complete"{% if filters.scope_filter == 'complete' %} selected{% endif %}>{% trans "Complete" %}</option>
-                            <option value="incomplete"{% if filters.scope_filter == 'incomplete' %} selected{% endif %}>{% trans "Incomplete" %}</option>
-                        </select>
-                    </div>
-                    <div class="col-6 col-md-4 col-lg-2">
-                        <label for="adminUsersUsage" class="form-label">{% trans "Usage" %}</label>
-                        <select id="adminUsersUsage" name="usage" class="form-select form-select-sm">
-                            <option value="">{% trans "Any usage" %}</option>
-                            <option value="has_usage"{% if filters.usage_filter == 'has_usage' %} selected{% endif %}>{% trans "Recorded" %}</option>
-                            <option value="no_usage"{% if filters.usage_filter == 'no_usage' %} selected{% endif %}>{% trans "Never recorded" %}</option>
-                        </select>
-                    </div>
-                    <div class="col-6 col-md-4 col-lg-2">
-                        <label for="adminUsersSort" class="form-label">{% trans "Sort" %}</label>
-                        <select id="adminUsersSort" name="sort" class="form-select form-select-sm">
-                            <option value="username"{% if filters.sort_key == 'username' %} selected{% endif %}>{% trans "Username" %}</option>
-                            <option value="corporation"{% if filters.sort_key == 'corporation' %} selected{% endif %}>{% trans "Corporation" %}</option>
-                            <option value="health"{% if filters.sort_key == 'health' %} selected{% endif %}>{% trans "Health" %}</option>
-                            <option value="scopes"{% if filters.sort_key == 'scopes' %} selected{% endif %}>{% trans "Scopes" %}</option>
-                            <option value="activity"{% if filters.sort_key == 'activity' %} selected{% endif %}>{% trans "Last activity" %}</option>
-                            <option value="usage"{% if filters.sort_key == 'usage' %} selected{% endif %}>{% trans "Total usage" %}</option>
-                        </select>
-                    </div>
-                    <div class="col-6 col-md-4 col-lg-2">
-                        <label for="adminUsersDirection" class="form-label">{% trans "Direction" %}</label>
-                        <select id="adminUsersDirection" name="direction" class="form-select form-select-sm">
-                            <option value="asc"{% if filters.sort_direction == 'asc' %} selected{% endif %}>{% trans "Ascending" %}</option>
-                            <option value="desc"{% if filters.sort_direction == 'desc' %} selected{% endif %}>{% trans "Descending" %}</option>
-                        </select>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </form>
-
-    <section class="card" aria-labelledby="adminUsersUsageOverviewTitle">
-        <div class="card-body p-3">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-                <div>
-                    <h2 class="h6 mb-1" id="adminUsersUsageOverviewTitle">{% trans "Usage overview" %}</h2>
-                    <p class="text-body-secondary small mb-0">{% trans "Current search and filters · last 30 days" %}</p>
-                </div>
-            </div>
-            <div id="adminUsersGlobalUsageContainer" data-url="{% url 'indy_hub:settings_admin_users_global_usage_fragment' %}">
-                <button type="button" class="btn btn-sm btn-outline-primary" id="adminUsersLoadGlobalUsageBtn">
-                    <i class="fas fa-chart-bar me-1" aria-hidden="true"></i>{% trans "Load usage overview" %}
-                </button>
-            </div>
-        </div>
-    </section>
-
-    <section class="card" aria-labelledby="adminUsersResultsTitle">
-        <div class="card-header bg-body d-flex flex-wrap align-items-start justify-content-between gap-2 py-3">
-            <div>
-                <h2 class="h6 mb-1" id="adminUsersResultsTitle">{% trans "Users" %}</h2>
-                <div class="text-body-secondary small">
-                    {% blocktrans count counter=all_rows_count with start=result_start end=result_end %}{{ counter }} result · showing {{ start }}–{{ end }}{% plural %}{{ counter }} results · showing {{ start }}–{{ end }}{% endblocktrans %}
-                </div>
-            </div>
-            <div class="text-body-secondary small d-flex align-items-start gap-2">
-                <i class="fas fa-circle-info mt-1" aria-hidden="true"></i>
-                <span>{% trans "Scope coverage uses locally recorded scopes; token validity is managed from ESI." %}</span>
-            </div>
-        </div>
-        <div class="table-responsive">
-            <table id="adminUsersUsersTable" class="table table-sm table-hover align-middle mb-0 admin-users-users-table">
-                <thead class="admin-users-table-head">
-                    <tr>
-                        <th scope="col">
-                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.username }}">{% trans "User" %}{% if filters.sort_key == 'username' %}<span aria-label="{% if filters.sort_direction == 'asc' %}{% trans 'Sorted ascending' %}{% else %}{% trans 'Sorted descending' %}{% endif %}">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                        </th>
-                        <th scope="col" class="d-none d-xl-table-cell">
-                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.corporation }}">{% trans "Corporation" %}{% if filters.sort_key == 'corporation' %}<span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                        </th>
-                        <th scope="col" class="d-none d-md-table-cell">
-                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.health }}">{% trans "Health" %}{% if filters.sort_key == 'health' %}<span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                        </th>
-                        <th scope="col" class="d-none d-md-table-cell">
-                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.scopes }}">{% trans "Scopes" %}{% if filters.sort_key == 'scopes' %}<span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                        </th>
-                        <th scope="col">
-                            <a class="admin-users-sort-trigger" href="?{{ sort_queries.usage }}">{% trans "Usage" %}{% if filters.sort_key == 'usage' %}<span aria-hidden="true">{% if filters.sort_direction == 'asc' %}↑{% else %}↓{% endif %}</span>{% endif %}</a>
-                        </th>
-                        <th scope="col" class="text-end">{% trans "Actions" %}</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for row in rows %}
-                    <tr class="admin-users-data-row{% if row.status_is_pending %} table-info{% endif %}" data-user-id="{{ row.user.id }}">
-                        <td class="admin-users-user-cell">
-                            <div class="fw-semibold">{{ row.user.username }}</div>
-                            <div class="text-body-secondary small">
-                                {% if row.main_character_name %}{{ row.main_character_name }}{% else %}{% trans "No main character" %}{% endif %}
-                            </div>
-                            <div class="d-md-none small mt-1">
-                                {% if row.status_is_pending %}
-                                <span class="text-info-emphasis"><i class="fas fa-clock me-1" aria-hidden="true"></i>{% trans "Account data is being prepared" %}</span>
-                                {% else %}
-                                <span class="{% if row.health.level == 'good' %}text-success{% elif row.health.level == 'medium' %}text-warning-emphasis{% else %}text-danger{% endif %}">
-                                    {% if row.health.level == 'good' %}{% trans "Good" %}{% elif row.health.level == 'medium' %}{% trans "Needs attention" %}{% else %}{% trans "Critical" %}{% endif %}
-                                </span>
-                                <span class="text-body-tertiary mx-1">·</span>
-                                {% if row.scope_is_complete %}<span>{% trans "Scopes complete" %}</span>{% else %}<span class="text-warning-emphasis">{% trans "Scopes incomplete" %}</span>{% endif %}
-                                {% endif %}
-                            </div>
-                        </td>
-                        <td class="d-none d-xl-table-cell">
-                            {% if row.corporations %}
-                                {% for corp in row.corporations %}<span>{{ corp.corporation_name }}</span>{% endfor %}
-                            {% else %}
-                                <span class="text-body-secondary small">{% trans "No main corporation" %}</span>
-                            {% endif %}
-                        </td>
-                        <td class="admin-users-health-cell d-none d-md-table-cell">
-                            {% if row.status_is_pending %}
-                            <div class="admin-users-status-line text-info-emphasis"><i class="fas fa-clock" aria-hidden="true"></i>{% trans "Preparing" %}</div>
-                            <div class="text-body-secondary small">{% trans "Not scored yet" %}</div>
-                            {% else %}
-                            <div class="admin-users-status-line {% if row.health.level == 'good' %}text-success{% elif row.health.level == 'medium' %}text-warning-emphasis{% else %}text-danger{% endif %}">
-                                <i class="fas {% if row.health.level == 'good' %}fa-circle-check{% elif row.health.level == 'medium' %}fa-triangle-exclamation{% else %}fa-circle-xmark{% endif %}" aria-hidden="true"></i>
-                                <span>{% if row.health.level == 'good' %}{% trans "Good" %}{% elif row.health.level == 'medium' %}{% trans "Needs attention" %}{% else %}{% trans "Critical" %}{% endif %}</span>
-                                <span class="text-body-secondary fw-normal">{{ row.health.score }}/100</span>
-                            </div>
-                            {% if row.problem_counts.total %}
-                            <div class="text-body-secondary small mt-1">
-                                {% if row.problem_counts.blocking %}{% blocktrans count counter=row.problem_counts.blocking %}{{ counter }} blocking issue{% plural %}{{ counter }} blocking issues{% endblocktrans %}{% endif %}
-                                {% if row.problem_counts.blocking and row.problem_counts.advisory %} · {% endif %}
-                                {% if row.problem_counts.advisory %}{% blocktrans count counter=row.problem_counts.advisory %}{{ counter }} advisory{% plural %}{{ counter }} advisories{% endblocktrans %}{% endif %}
-                            </div>
-                            {% endif %}
-                            {% endif %}
-                        </td>
-                        <td class="admin-users-scopes-cell d-none d-md-table-cell">
-                            {% if row.status_is_pending %}
-                            <div class="admin-users-status-line text-info-emphasis"><i class="fas fa-clock" aria-hidden="true"></i>{% trans "Preparing" %}</div>
-                            {% elif row.scope_is_complete %}
-                            <div class="admin-users-status-line text-success"><i class="fas fa-circle-check" aria-hidden="true"></i>{% trans "Complete" %}</div>
-                            {% else %}
-                            <div class="admin-users-status-line text-warning-emphasis"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>{% trans "Incomplete" %}</div>
-                            <div class="admin-users-scope-list text-body-secondary small mt-1" title="{{ row.missing_scopes|join:', ' }}">
-                                {% trans "Missing" %}: {{ row.missing_scopes|join:", " }}
-                            </div>
-                            {% endif %}
-                        </td>
-                        <td class="admin-users-usage-cell">
-                            {% if row.status_is_pending %}
-                            <span class="text-body-secondary">—</span>
-                            <div class="text-body-secondary small">{% trans "Being prepared" %}</div>
-                            {% elif row.activity_30d_count %}
-                            <div class="fw-semibold">{% blocktrans count counter=row.activity_30d_count %}{{ counter }} visit / 30d{% plural %}{{ counter }} visits / 30d{% endblocktrans %}</div>
-                            {% if row.last_used_at %}<div class="text-body-secondary small">{% trans "Last" %}: {{ row.last_used_at|date:"Y-m-d" }}</div>{% endif %}
-                            {% else %}
-                            <div>{% trans "No visits / 30d" %}</div>
-                            <div class="text-body-secondary small">{% if row.last_used_at %}{% trans "Last" %}: {{ row.last_used_at|date:"Y-m-d" }}{% else %}{% trans "Never recorded" %}{% endif %}</div>
-                            {% endif %}
-                        </td>
-                        <td class="admin-users-actions-cell text-end">
-                            <button
-                                type="button"
-                                class="btn btn-sm btn-outline-primary"
-                                data-bs-toggle="modal"
-                                data-bs-target="#adminUsersUsageModal"
-                                data-usage-url="{% url 'indy_hub:settings_admin_users_usage_detail_fragment' row.user.id %}"
-                                data-usage-user="{{ row.user.username }}"
-                            >
-                                <i class="fas fa-chart-bar me-sm-1" aria-hidden="true"></i><span class="d-none d-sm-inline">{% trans "Usage" %}</span><span class="visually-hidden d-sm-none">{% blocktrans with username=row.user.username %}Usage for {{ username }}{% endblocktrans %}</span>
-                            </button>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="6" class="text-center py-4 text-body-secondary">{% trans "No users match the current filters." %}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% if is_paginated %}
-        <div class="card-footer bg-body d-flex justify-content-between align-items-center flex-wrap gap-2 py-3">
-            <div class="text-body-secondary small">
-                {% blocktrans with page=page_obj.number pages=page_obj.paginator.num_pages %}Page {{ page }} of {{ pages }}{% endblocktrans %}
-            </div>
-            <nav aria-label="{% trans 'User result pages' %}">
-                <div class="btn-group btn-group-sm" role="group" aria-label="{% trans 'Pagination' %}">
-                    {% if page_obj.has_previous %}
-                    <a class="btn btn-outline-secondary" href="?{{ current_query }}&amp;page={{ page_obj.previous_page_number }}" aria-label="{% trans 'Previous page' %}"><i class="fas fa-chevron-left" aria-hidden="true"></i></a>
-                    {% endif %}
-                    {% for page_link in page_links %}
-                        {% if page_link.is_ellipsis %}
-                        <span class="btn btn-outline-secondary disabled" aria-hidden="true">…</span>
-                        {% elif page_link.is_current %}
-                        <span class="btn btn-primary" aria-current="page">{{ page_link.number }}</span>
-                        {% else %}
-                        <a class="btn btn-outline-secondary" href="?{{ current_query }}&amp;page={{ page_link.number }}">{{ page_link.number }}</a>
-                        {% endif %}
-                    {% endfor %}
-                    {% if page_obj.has_next %}
-                    <a class="btn btn-outline-secondary" href="?{{ current_query }}&amp;page={{ page_obj.next_page_number }}" aria-label="{% trans 'Next page' %}"><i class="fas fa-chevron-right" aria-hidden="true"></i></a>
-                    {% endif %}
-                </div>
-            </nav>
-        </div>
-        {% endif %}
-    </section>
-
-    <div class="modal fade" id="adminUsersUsageModal" tabindex="-1" aria-labelledby="adminUsersUsageModalTitle" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 class="modal-title h5 js-usage-modal-title" id="adminUsersUsageModalTitle">{% trans "Usage detail" %}</h2>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
-                </div>
-                <div class="modal-body js-usage-detail-target" data-loaded="0">
-                    <div class="text-body-secondary small">{% trans "Select a user to load usage." %}</div>
-                </div>
-            </div>
-        </div>
+    <div class="admin-users-overview-heading"><h2 class="h6 mb-0">{% trans "Account overview" %}</h2><span class="small text-body-secondary">{% trans "Current search and filters" %}</span></div>
+    <div id="adminUsersSummary" aria-live="polite" aria-busy="true"><div class="admin-users-summary-grid">{% for n in '123456' %}<div class="admin-users-summary-card admin-users-skeleton"><span class="placeholder col-7"></span><span class="placeholder col-3 mt-3"></span></div>{% endfor %}</div></div>
+    {% include "indy_hub/settings/partials/admin_users_filters.html" %}
+    <div class="admin-users-view-toolbar">
+        <div class="admin-users-presets" aria-label="{% trans 'Quick filters' %}"><button type="button" class="admin-users-preset is-current" data-preset="all">{% trans "All users" %}</button><button type="button" class="admin-users-preset" data-preset="critical"><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>{% trans "Needs attention" %}</button><button type="button" class="admin-users-preset" data-preset="incomplete">{% trans "Missing scopes" %}</button><button type="button" class="admin-users-preset" data-preset="inactive">{% trans "Inactive in Indy Hub" %}</button><button type="button" class="admin-users-preset" data-preset="pending">{% trans "Diagnostics pending" %}</button></div>
+        <label class="small d-flex align-items-center gap-2" for="adminUsersPageSize">{% trans "Rows" %}<select class="form-select form-select-sm w-auto" id="adminUsersPageSize" name="per_page" form="adminUsersFilters"><option value="25"{% if filters.page_size == 25 %} selected{% endif %}>25</option><option value="50"{% if filters.page_size == 50 %} selected{% endif %}>50</option><option value="100"{% if filters.page_size == 100 %} selected{% endif %}>100</option></select></label>
     </div>
+    <div id="adminUsersNotice" role="status" aria-live="polite" hidden></div>
+    <div id="adminUsersBulkBar" class="admin-users-bulk-bar" hidden>
+        <span><strong id="adminUsersSelectionCount">0</strong> {% trans "selected" %}</span><button type="button" class="btn btn-sm btn-link" id="adminUsersClearSelection">{% trans "Clear" %}</button>
+        <label class="visually-hidden" for="adminUsersBulkAction">{% trans "Action" %}</label><select id="adminUsersBulkAction" class="form-select form-select-sm w-auto"><option value="rebuild_status">{% trans "Rebuild diagnostics" %}</option><option value="blueprints">{% trans "Refresh blueprints" %}</option><option value="jobs">{% trans "Refresh industry jobs" %}</option></select>
+        <label class="visually-hidden" for="adminUsersBulkScope">{% trans "Data ownership" %}</label><select id="adminUsersBulkScope" class="form-select form-select-sm w-auto"><option value="character">{% trans "Personal data" %}</option><option value="corporation">{% trans "Corporation data" %}</option></select><button type="button" class="btn btn-sm btn-primary" id="adminUsersRunBulk">{% trans "Run action" %}</button><span class="small text-body-secondary">{% trans "Up to 25 users per action" %}</span>
+    </div>
+    <div id="adminUsersResults" aria-live="polite">{% include "indy_hub/settings/partials/admin_users_results.html" %}</div>
+    <details class="card admin-users-analytics"><summary class="card-header"><span><i class="fas fa-chart-simple me-2" aria-hidden="true"></i>{% trans "Usage overview" %}</span><span class="small text-body-secondary">{% trans "Last 30 days" %}</span></summary><div class="card-body"><div id="adminUsersGlobalUsageContainer" data-url="{% url 'indy_hub:settings_admin_users_global_usage_fragment' %}"><button type="button" class="btn btn-sm btn-outline-primary" id="adminUsersLoadGlobalUsageBtn">{% trans "Load usage overview" %}</button></div></div></details>
+    <div class="modal fade" id="adminUsersDetailModal" tabindex="-1" aria-labelledby="adminUsersDetailTitle" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title h5" id="adminUsersDetailTitle">{% trans "Account diagnostics" %}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button></div><div class="modal-body js-account-detail-target"></div></div></div></div>
+    <div class="modal fade" id="adminUsersUsageModal" tabindex="-1" aria-labelledby="adminUsersUsageModalTitle" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title h5 js-usage-modal-title" id="adminUsersUsageModalTitle">{% trans "Usage detail" %}</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button></div><div class="modal-body js-usage-detail-target" data-loaded="0"><div class="text-body-secondary small">{% trans "Select a user to load usage." %}</div></div></div></div></div>
+    <noscript><p class="alert alert-info">{% trans "Use Apply and the pagination links to browse users. Diagnostics and maintenance actions require JavaScript." %}</p></noscript>
+    <form hidden id="adminUsersCsrf">{% csrf_token %}</form>
 </div>
-{% endblock content %}
-
-{% block extra_javascript %}
-{{ block.super }}
-<script src="{% static 'indy_hub/js/admin_users.js' %}"></script>
-{% endblock extra_javascript %}
+{% endblock %}
+{% block extra_javascript %}{{ block.super }}<script src="{% static 'indy_hub/js/admin_users.js' %}"></script>{% endblock %}

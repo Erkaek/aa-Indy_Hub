@@ -1985,6 +1985,8 @@ def material_exchange_sell(request, tokens=None):
         and request.headers.get("X-Requested-With") == "XMLHttpRequest"
     )
 
+    load_sell_data = is_fragment_request or request.GET.get("load_data") == "1"
+
     # Sell page uses manual refresh only. Do not auto-trigger ESI/stock sync on GET.
 
     has_cached_assets = CachedCharacterAsset.objects.filter(user=request.user).exists()
@@ -2008,13 +2010,16 @@ def material_exchange_sell(request, tokens=None):
         last_update=sell_last_update,
     )
 
-    user_assets, user_assets_by_character, scope_missing = (
-        _fetch_user_assets_for_structure_data(
-            request.user,
-            _get_material_exchange_location_ids(config) or [int(config.structure_id)],
-            allow_refresh=False,
+    user_assets, user_assets_by_character, scope_missing = ({}, {}, False)
+    if load_sell_data:
+        user_assets, user_assets_by_character, scope_missing = (
+            _fetch_user_assets_for_structure_data(
+                request.user,
+                _get_material_exchange_location_ids(config)
+                or [int(config.structure_id)],
+                allow_refresh=False,
+            )
         )
-    )
     raw_user_assets_by_character = {
         character_id: dict(char_assets)
         for character_id, char_assets in user_assets_by_character.items()
@@ -2062,6 +2067,18 @@ def material_exchange_sell(request, tokens=None):
             logger.warning("Failed to apply market group filter (GET): %s", exc)
 
         price_data = _fetch_fuzzwork_prices(list(user_assets.keys()))
+        if (
+            is_fragment_request
+            and user_assets
+            and not price_data
+            and any(
+                get_sell_price_override(config=config, type_id=type_id) is None
+                for type_id in user_assets
+            )
+        ):
+            return JsonResponse(
+                {"error": _("Unable to load prices. Please try again.")}, status=503
+            )
         logger.debug(
             "Sell price payload fetched for %s item types",
             len(price_data),
@@ -2245,7 +2262,7 @@ def material_exchange_sell(request, tokens=None):
                 _("No accepted items available to sell at the accepted locations."),
             )
     else:
-        if not scope_missing and not is_fragment_request:
+        if load_sell_data and not scope_missing and not is_fragment_request:
             messages.info(
                 request,
                 _("No items available to sell at the accepted locations."),
@@ -2258,6 +2275,7 @@ def material_exchange_sell(request, tokens=None):
     corporation_name = _get_corp_name_for_hub(config.corporation_id)
 
     context = {
+        "sell_data_loading": not load_sell_data,
         "config": config,
         "accepted_location_summary": _get_material_exchange_location_summary(config),
         "accepted_locations": _get_material_exchange_accepted_locations(config),
@@ -2289,15 +2307,16 @@ def material_exchange_sell(request, tokens=None):
         "nav_context": _build_nav_context(request.user),
     }
 
-    context.update(
-        build_nav_context(
-            request.user,
-            active_tab="material_hub",
-            can_manage_corp=request.user.has_perm(
-                "indy_hub.can_manage_corp_bp_requests"
-            ),
+    if not is_fragment_request:
+        context.update(
+            build_nav_context(
+                request.user,
+                active_tab="material_hub",
+                can_manage_corp=request.user.has_perm(
+                    "indy_hub.can_manage_corp_bp_requests"
+                ),
+            )
         )
-    )
 
     if is_fragment_request:
         html = render_to_string(
@@ -2305,7 +2324,9 @@ def material_exchange_sell(request, tokens=None):
             context,
             request=request,
         )
-        return JsonResponse({"html": html})
+        response = JsonResponse({"html": html})
+        response["Cache-Control"] = "no-store"
+        return response
 
     return render(request, "indy_hub/material_exchange/sell.html", context)
 

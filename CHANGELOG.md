@@ -9,12 +9,25 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+### Changed
+
+- User administration: add asynchronous account diagnostics, alternate-character search, focused filters, bounded maintenance actions, CSV export, and browser history with recoverable AJAX reads.
+- Blueprint and job lists: show local snapshots immediately and update filtered results in the background. Explicit manual refreshes also work for users outside the automatic activity window while retaining scope and corporation checks.
+- Material Exchange: defer inventory, prices and corporation/hangar options until after the initial page render, retaining entered quantities and displayed data when refreshes fail.
+- Dependencies: require `django-esi>=10.1,<11` and align tox with the package constraint to validate the current django-esi release.
+- CI: install runtime dependencies directly from package metadata, check their consistency, and explicitly run the matching tox environment for Python 3.10, 3.11 and 3.12.
+
 ### Added
 
 - Crafting Projects / Financial tab: added a **For sale** switch, a selling-character selector with cached-skill Sales Tax, a reusable per-character Broker Fee override, manual Safety Tax, and net revenue/profit after market fees without additional ESI requests. Sell fees stay hidden and are not applied when the switch is off.
 
 ### Fixed
 
+- Blueprint lists: restore the missing icon fallback so unavailable EVE images do not raise JavaScript errors during background updates.
+- Shared ESI tokens: preserve authorizations when Indy Hub corporation roles are insufficient, leave equivalence/reuse to django-esi, and dispatch ready scope capabilities after commit. Token and CharLink status screens remain passive and no longer refresh OAuth while listing coverage.
+- Material Exchange: configuration saves now queue one stock refresh after commit, with prices refreshed by the worker afterward. Rolled-back changes publish no refresh, and broker failures no longer trigger synchronous work during the save.
+- Maintenance: restore `cache_esi_data` and `esi_status` command loading, batch pilot-name resolution from local data, and report current ESI cooldowns. Cache cleanup is limited to Indy Hub ETags and market prices; the obsolete circuit-breaker reset option now explains why it is unsupported.
+- Material Exchange: include corporation divisions in the shared ESI client's operation filter so hangar names can be retrieved.
 - Alliance Auth navigation: the Indy Hub badge is now refreshed once in the background and cached for five minutes, preventing duplicate scope queries from slowing page loads.
 - Material Exchange sell paste: large asset catalogs now fetch Fuzzwork prices in bounded batches and keep incomplete-price items separate from items the hub does not buy (issue #164).
 - Upgrades: location-name population now queues cleanly during migration instead of logging a `QueueOnce` error and unexpectedly running synchronously (issue #163).

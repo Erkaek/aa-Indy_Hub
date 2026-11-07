@@ -49,7 +49,13 @@
             <i class="fas fa-hand-holding-usd header-bg"></i>
         </div>
         <div id="sellPageDynamicContent">
+            {% if sell_data_loading %}
+            <p id="sellInitialStatus" role="status" aria-live="polite" class="text-muted">{% trans "Loading inventory and prices…" %}</p>
+            <button type="button" id="sellInitialRetry" class="btn btn-outline-primary d-none">{% trans "Retry" %}</button>
+            <noscript><a href="?load_data=1">{% trans "Load inventory and prices" %}</a></noscript>
+            {% else %}
             {% include "indy_hub/material_exchange/includes/sell_page_content.html" %}
+            {% endif %}
         </div>
 </div>
 
@@ -777,12 +783,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 throw new Error('Sell assets refresh start failed');
             }
 
-            await swapSellDynamicContent(window.location.href, {
-                inputMode: query('input[name="sellInputModeSelector"]:checked')?.value || 'manual',
-                pasteText: sellPasteTextarea ? sellPasteTextarea.value || '' : '',
-                searchQuery: sellSearchInput ? sellSearchInput.value || '' : '',
-                searchMode: query('input[name="sellSearchMode"]:checked')?.value || 'item'
-            });
+            await swapSellDynamicContent(window.location.href, captureSellState());
         } catch (error) {
             console.error('Failed to start sell assets refresh:', error);
             sellAssetsRefreshButton.disabled = false;
@@ -1339,11 +1340,30 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         updateInvoice();
     }
 
+    function captureSellState() {
+        return {
+            inputMode: query('input[name="sellInputModeSelector"]:checked')?.value || 'manual',
+            pasteText: sellPasteTextarea ? sellPasteTextarea.value || '' : '',
+            searchQuery: sellSearchInput ? sellSearchInput.value || '' : '',
+            searchMode: query('input[name="sellSearchMode"]:checked')?.value || 'item',
+            quantities: Object.fromEntries(qtyInputs.map(input => [input.dataset.typeId, input.value]))
+        };
+    }
+
     function applyPersistedState() {
         if (!persistedState) {
             return;
         }
 
+        if (persistedState.quantities) {
+            qtyInputs.forEach(input => {
+                const value = persistedState.quantities[input.dataset.typeId];
+                if (value !== undefined) {
+                    const quantity = Math.max(0, parseInt(value, 10) || 0);
+                    input.value = Math.min(quantity, parseInt(input.dataset.max, 10) || 0);
+                }
+            });
+        }
         if (persistedState.searchMode) {
             const searchModeInput = query(`input[name="sellSearchMode"][value="${persistedState.searchMode}"]`);
             if (searchModeInput) {
@@ -1365,6 +1385,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
     }
 
     applyPersistedState();
+    if (hasInvoice) updateInvoice();
     syncSellInputMode();
     applySellFilter();
 
@@ -1408,6 +1429,10 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
         }
         const swapRequestToken = ++sellPageState.swapRequestToken;
 
+        sellPageState.swapController?.abort();
+        const swapController = new AbortController();
+        sellPageState.swapController = swapController;
+        const swapTimeout = setTimeout(() => swapController.abort(), 30000);
         dynamicRoot.classList.add('opacity-50', 'pe-none');
         if (sellCharacterSelect) {
             sellCharacterSelect.disabled = true;
@@ -1415,10 +1440,12 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 
         try {
             const response = await fetch(url, {
+                signal: swapController.signal,
+                cache: 'no-store',
                 headers: { 'X-Requested-With': 'XMLHttpRequest' },
                 credentials: 'same-origin'
             });
-            if (!response.ok) {
+            if (!response.ok || response.redirected) {
                 throw new Error('Fragment request failed');
             }
 
@@ -1442,8 +1469,17 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             formatLocalTimes(replacementRoot);
             window.initMaterialExchangeSellPage(replacementRoot, stateToPersist || null);
         } catch (error) {
+            if (swapRequestToken !== sellPageState.swapRequestToken) return;
             console.error('Failed to refresh sell fragment:', error);
-            window.location.href = url;
+            dynamicRoot.classList.remove('opacity-50', 'pe-none');
+            if (sellCharacterSelect) sellCharacterSelect.disabled = false;
+            const notice = document.createElement('p');
+            notice.className = 'text-danger';
+            notice.setAttribute('role', 'status');
+            notice.textContent = '{% trans "Unable to update inventory and prices. The displayed data has been kept." %}';
+            dynamicRoot.prepend(notice);
+        } finally {
+            clearTimeout(swapTimeout);
         }
     }
 
@@ -1525,7 +1561,7 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
                 }
                 sellPageState.swapTimer = window.setTimeout(() => {
                     sellPageState.swapTimer = null;
-                    swapSellDynamicContent(url.toString());
+                    swapSellDynamicContent(url.toString(), captureSellState());
                 }, hasNewTimestamp ? 250 : 800);
                 return;
             }
@@ -1551,7 +1587,37 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
 document.addEventListener('DOMContentLoaded', function() {
     const dynamicRoot = document.getElementById('sellPageDynamicContent');
     if (dynamicRoot && typeof window.initMaterialExchangeSellPage === 'function') {
+        {% if sell_data_loading %}
+        const retry = document.getElementById('sellInitialRetry');
+        const status = document.getElementById('sellInitialStatus');
+        async function loadInitialSellData() {
+            retry.disabled = true;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 30000);
+            try {
+                const response = await fetch(window.location.href, {
+                    credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
+                    headers: {'X-Requested-With': 'XMLHttpRequest'}
+                });
+                if (!response.ok || response.redirected) throw new Error('Sell request failed');
+                const payload = await response.json();
+                if (typeof payload.html !== 'string') throw new Error('Invalid sell response');
+                dynamicRoot.innerHTML = payload.html;
+                window.initMaterialExchangeSellPage(dynamicRoot, null);
+            } catch (error) {
+                status.textContent = '{% trans "Unable to load inventory and prices. Please try again." %}';
+                status.classList.add('text-danger');
+                retry.classList.remove('d-none');
+            } finally {
+                clearTimeout(timeout);
+                retry.disabled = false;
+            }
+        }
+        retry.addEventListener('click', loadInitialSellData);
+        loadInitialSellData();
+        {% else %}
         window.initMaterialExchangeSellPage(dynamicRoot, null);
+        {% endif %}
     }
 });
 </script>

@@ -1,22 +1,19 @@
 # Django
 from django.contrib.auth.models import User
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
 
-from ...models import (
-    Blueprint,
-    IndustryJob,
-    batch_cache_character_names,
-    batch_cache_type_names,
-)
+# AA Example App
+from indy_hub.models import Blueprint, IndustryJob
+from indy_hub.utils.eve import batch_cache_character_names, batch_cache_type_names
 
 logger = get_extension_logger(__name__)
 
 
 class Command(BaseCommand):
-    help = "Pre-cache ESI data to improve Indy Hub performance"
+    help = "Resolve locally available type and character names (process-local caches; no ESI calls)"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -41,7 +38,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        self.stdout.write(self.style.SUCCESS("Starting ESI cache pre-loading..."))
+        if bool(options["user"]) == bool(options["all"]):
+            raise CommandError("Specify either --user <username> or --all")
+        if options["types_only"] and options["characters_only"]:
+            raise CommandError("--types-only and --characters-only cannot be combined")
+        self.stdout.write(self.style.SUCCESS("Resolving names from local data..."))
         logger.info(
             "ESI cache pre-loading started (user=%s, all=%s, types_only=%s, characters_only=%s)",
             options.get("user"),
@@ -57,11 +58,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"Processing user: {options['user']}")
                 logger.info("Processing cache pre-load for user %s.", options["user"])
             except User.DoesNotExist:
-                self.stdout.write(
-                    self.style.ERROR(f"User '{options['user']}' not found")
-                )
-                logger.warning("User %s not found for cache pre-load.", options["user"])
-                return
+                raise CommandError(f"User '{options['user']}' not found") from None
         elif options["all"]:
             # Get all users who have blueprints or jobs
             user_ids = set()
@@ -74,12 +71,6 @@ class Command(BaseCommand):
             users = User.objects.filter(id__in=user_ids)
             self.stdout.write(f"Processing {users.count()} users with data")
             logger.info("Processing cache pre-load for %s users.", users.count())
-        else:
-            self.stdout.write(
-                self.style.ERROR("Please specify --user <username> or --all")
-            )
-            logger.warning("Cache pre-load aborted: no target user(s) specified.")
-            return
 
         total_type_ids = set()
         total_character_ids = set()
@@ -166,15 +157,19 @@ class Command(BaseCommand):
                 raise
 
         self.stdout.write(
-            self.style.SUCCESS("ESI cache pre-loading completed successfully!")
+            self.style.SUCCESS("Local name resolution completed successfully!")
         )
         self.stdout.write(
             self.style.SUCCESS(
-                f"Cached {len(total_type_ids)} type names and {len(total_character_ids)} character names"
+                f"Processed {len(total_type_ids)} type IDs and {len(total_character_ids)} character IDs"
             )
         )
         logger.info(
             "ESI cache pre-loading completed. Types=%s Characters=%s",
             len(total_type_ids),
             len(total_character_ids),
+        )
+        self.stdout.write(
+            "Names come from local SDE/Alliance Auth data. Caches are local to this "
+            "command process; running web and worker caches are unchanged."
         )

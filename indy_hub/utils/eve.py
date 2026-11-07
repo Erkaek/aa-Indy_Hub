@@ -587,6 +587,21 @@ def get_character_name(character_id: int | None) -> str:
     return value
 
 
+def batch_cache_character_names(character_ids: Iterable[int]) -> Mapping[int, str]:
+    """Resolve pilot names in one local query, using IDs for unknown pilots."""
+    ids = {int(pk) for pk in character_ids if pk}
+    if not ids:
+        return {}
+
+    names = dict(
+        EveCharacter.objects.filter(character_id__in=ids).values_list(
+            "character_id", "character_name"
+        )
+    )
+    _CHAR_NAME_CACHE.update(names)
+    return {pk: names.get(pk) or str(pk) for pk in ids}
+
+
 def batch_cache_type_names(type_ids: Iterable[int]) -> Mapping[int, str]:
     """Fetch and cache type names in batch, returning the mapping.
 
