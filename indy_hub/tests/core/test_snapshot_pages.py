@@ -14,6 +14,7 @@ from django.utils import timezone
 
 # AA Example App
 from indy_hub.models import Blueprint, IndustryJob, MaterialExchangeConfig
+from indy_hub.tests.fixtures import create_raw_fixture
 from indy_hub.tests.test_smoke import assign_main_character, grant_indy_permissions
 from indy_hub.views.navigation import build_nav_context
 
@@ -307,19 +308,17 @@ class SnapshotPageTests(TestCase):
         # AA Example App
         from indy_hub.models import IndustrySkillSnapshot
 
-        token = Token.objects.bulk_create(
-            [
-                Token(
-                    user=self.user,
-                    character_id=self.character.character_id,
-                    character_name=self.character.character_name,
-                    character_owner_hash="local",
-                    token_type="Character",
-                    access_token="access",
-                    refresh_token="refresh",
-                )
-            ]
-        )[0]
+        token = create_raw_fixture(
+            Token(
+                user=self.user,
+                character_id=self.character.character_id,
+                character_name=self.character.character_name,
+                character_owner_hash="local",
+                token_type="Character",
+                access_token="access",
+                refresh_token="refresh",
+            )
+        )
         scope = Scope.objects.get_or_create(name="esi-skills.read_skills.v1")[0]
         Token.scopes.through.objects.bulk_create(
             [Token.scopes.through(token_id=token.pk, scope_id=scope.pk)]

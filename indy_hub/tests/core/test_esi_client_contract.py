@@ -42,6 +42,7 @@ from indy_hub.tests.core.esi_contract_fixture import (
     SKILLS_SCOPE,
     openapi_spec,
 )
+from indy_hub.tests.fixtures import create_raw_fixture
 
 
 class EsiClientNativeContractTests(TestCase):
@@ -111,18 +112,16 @@ class EsiClientNativeContractTests(TestCase):
         )
 
     def make_token(self, character_id, access_token="synthetic-access", scopes=None):
-        token = Token.objects.bulk_create(
-            [
-                Token(
-                    user=self.user,
-                    character_id=character_id,
-                    character_name="Synthetic Pilot",
-                    character_owner_hash="synthetic-owner",
-                    access_token=access_token,
-                    refresh_token="synthetic-refresh",
-                )
-            ]
-        )[0]
+        token = create_raw_fixture(
+            Token(
+                user=self.user,
+                character_id=character_id,
+                character_name="Synthetic Pilot",
+                character_owner_hash="synthetic-owner",
+                access_token=access_token,
+                refresh_token="synthetic-refresh",
+            )
+        )
         scope_names = (
             scopes
             if scopes is not None

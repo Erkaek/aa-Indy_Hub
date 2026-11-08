@@ -281,6 +281,7 @@ repos:
         description: Format the pyproject.toml file.
         args:
           - --indent=4
+          - --max-supported-python=3.14
         additional_dependencies:
           - tox==4.25.0  # https://github.com/tox-dev/tox/releases/latest
 
@@ -298,7 +299,7 @@ repos:
 #        name: Pylint
 #        description: Check for errors and code smells in Python code.
 #        args:
-#          - --py-version=3.10  # Minimum required Python version for AA. Update as needed.
+#          - --py-version=3.12  # Minimum supported Python version for Indy Hub.
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: 06e4cc849d03f3a59ca223a4046f4bb5bb2aba6d  # frozen: 0.33.0

@@ -24,10 +24,15 @@ services under Python 3.12 and 3.14, and exercises a real prefork worker using s
 private Redis. The worker qualification asserts soft and hard limits, routing
 isolation, and successful work after the killed child has been replaced.
 
-The SQL matrix also exercises two previously SQLite-only fixture assumptions:
+The SQL matrix also exercises previously SQLite-only fixture assumptions:
 the fake cursor uses Django's backend-specific end-of-read value, and the
 historical migration fixture uses a project reference within its ten-character
-field limit. All original business assertions and published migrations remain.
+field limit. Historical token/configuration fixtures explicitly allocate their
+integer keys within the private, serial test database: unlike SQLite/MariaDB,
+MySQL does not populate generated keys after `bulk_create()`. They still bypass
+model saves and signals, preserving the historical ownership and avoiding task
+dispatch. A regression also exercises this limitation on SQLite. All original
+business assertions and published migrations remain.
 
 For a separately provisioned disposable SQL server, select `py312-mysql` and set
 `INDY_HUB_TEST_DB_HOST`, `INDY_HUB_TEST_DB_PORT`, `INDY_HUB_TEST_DB_USER` and
@@ -91,7 +96,7 @@ interpreters can host their own tox environments alongside V5.
 ## Local qualification
 
 On 2026-11-08, ordinary CPython 3.12.13, 3.13.14 and 3.14.6 passed the complete
-914-test suite with CharLink enabled and no skips, under AA 5.6.0, Django 5.2.19,
+916-test suite with CharLink enabled and no skips, under AA 5.6.0, Django 5.2.19,
 django-esi 10.1.0 and SDE 1.0.0. The complete suite also passed on a disposable
 MariaDB 10.11.18 server with Python 3.12, including historical migration cases.
 No published migration was edited. MySQL 8.4 and SQL under Python 3.14 are

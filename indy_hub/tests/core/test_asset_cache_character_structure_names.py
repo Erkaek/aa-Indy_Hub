@@ -20,6 +20,7 @@ from esi.models import Scope, Token
 # AA Example App
 from indy_hub.models import CachedCharacterAsset, CharacterRoles
 from indy_hub.services import asset_cache
+from indy_hub.tests.fixtures import create_raw_fixture
 
 
 class _FakeToken:
@@ -62,8 +63,8 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
             roles=["Director"],
         )
         scope = Scope.objects.get_or_create(name="esi-universe.read_structures.v1")[0]
-        tokens = Token.objects.bulk_create(
-            [
+        tokens = [
+            create_raw_fixture(
                 Token(
                     user=user,
                     character_id=character.character_id,
@@ -73,9 +74,9 @@ class CharacterAssetRefreshStructureNameTests(TestCase):
                     refresh_token="synthetic-refresh",
                     token_type="Character",
                 )
-                for _ in range(2)
-            ]
-        )
+            )
+            for _ in range(2)
+        ]
         Token.objects.filter(pk=tokens[0].pk).update(
             created=timezone.now() - timedelta(days=1)
         )

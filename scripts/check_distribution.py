@@ -25,6 +25,15 @@ def main(directory):
         supported = SpecifierSet(metadata["Requires-Python"])
         assert all(v not in supported for v in ["3.10", "3.11"])
         assert all(v in supported for v in ["3.12", "3.13", "3.14"])
+        classifiers = metadata.get_all("Classifier", [])
+        assert all(
+            f"Programming Language :: Python :: {version}" in classifiers
+            for version in ["3.12", "3.13", "3.14"]
+        )
+        assert not any(
+            f"Programming Language :: Python :: {version}" in classifiers
+            for version in ["3.10", "3.11"]
+        )
         requirements = [
             Requirement(value) for value in metadata.get_all("Requires-Dist")
         ]

@@ -16,6 +16,9 @@ from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.eveonline.models import EveCharacter
 from esi.models import Scope, Token
 
+# AA Example App
+from indy_hub.tests.fixtures import create_raw_fixture
+
 _CHARLINK_AVAILABLE = importlib.util.find_spec(
     "charlink"
 ) is not None and apps.is_installed("charlink")
@@ -163,19 +166,17 @@ class CharacterScopeCoverageAnnotationTests(TestCase):
         # A transferred character may still have a historical shared grant.
         # Bypass Token post_save, which would transfer the AA ownership itself.
         other = _make_user("previousowner")
-        token = Token.objects.bulk_create(
-            [
-                Token(
-                    user=other,
-                    character_id=self.character.character_id,
-                    character_name=self.character.character_name,
-                    character_owner_hash="historical-owner",
-                    token_type="Character",
-                    access_token="synthetic",
-                    refresh_token="synthetic",
-                )
-            ]
-        )[0]
+        token = create_raw_fixture(
+            Token(
+                user=other,
+                character_id=self.character.character_id,
+                character_name=self.character.character_name,
+                character_owner_hash="historical-owner",
+                token_type="Character",
+                access_token="synthetic",
+                refresh_token="synthetic",
+            )
+        )
         token.scopes.set([Scope.objects.get_or_create(name=s)[0] for s in _SCOPES])
         # AA Example App
         from indy_hub.thirdparty.charlink_hook import _has_scope_coverage
@@ -279,33 +280,29 @@ class CharLinkProfileContractTests(TestCase):
         for scope in all_scopes:
             _make_token(self.user, characters[2], [scope])
         other = _make_user("charlink-foreign-owner")
-        foreign = Token.objects.bulk_create(
-            [
-                Token(
-                    user=other,
-                    character_id=characters[3].character_id,
-                    character_name=characters[3].character_name,
-                    character_owner_hash="historical",
-                    token_type="Character",
-                    access_token="synthetic",
-                    refresh_token="synthetic",
-                )
-            ]
-        )[0]
+        foreign = create_raw_fixture(
+            Token(
+                user=other,
+                character_id=characters[3].character_id,
+                character_name=characters[3].character_name,
+                character_owner_hash="historical",
+                token_type="Character",
+                access_token="synthetic",
+                refresh_token="synthetic",
+            )
+        )
         foreign.scopes.set([Scope.objects.get(name=s) for s in all_scopes])
-        unowned = Token.objects.bulk_create(
-            [
-                Token(
-                    user=self.user,
-                    character_id=characters[5].character_id,
-                    character_name=characters[5].character_name,
-                    character_owner_hash="unowned",
-                    token_type="Character",
-                    access_token="synthetic",
-                    refresh_token="synthetic",
-                )
-            ]
-        )[0]
+        unowned = create_raw_fixture(
+            Token(
+                user=self.user,
+                character_id=characters[5].character_id,
+                character_name=characters[5].character_name,
+                character_owner_hash="unowned",
+                token_type="Character",
+                access_token="synthetic",
+                refresh_token="synthetic",
+            )
+        )
         unowned.scopes.set([Scope.objects.get(name=s) for s in all_scopes])
         with (
             patch("esi.managers.TokenQueryset.require_valid") as validate,
