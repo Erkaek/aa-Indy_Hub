@@ -261,6 +261,7 @@ from ..utils.eve import (
     is_reaction_blueprint,
 )
 from ..utils.token_status import apply_token_validity_filter
+from .legacy import redirect_legacy_simulation
 from .navigation import build_nav_context
 
 # ESI skills scope + industry slot calculations
@@ -5921,13 +5922,7 @@ def production_simulations_list(request):
 @indy_hub_access_required
 @login_required
 def delete_production_simulation(request, simulation_id):
-    messages.info(
-        request,
-        _(
-            "Legacy single-blueprint simulations were removed. Use craft tables instead."
-        ),
-    )
-    return redirect("indy_hub:production_simulations_list")
+    return redirect_legacy_simulation(request)
 
 
 @indy_hub_access_required
@@ -5958,13 +5953,7 @@ def delete_production_project(request, project_ref):
 @indy_hub_access_required
 @login_required
 def edit_simulation_name(request, simulation_id):
-    messages.info(
-        request,
-        _(
-            "Legacy single-blueprint simulations were removed. Use craft tables instead."
-        ),
-    )
-    return redirect("indy_hub:production_simulations_list")
+    return redirect_legacy_simulation(request)
 
 
 def _patch_payload_structure_planner_favorites(
