@@ -143,6 +143,7 @@ OPERATIONS = (
     ),
     ("PostUniverseNames", "Universe", "/universe/names", None, False, "Names"),
     ("GetIndustrySystems", "Industry", "/industry/systems", None, False, "Systems"),
+    ("GetMarketsPrices", "Market", "/markets/prices", None, False, "Prices"),
 )
 
 
@@ -154,7 +155,7 @@ def _array(item):
     return {"type": "array", "items": item}
 
 
-def openapi_spec():
+def openapi_spec(*, compatibility_date="2026-07-21"):
     integer = {"type": "integer", "format": "int64"}
     string = {"type": "string"}
     boolean = {"type": "boolean"}
@@ -237,6 +238,18 @@ def openapi_spec():
                 ),
             )
         ),
+        "Prices": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type_id": integer,
+                    "adjusted_price": {"type": "number", "nullable": True},
+                    "average_price": {"type": "number", "nullable": True},
+                },
+                "required": ["type_id"],
+            },
+        },
     }
     paths = {}
     for operation, tag, path, scope, paginated, schema in OPERATIONS:
@@ -250,7 +263,7 @@ def openapi_spec():
             {
                 "name": "X-Compatibility-Date",
                 "in": "header",
-                "schema": {"type": "string", "default": "2026-07-21"},
+                "schema": {"type": "string", "default": compatibility_date},
             }
         )
         if paginated:
