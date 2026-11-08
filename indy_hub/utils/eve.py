@@ -14,7 +14,9 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import AppRegistryNotReady
-from django.db import connection
+from django.db import connection, connections
+from django.db.models import CharField, F
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 # Alliance Auth
@@ -365,22 +367,25 @@ def _get_table_columns(table_name: str) -> frozenset[str]:
     return frozenset(column.name for column in description)
 
 
-@lru_cache(maxsize=32)
-def _sde_english_name_expression(table_name: str) -> str:
-    """Build a SQL expression that always resolves the English `name` column.
+def _sde_english_names(model):
+    """Select English names without active-language rewriting or empty fallback.
 
-    `django-modeltranslation` registers `name` as a translated field on several
-    `eve_sde` models, so the plain ORM `.name` attribute silently resolves to
-    `name_<active Django locale>` instead of the raw column. EVE item/blueprint
-    names must stay in English regardless of the request's active language, so
-    raw SQL bypasses that proxy and reads `name_en` (falling back to `name`).
+    Without modeltranslation registration the SDE's base `name` field contains
+    its imported English value. With registration, preserve the historical
+    COALESCE contract: NULL English uses the base column, but empty English stays
+    empty. Inspect model fields, never the physical database schema.
     """
-    columns = _get_table_columns(table_name)
-    if "name_en" in columns and "name" in columns:
-        return "COALESCE(name_en, name)"
-    if "name_en" in columns:
-        return "name_en"
-    return "name"
+    queryset = model.objects.all()
+    rewrite = getattr(queryset, "rewrite", None)
+    if callable(rewrite):
+        queryset = rewrite(False)
+    fields = {field.name for field in model._meta.concrete_fields}
+    name = (
+        Coalesce("name_en", "name", output_field=CharField())
+        if "name_en" in fields
+        else F("name")
+    )
+    return queryset.annotate(_indy_english_name=name)
 
 
 def _resolve_sde_location_name(location_id: int) -> str | None:
@@ -434,10 +439,8 @@ def _resolve_sde_location_name(location_id: int) -> str | None:
 def get_type_name(type_id: int | None) -> str:
     """Return the display name for a type ID, falling back to the ID string.
 
-    Always returns the English name: `eve_sde.ItemType.name` is registered with
-    `django-modeltranslation`, which makes `.name` resolve to `name_<active locale>`
-    instead of a plain column, so EVE item/blueprint names must be read from
-    `name_en` directly to stay English regardless of the request's active language.
+    English selection is shared with batch resolution and independent of the
+    active locale. Unlike batch resolution, unpublished types remain eligible.
     """
     if not type_id:
         return ""
@@ -452,23 +455,23 @@ def get_type_name(type_id: int | None) -> str:
         if cached_value and cached_value != str(type_id):
             return cached_value
 
-    if _get_item_type_model() is None:
+    model = _get_item_type_model()
+    if model is None:
         value = str(type_id)
     else:
-        name_expr = _sde_english_name_expression("eve_sde_itemtype")
         try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    f"SELECT {name_expr} FROM eve_sde_itemtype WHERE id = %s",
-                    [type_id],
-                )
-                row = cursor.fetchone()
+            name = (
+                _sde_english_names(model)
+                .filter(pk=type_id)
+                .values_list("_indy_english_name", flat=True)
+                .first()
+            )
         except Exception:
             logger.debug(
                 "Failed to resolve English name for type %s", type_id, exc_info=True
             )
-            row = None
-        value = str(row[0]) if row and row[0] else str(type_id)
+            name = None
+        value = str(name) if name else str(type_id)
 
     if value != str(type_id):
         _TYPE_NAME_CACHE[type_id] = value
@@ -611,19 +614,19 @@ def batch_cache_type_names(type_ids: Iterable[int]) -> Mapping[int, str]:
     if not ids:
         return {}
 
-    if _get_item_type_model() is None:
+    model = _get_item_type_model()
+    if model is None:
         return {pk: str(pk) for pk in ids}
 
     result: dict[int, str] = {}
-    name_expr = _sde_english_name_expression("eve_sde_itemtype")
-    placeholders = ", ".join(["%s"] * len(ids))
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"SELECT id, {name_expr} FROM eve_sde_itemtype "
-            f"WHERE id IN ({placeholders}) AND COALESCE(published, 0) = 1",
-            sorted(ids),
-        )
-        for type_id, name in cursor.fetchall():
+    queryset = _sde_english_names(model).filter(published=True)
+    batch_size = min(1000, connections[queryset.db].features.max_query_params or 1000)
+    ordered_ids = sorted(ids)
+    for offset in range(0, len(ordered_ids), batch_size):
+        rows = queryset.filter(
+            pk__in=ordered_ids[offset : offset + batch_size]
+        ).values_list("pk", "_indy_english_name")
+        for type_id, name in rows:
             name = str(name or "")
             _TYPE_NAME_CACHE[int(type_id)] = name
             result[int(type_id)] = name
