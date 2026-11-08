@@ -39,6 +39,25 @@ procedure. Preserve shared tokens, response caches, cooldowns and task locks.
 An invalid grant may still be removed by django-esi during real use; a structure
 403 retains its authorization and uses the existing placeholder/cooldown path.
 
+## Pagination and complete snapshots (unreleased)
+
+Multi-page reconciliation now requires coherent `Last-Modified`, valid page
+counts and probe data matching the returned list, including forced refreshes
+and disabled caches. Missing/invalid multi-page metadata or changed content
+retains the previous database snapshot until a later successful refresh. This
+is a functional tightening, separate from removing the redundant final-page
+probe. No dependency bump, migration, new scheduler or cache purge is required.
+
+Native django-esi still owns pagination and mixed ETags. Validation reuses its
+final response and checks only earlier pages. Cacheable force refreshes reuse
+the fresh native cache; uncached responses may need additional HTTP validation.
+There is no promise of a universal reduction in ESI requests.
+
+Personal asset refresh failures retain all prior rows and their freshness;
+complete empty results remove only characters actually fetched. Unchanged and
+unfetched characters remain intact. See [pagination and snapshot guarantees](ESI_PAGINATION.md)
+for measured costs, consumer boundaries and the remaining native API limitation.
+
 ## ESI limits and deferred refreshes (unreleased)
 
 Rate-limit handling now uses native django-esi buckets for declared operations

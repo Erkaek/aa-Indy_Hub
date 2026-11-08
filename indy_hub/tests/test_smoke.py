@@ -6165,15 +6165,22 @@ class EsiClientPaginationHeaderConsistencyTests(TestCase):
     """Guard against mixed snapshots on paginated ESI responses."""
 
     class _Response:
-        def __init__(self, headers: dict[str, str]) -> None:
-            self.headers = headers
+        def __init__(self, headers: dict[str, str], page: int = 3) -> None:
+            # Third Party
+            from httpx2 import URL
+
+            self.headers = {"X-Pages": "3", **headers}
+            self.url = URL(f"https://esi.invalid/fixture?page={page}")
+
+        def json(self):
+            return [{}]
 
     class _OperationCall:
         def __init__(self, response) -> None:
             self._response = response
 
         def result(self, **kwargs):
-            return [], self._response
+            return [{}], self._response
 
     @patch("indy_hub.services.esi_client.esi_app_settings.ESI_CACHE_RESPONSE", True)
     def test_raises_when_last_modified_differs_between_pages(self) -> None:
@@ -6185,7 +6192,11 @@ class EsiClientPaginationHeaderConsistencyTests(TestCase):
         def operation_fn(**kwargs):
             page = int(kwargs.get("page", 1))
             calls.append(page)
-            header = "same" if page != 2 else "different"
+            header = (
+                "Wed, 01 Jul 2026 12:00:00 GMT"
+                if page != 2
+                else "Thu, 02 Jul 2026 12:00:00 GMT"
+            )
             return self._OperationCall(
                 self._Response(
                     {
@@ -6201,11 +6212,12 @@ class EsiClientPaginationHeaderConsistencyTests(TestCase):
                 token_obj=object(),
                 request_kwargs={},
                 endpoint="/characters/42/industry/jobs/",
+                payload=[{}, {}, {}],
                 force_refresh=False,
                 last_response=self._Response(
                     {
                         "X-Pages": "3",
-                        "Last-Modified": "same",
+                        "Last-Modified": "Wed, 01 Jul 2026 12:00:00 GMT",
                     }
                 ),
             )
@@ -6225,7 +6237,7 @@ class EsiClientPaginationHeaderConsistencyTests(TestCase):
             return self._OperationCall(
                 self._Response(
                     {
-                        "Last-Modified": "same",
+                        "Last-Modified": "Wed, 01 Jul 2026 12:00:00 GMT",
                     }
                 )
             )
@@ -6236,19 +6248,20 @@ class EsiClientPaginationHeaderConsistencyTests(TestCase):
             token_obj=object(),
             request_kwargs={},
             endpoint="/characters/42/industry/jobs/",
+            payload=[{}, {}, {}],
             force_refresh=False,
             last_response=self._Response(
                 {
                     "X-Pages": "3",
-                    "Last-Modified": "same",
+                    "Last-Modified": "Wed, 01 Jul 2026 12:00:00 GMT",
                 }
             ),
         )
 
-        self.assertEqual(calls, [1, 2, 3])
+        self.assertEqual(calls, [1, 2])
 
     @patch("indy_hub.services.esi_client.esi_app_settings.ESI_CACHE_RESPONSE", True)
-    def test_skips_validation_on_force_refresh(self) -> None:
+    def test_force_refresh_validates_before_accepting(self) -> None:
         # AA Example App
         from indy_hub.services.esi_client import shared_client
 
@@ -6256,7 +6269,9 @@ class EsiClientPaginationHeaderConsistencyTests(TestCase):
 
         def operation_fn(**kwargs):
             calls.append(int(kwargs.get("page", 1)))
-            return self._OperationCall(self._Response({"Last-Modified": "same"}))
+            return self._OperationCall(
+                self._Response({"Last-Modified": "Wed, 01 Jul 2026 12:00:00 GMT"})
+            )
 
         shared_client._validate_paginated_last_modified(
             operation_fn=operation_fn,
@@ -6264,16 +6279,17 @@ class EsiClientPaginationHeaderConsistencyTests(TestCase):
             token_obj=object(),
             request_kwargs={},
             endpoint="/characters/42/industry/jobs/",
+            payload=[{}, {}, {}],
             force_refresh=True,
             last_response=self._Response(
                 {
                     "X-Pages": "3",
-                    "Last-Modified": "same",
+                    "Last-Modified": "Wed, 01 Jul 2026 12:00:00 GMT",
                 }
             ),
         )
 
-        self.assertEqual(calls, [])
+        self.assertEqual(calls, [1, 2])
 
 
 class EsiClientRateLimitResetTests(TestCase):

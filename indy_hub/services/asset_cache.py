@@ -1377,6 +1377,7 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
     assets_scope_missing = False
     rows: list[CachedCharacterAsset] = []
     all_assets: list[dict] = []
+    complete_character_ids: set[int] = set()
     now = timezone.now()
 
     corp_ids: set[int] = set()
@@ -1396,6 +1397,10 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
             assets = shared_client.fetch_character_assets(
                 character_id=int(character_id)
             )
+        except ESIUnmodifiedError:
+            # Retain this character's rows and freshness; other complete
+            # characters can still be refreshed in the same user inventory.
+            continue
         except (
             ESITokenError,
             ESIErrorLimitException,
@@ -1406,8 +1411,9 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
             logger.warning(
                 "Failed to load assets for character %s: %s", character_id, exc
             )
-            continue
+            raise
 
+        complete_character_ids.add(int(character_id))
         index_by_item_id = build_asset_index_by_item_id(assets or [])
 
         for asset in assets:
@@ -1467,7 +1473,9 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
         _cache_corp_structure_names(corp_id)
 
     with transaction.atomic():
-        CachedCharacterAsset.objects.filter(user=user).delete()
+        CachedCharacterAsset.objects.filter(
+            user=user, character_id__in=complete_character_ids
+        ).delete()
         if rows:
             CachedCharacterAsset.objects.bulk_create(rows, batch_size=1000)
 
@@ -1491,7 +1499,22 @@ def _refresh_character_assets(user) -> tuple[list[dict], bool]:
                 exc,
             )
 
-    return all_assets, assets_scope_missing
+    # The reader also needs historical rows from characters that were not
+    # fetched. This is cached inventory, not evidence of a fresh ESI snapshot.
+    retained = (
+        CachedCharacterAsset.objects.filter(user=user)
+        .exclude(character_id__in=complete_character_ids)
+        .values(
+            "character_id",
+            "location_id",
+            "location_flag",
+            "type_id",
+            "quantity",
+            "is_singleton",
+            "is_blueprint",
+        )
+    )
+    return all_assets + list(retained), assets_scope_missing
 
 
 def get_user_assets_cached(
@@ -1520,9 +1543,25 @@ def get_user_assets_cached(
         return assets, assets_scope_missing
 
     if allow_refresh:
-        refreshed_assets, assets_scope_missing = _refresh_character_assets(user)
-        if refreshed_assets:
-            return refreshed_assets, assets_scope_missing
+        try:
+            refreshed_assets, assets_scope_missing = _refresh_character_assets(user)
+            if refreshed_assets:
+                return refreshed_assets, assets_scope_missing
+        except ESIUnmodifiedError:
+            logger.debug("Character assets not modified for user %s", user.pk)
+        except (
+            ESIClientError,
+            ESIErrorLimitException,
+            ESIBucketLimitException,
+        ) as exc:
+            # Display retained inventory without marking a failed retrieval as
+            # a complete snapshot or changing its persisted freshness.
+            assets_scope_missing = isinstance(exc, ESITokenError)
+            logger.warning(
+                "Using cached assets for user %s after refresh failure: %s",
+                user.pk,
+                exc,
+            )
 
     assets = [
         {

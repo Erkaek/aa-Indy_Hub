@@ -84,6 +84,10 @@ class ESIClientError(Exception):
         self.retry_after = retry_after
 
 
+class ESIIncompleteSnapshotError(ESIClientError):
+    """The fetched list cannot safely authorize snapshot reconciliation."""
+
+
 class ESITokenError(ESIClientError):
     """Raised when a valid access token cannot be retrieved."""
 
@@ -1034,6 +1038,8 @@ class ESIClient:
                         **results_kwargs,
                     )
         except HTTPNotModified as exc:
+            if paginated:
+                self._snapshot_page_count(exc.headers, endpoint=endpoint)
             raise ESIUnmodifiedError(f"ESI returned 304 for {endpoint}") from exc
         except _HTTP_ERROR_TYPES as exc:
             self._handle_http_error(
@@ -1065,6 +1071,7 @@ class ESIClient:
             throttle_key=throttle_key,
         )
 
+        payload = [self._coerce_mapping(item) for item in payload]
         if paginated:
             self._validate_paginated_last_modified(
                 operation_fn=operation,
@@ -1074,9 +1081,28 @@ class ESIClient:
                 endpoint=endpoint,
                 force_refresh=force_refresh,
                 last_response=last_response,
+                payload=payload,
             )
 
-        return [self._coerce_mapping(item) for item in payload]
+        return payload
+
+    @staticmethod
+    def _reject_paginated_snapshot(endpoint: str, reason: str) -> None:
+        logger.warning("Refusing ESI snapshot for %s: %s", endpoint, reason)
+        raise ESIIncompleteSnapshotError(
+            f"ESI snapshot incomplete or inconsistent for {endpoint}: {reason}"
+        )
+
+    def _snapshot_page_count(self, headers, *, endpoint: str) -> int:
+        # Native results() treats a missing X-Pages as a single page. Preserve
+        # that contract; explicit invalid/nonpositive counts are not complete.
+        try:
+            count = int(headers.get("X-Pages", 1))
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            self._reject_paginated_snapshot(endpoint, "invalid page count")
+        if count < 1:
+            self._reject_paginated_snapshot(endpoint, "nonpositive page count")
+        return count
 
     def _validate_paginated_last_modified(
         self,
@@ -1088,64 +1114,80 @@ class ESIClient:
         endpoint: str,
         force_refresh: bool,
         last_response,
+        payload: list[dict],
     ) -> None:
-        """Verify Last-Modified consistency across paged resources.
+        """Verify the returned aggregate against coherent page evidence.
 
-        ESI recommends that paginated pages for one resource share the same
-        Last-Modified value to avoid mixed snapshots.
+        Native pagination remains authoritative for collection and mixed 304s.
+        Its final response already proves the last page; only earlier pages
+        need probes. A probe must match the data actually being returned, since
+        an expired cache may otherwise validate a newer, different snapshot.
         """
-        if force_refresh:
-            # Manual refresh can bypass etag/cache on purpose; avoid issuing extra
-            # live requests for validation in this mode.
-            return
-
-        if not last_response:
-            return
-
+        if last_response is None:
+            self._reject_paginated_snapshot(endpoint, "missing final response")
+        total_pages = self._snapshot_page_count(
+            last_response.headers, endpoint=endpoint
+        )
         try:
-            total_pages = int(last_response.headers.get("X-Pages", 1))
-        except (TypeError, ValueError):
-            total_pages = 1
-
-        if total_pages <= 1:
-            return
-
-        if not getattr(esi_app_settings, "ESI_CACHE_RESPONSE", True):
-            logger.debug(
-                "Skipping Last-Modified pagination validation for %s because ESI cache is disabled.",
-                endpoint,
+            final_page = int(last_response.url.params.get("page", "1"))
+            last_page_data = last_response.json()
+        except (AttributeError, TypeError, ValueError, RuntimeError) as exc:
+            raise ESIIncompleteSnapshotError(
+                f"Unable to verify final ESI page for {endpoint}"
+            ) from exc
+        if final_page != total_pages or not isinstance(last_page_data, list):
+            self._reject_paginated_snapshot(
+                endpoint, "final page does not match page count"
             )
+        if total_pages == 1:
+            if len(payload) != len(last_page_data):
+                self._reject_paginated_snapshot(
+                    endpoint, "single-page payload mismatch"
+                )
             return
 
-        baseline_last_modified = last_response.headers.get("Last-Modified")
-        if not baseline_last_modified:
-            return
+        def modified_at(response):
+            value = response.headers.get("Last-Modified")
+            try:
+                stamp = parsedate_to_datetime(value)
+                if stamp.tzinfo is None:
+                    raise ValueError("Missing timezone")
+                return stamp
+            except (TypeError, ValueError, OverflowError):
+                self._reject_paginated_snapshot(
+                    endpoint, "missing or invalid Last-Modified"
+                )
 
-        for page in range(1, total_pages + 1):
+        baseline_last_modified = modified_at(last_response)
+        offset = 0
+        for page in range(1, total_pages):
             try:
                 operation_call = operation_fn(
+                    # Native results() appends page after the initial kwargs.
+                    # Preserve that order: native 10.1 hashes their repr, so a
+                    # different order would miss the freshly populated cache.
                     **params,
                     token=token_obj,
-                    page=page,
                     **request_kwargs,
+                    page=page,
                 )
                 character_id = getattr(token_obj, "character_id", None)
                 throttle_key = f"char:{int(character_id)}" if character_id else "public"
                 with self._native_rate_limits(
                     endpoint, throttle_key, operation=operation_call
                 ):
-                    _, page_response = operation_call.result(
+                    page_payload, page_response = operation_call.result(
                         return_response=True,
                         use_etag=False,
-                        use_cache=True,
+                        use_cache=bool(esi_app_settings.ESI_CACHE_RESPONSE),
                     )
-            except HTTPNotModified:
-                # Should not happen with use_etag=False, but a 304 still means
-                # content is unchanged for that page.
-                continue
+            except HTTPNotModified as exc:
+                # No page body is available to compare with the aggregate. An
+                # unexpected probe 304 is not the native all-pages-304 outcome.
+                raise ESIIncompleteSnapshotError(
+                    f"Unable to verify ESI snapshot for {endpoint}: probe returned 304"
+                ) from exc
             except _DJANGO_ESI_RATE_LIMIT_ERRORS:
-                # A rate-limited validation is not a complete coherent snapshot.
-                # Stop here so the task retries before any missing-row cleanup.
                 raise
             except _HTTP_ERROR_TYPES as exc:
                 self._handle_http_error(
@@ -1162,15 +1204,33 @@ class ESIClient:
                     f"Unable to verify paginated ESI snapshot for {endpoint} page={page}"
                 ) from exc
 
-            page_last_modified = None
-            if page_response is not None:
-                page_last_modified = page_response.headers.get("Last-Modified")
-
-            if page_last_modified and page_last_modified != baseline_last_modified:
-                raise ESIClientError(
-                    "ESI returned inconsistent Last-Modified values across pages "
-                    f"for {endpoint}; refusing mixed snapshot"
+            if page_response is None or not isinstance(page_payload, list):
+                self._reject_paginated_snapshot(
+                    endpoint, "missing probe response or list"
                 )
+            if (
+                self._snapshot_page_count(page_response.headers, endpoint=endpoint)
+                != total_pages
+            ):
+                self._reject_paginated_snapshot(
+                    endpoint, "page count changed during validation"
+                )
+            if modified_at(page_response) != baseline_last_modified:
+                self._reject_paginated_snapshot(
+                    endpoint, "Last-Modified differs across pages"
+                )
+            checked_page = [self._coerce_mapping(item) for item in page_payload]
+            end = offset + len(checked_page)
+            if payload[offset:end] != checked_page:
+                self._reject_paginated_snapshot(
+                    endpoint, "page content changed during validation"
+                )
+            offset = end
+
+        if offset + len(last_page_data) != len(payload):
+            self._reject_paginated_snapshot(
+                endpoint, "page sizes changed during validation"
+            )
 
     @staticmethod
     def _coerce_mapping(item):
