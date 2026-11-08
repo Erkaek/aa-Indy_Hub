@@ -216,6 +216,9 @@ examples. Local follow-up checks provide `shfmt` on PATH. Single-line commands
 avoid differences between shfmt versions' continuation-indentation defaults.
 A hook exit status alone does not prove
 that its optional external formatter was available.
+GitHub's repeated 502/503/504 hook-download failures are handled by three bounded
+installation attempts in CI. Only `pre-commit install-hooks` is retried; actual
+checks run once and remain blocking. Exhausted installation attempts fail the job.
 
 ## Files in this change
 
@@ -230,6 +233,7 @@ that its optional external formatter was available.
 - `indy_hub/tests/core/test_charlink_scope_coverage.py`: optional integration and Python/SQL agreement.
 - `docs/AUTHORIZATION_PROFILES.md`: before/after matrix, decisions and qualification.
 - `.pre-commit-config.yaml`: compatible Node runtime for fresh hook installations.
+- `.github/workflows/automated-checks.yml`: bounded retries for hook installation, without retrying failed code checks.
 
 The local permission/ESI knowledge notes also point to this registry and matrix;
 `docs/codex/` remains ignored under the repository's existing Git policy.
