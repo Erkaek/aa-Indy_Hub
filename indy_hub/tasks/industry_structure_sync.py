@@ -22,7 +22,10 @@ def sync_persisted_industry_structure_registry(
     summary = sync_persisted_industry_structures(force_refresh=force_refresh)
     retry_after = int(summary.get("retry_after_seconds") or 0)
     deferred = int(summary.get("deferred_due_to_rate_limit") or 0)
-    if retry_after > 0 and deferred > 0:
+    retry_scheduled = retry_after > 0 and (
+        deferred > 0 or int(summary.get("rate_limited") or 0) > 0
+    )
+    if retry_scheduled:
         sync_persisted_industry_structure_registry.apply_async(
             kwargs={"force_refresh": force_refresh},
             countdown=retry_after,
@@ -63,4 +66,4 @@ def sync_persisted_industry_structure_registry(
             "Structure sync rate-limit sample: %s",
             " | ".join(summary["rate_limit_samples"]),
         )
-    return {"status": "ok", **summary}
+    return {"status": "deferred" if retry_scheduled else "ok", **summary}

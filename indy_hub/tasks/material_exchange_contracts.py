@@ -21,7 +21,6 @@ from django.utils.translation import gettext_lazy as _
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
-from esi.decorators import rate_limit_retry_task
 from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 
 # AA Example App
@@ -112,7 +111,6 @@ _get_location_name = get_location_name
     time_limit=600,
     soft_time_limit=580,
 )
-@rate_limit_retry_task
 def sync_esi_contracts():
     """
     Fetch corporation contracts from ESI and store/update them in the database.
@@ -151,7 +149,20 @@ def sync_esi_contracts():
                 exc,
             )
             sync_esi_contracts.apply_async(countdown=delay)
-            return
+            return {"status": "deferred", "retry_in": delay}
+        except ESIClientError as exc:
+            if 500 <= int(exc.status_code or 0) < 600:
+                delay = get_retry_after_seconds(exc, fallback=60, minimum=5)
+                sync_esi_contracts.apply_async(countdown=delay)
+                logger.warning(
+                    "Contract sync deferred by ESI outage; retry in %ss", delay
+                )
+                return {"status": "deferred", "retry_in": delay}
+            logger.warning(
+                "Contract sync failed for corporation %s: %s",
+                config.corporation_id,
+                exc,
+            )
         except Exception as exc:
             logger.error(
                 "Failed to sync contracts for corporation %s: %s",
@@ -204,7 +215,11 @@ def run_material_exchange_cycle():
 
     # Step 1: sync cached contracts only when there are pending orders to validate.
     if pending_sell_exists or pending_buy_exists:
-        sync_esi_contracts()
+        sync_result = sync_esi_contracts()
+        if isinstance(sync_result, dict) and sync_result.get("status") == "deferred":
+            # The child sync already published its one retry. Do not perform
+            # more live lookups or validations against an interrupted snapshot.
+            return sync_result
     else:
         logger.debug(
             "Skipping contract sync: no pending sell/buy orders require validation"
@@ -283,6 +298,8 @@ def _sync_contracts_for_corporation(
         )
         raise
     except (ESIClientError, ESIForbiddenError) as exc:
+        if 500 <= int(getattr(exc, "status_code", None) or 0) < 600:
+            raise
         logger.error(
             "Failed to fetch contracts from ESI for corporation %s: %s",
             corporation_id,
@@ -347,7 +364,13 @@ def _sync_contracts_for_corporation(
                     "Contract items not modified for %s; skipping items sync",
                     contract_id,
                 )
+            except (ESIErrorLimitException, ESIBucketLimitException):
+                # Stop before marking this contract current or reconciling the
+                # corporation snapshot. The outer sync owns its single retry.
+                raise
             except ESIClientError as exc:
+                if 500 <= int(exc.status_code or 0) < 600:
+                    raise
                 # 404 is normal for contracts without items or expired contracts
                 if "404" in str(exc):
                     logger.debug(
@@ -486,7 +509,6 @@ def _get_contracts_for_validation(corporation_id: int):
     time_limit=600,
     soft_time_limit=580,
 )
-@rate_limit_retry_task
 def validate_material_exchange_sell_orders():
     """
     Validate pending sell orders against cached ESI contracts in the database.
@@ -561,7 +583,6 @@ def validate_material_exchange_sell_orders():
     time_limit=600,
     soft_time_limit=580,
 )
-@rate_limit_retry_task
 def validate_material_exchange_buy_orders():
     """
     Validate pending buy orders against cached ESI contracts in the database.
@@ -1966,7 +1987,6 @@ def handle_material_exchange_buy_order_created(order_id):
     time_limit=600,
     soft_time_limit=580,
 )
-@rate_limit_retry_task
 def check_completed_material_exchange_contracts():
     """
     Check if corp contracts for approved sell orders have been completed.

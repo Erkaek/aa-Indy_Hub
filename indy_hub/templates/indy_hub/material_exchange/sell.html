@@ -1538,6 +1538,11 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             const error = data.error || null;
             const serverLastUpdate = data.last_update || null;
 
+            if (error === 'rate_limited' && !query('[data-esi-rate-limit]')) {
+                await swapSellDynamicContent(window.location.href, captureSellState());
+                return;
+            }
+
             if (data.running) {
                 schedulePoll(1000);
                 return;
@@ -1567,6 +1572,10 @@ window.initMaterialExchangeSellPage = function initMaterialExchangeSellPage(root
             }
 
             if (error) {
+                if (error === 'esi_down') {
+                    await swapSellDynamicContent(window.location.href, captureSellState());
+                    return;
+                }
                 console.warn('Sell asset refresh finished with error:', error, { total, done });
                 return;
             }

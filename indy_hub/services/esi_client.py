@@ -5,6 +5,9 @@ from __future__ import annotations
 # Standard Library
 import math
 import time
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 try:
     # Celery
@@ -14,6 +17,7 @@ except ImportError:  # pragma: no cover - celery always available in runtime
     current_task = None
 
 # Third Party
+from aiopenapi3.errors import HTTPClientError as OpenAPIHTTPClientError
 from pydantic import BaseModel
 
 # Django
@@ -31,6 +35,7 @@ from esi.exceptions import (
     HTTPServerError,
 )
 from esi.models import Token
+from esi.rate_limiting import ESIRateLimitBucket, ESIRateLimits, interval_to_seconds
 
 # Alliance Auth (External Libs)
 from app_utils.helpers import chunks
@@ -57,6 +62,9 @@ _RATE_LIMIT_META_TTL_SECONDS = 24 * 60 * 60
 _RATE_LIMIT_REQUIRED_TOKENS = 2
 _TRANQUILITY_COOLDOWN_CACHE_KEY = "indy_hub:esi_tranquility_global_cooldown_until"
 _TRANQUILITY_COOLDOWN_FALLBACK_SECONDS = 60
+_PROTOCOL_RATE_LIMIT_FALLBACK_SECONDS = 60
+# Public cache-key contract of django-esi's wait_for_esi_errorlimit_reset.
+_NATIVE_ERROR_LIMIT_CACHE_KEY = "esi_error_limit_reset"
 _HTTP_ERROR_TYPES = (HTTPClientError, HTTPServerError)
 _DJANGO_ESI_RATE_LIMIT_ERRORS = (ESIBucketLimitException, ESIErrorLimitException)
 
@@ -103,36 +111,81 @@ class ESIUnmodifiedError(ESIClientError):
     """Raised when ESI responds with HTTP 304 (Not Modified)."""
 
 
+def _positive_seconds(value, *, http_date: bool = False) -> float | None:
+    """Native reset values are durations; only Retry-After may be an HTTP date."""
+    try:
+        delay = float(value)
+    except (TypeError, ValueError, OverflowError):
+        if not http_date or not isinstance(value, str):
+            return None
+        try:
+            when = parsedate_to_datetime(value)
+            if when.tzinfo is None:
+                return None
+            delay = when.timestamp() - time.time()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if not math.isfinite(delay) or delay <= 0:
+        return None
+    try:
+        # A finite but unrepresentable countdown must not overflow Redis/Celery
+        # and turn a protocol limit into an ordinary failed character fetch.
+        datetime.fromtimestamp(time.time(), timezone.utc) + timedelta(seconds=delay)
+    except (OverflowError, OSError, ValueError):
+        return None
+    return delay
+
+
+def _normalise_headers(headers) -> dict:
+    # Native HTTP exceptions can expose an ordinary dict, not httpx Headers.
+    return {str(key).lower(): value for key, value in (headers or {}).items()}
+
+
+def _record_native_error_limit(delay: int) -> None:
+    """Fill native guard gaps, preserving usable recorded limits and their TTL."""
+    if cache.add(_NATIVE_ERROR_LIMIT_CACHE_KEY, delay, timeout=delay):
+        return
+    previous = cache.get(_NATIVE_ERROR_LIMIT_CACHE_KEY)
+    if previous is not None and _positive_seconds(previous) is None:
+        cache.set(_NATIVE_ERROR_LIMIT_CACHE_KEY, delay, timeout=delay)
+
+
+def _header_delays(headers, *names: str) -> list[float]:
+    headers = _normalise_headers(headers)
+    delays = []
+    for name in names:
+        delay = _positive_seconds(
+            headers.get(name.lower()), http_date=name.lower() == "retry-after"
+        )
+        if delay is not None:
+            delays.append(delay)
+    return delays
+
+
+def _rate_limit_wait_seconds(response, *, reset_header, remaining_header):
+    candidates = _header_delays(
+        getattr(response, "headers", None), "Retry-After", reset_header
+    )
+    headers = _normalise_headers(getattr(response, "headers", None))
+    try:
+        remaining = int(headers.get(remaining_header.lower()))
+    except (TypeError, ValueError, OverflowError):
+        remaining = None
+    return max(candidates, default=None), remaining
+
+
 def rate_limit_wait_seconds(response) -> tuple[float | None, int | None]:
-    """Return pause seconds from ESI error-limit headers when available."""
-
-    wait_candidates: list[float] = []
-    retry_after_header = response.headers.get("Retry-After")
-    reset_header = response.headers.get("X-Esi-Error-Limit-Reset")
-
-    for raw_value in (retry_after_header, reset_header):
-        if raw_value is None:
-            continue
-        try:
-            wait_candidates.append(float(raw_value))
-        except (TypeError, ValueError):
-            continue
-
-    wait: float | None = None
-    if wait_candidates:
-        positive = [value for value in wait_candidates if value > 0]
-        if positive:
-            wait = max(positive)
-
-    remaining_header = response.headers.get("X-Esi-Error-Limit-Remain")
-    remaining: int | None = None
-    if remaining_header is not None:
-        try:
-            remaining = int(remaining_header)
-        except (TypeError, ValueError):
-            remaining = None
-
-    return wait, remaining
+    """Read legacy HTTP error-limit metadata; native 420 normally arrives typed."""
+    wait, remaining = _rate_limit_wait_seconds(
+        response,
+        reset_header="X-Esi-Error-Limit-Reset",
+        remaining_header="X-Esi-Error-Limit-Remain",
+    )
+    native = _header_delays(getattr(response, "headers", None), "X-RateLimit-Reset")
+    return (
+        max([value for value in [wait, *native] if value is not None], default=None),
+        remaining,
+    )
 
 
 def token_rate_limit_wait_seconds(
@@ -140,33 +193,11 @@ def token_rate_limit_wait_seconds(
 ) -> tuple[float | None, int | None]:
     """Return pause seconds from token-rate headers when available."""
 
-    retry_after_header = response.headers.get("Retry-After")
-    reset_header = response.headers.get("X-Ratelimit-Reset")
-    remaining_header = response.headers.get("X-Ratelimit-Remaining")
-
-    wait_candidates: list[float] = []
-    for raw_value in (retry_after_header, reset_header):
-        if raw_value is None:
-            continue
-        try:
-            wait_candidates.append(float(raw_value))
-        except (TypeError, ValueError):
-            continue
-
-    wait: float | None = None
-    if wait_candidates:
-        positive = [value for value in wait_candidates if value > 0]
-        if positive:
-            wait = max(positive)
-
-    remaining: int | None = None
-    if remaining_header is not None:
-        try:
-            remaining = int(remaining_header)
-        except (TypeError, ValueError):
-            remaining = None
-
-    return wait, remaining
+    return _rate_limit_wait_seconds(
+        response,
+        reset_header="X-Ratelimit-Reset",
+        remaining_header="X-Ratelimit-Remaining",
+    )
 
 
 def get_rate_limit_reset_seconds(
@@ -180,17 +211,8 @@ def get_rate_limit_reset_seconds(
     raw_delay = getattr(exc, "reset", None)
     if raw_delay is None:
         raw_delay = getattr(exc, "retry_after", None)
-    delay = 0
-    if raw_delay is not None:
-        try:
-            delay = int(float(raw_delay))
-        except (TypeError, ValueError):
-            delay = 0
-
-    if delay <= 0:
-        delay = int(fallback)
-
-    return max(delay, int(minimum))
+    delay = _positive_seconds(raw_delay)
+    return max(math.ceil(delay) if delay is not None else int(fallback), int(minimum))
 
 
 def get_retry_after_seconds(
@@ -202,31 +224,20 @@ def get_retry_after_seconds(
 ) -> int:
     """Best-effort Retry-After extraction for transient ESI failures."""
 
-    raw_delay = getattr(exc, "retry_after", None)
     headers = getattr(exc, "headers", None)
     if headers is None:
         # This utility also accepts exceptions carrying a response object.
         headers = getattr(getattr(exc, "response", None), "headers", None)
-    if raw_delay is None and headers is not None:
-        for header in (
-            "Retry-After",
-            "X-Esi-Error-Limit-Reset",
-            "X-Ratelimit-Reset",
-        ):
-            raw_delay = headers.get(header)
-            if raw_delay is not None:
-                break
-
-    delay = 0
-    if raw_delay is not None:
-        try:
-            delay = int(math.ceil(float(raw_delay)))
-        except (TypeError, ValueError):
-            delay = 0
-
-    if delay <= 0:
-        delay = int(fallback)
-
+    candidates = _header_delays(
+        headers,
+        "Retry-After",
+        "X-Esi-Error-Limit-Reset",
+        "X-Ratelimit-Reset",
+    )
+    explicit = _positive_seconds(getattr(exc, "retry_after", None))
+    if explicit is not None:
+        candidates.append(explicit)
+    delay = math.ceil(max(candidates)) if candidates else int(fallback)
     bounded = max(int(minimum), delay)
     return min(bounded, int(maximum))
 
@@ -241,6 +252,55 @@ class ESIClient:
     def client(self):
         """Lazily materialize the django-esi OpenAPI client on first access."""
         return self.provider.client
+
+    @contextmanager
+    def _native_rate_limits(
+        self, endpoint: str, throttle_key: str = "public", *, operation
+    ):
+        """Keep native guards; bridge only gaps demonstrated in django-esi 10.1."""
+        try:
+            yield
+        except ESIErrorLimitException as exc:
+            seconds = _positive_seconds(exc.reset)
+            if seconds is None:
+                # Native 420 with no usable reset does not establish a guard.
+                # Fill that gap in its existing shared key, never a mirror key,
+                # preserving any usable native reset already recorded.
+                source = exc.__context__
+                delay, _ = rate_limit_wait_seconds(source)
+                exc.reset = (
+                    math.ceil(delay)
+                    if delay is not None
+                    else _PROTOCOL_RATE_LIMIT_FALLBACK_SECONDS
+                )
+                _record_native_error_limit(exc.reset)
+                logger.warning(
+                    "ESI global limit reset normalized; deferring for %ss", exc.reset
+                )
+            else:
+                # Old async/native cache values can be numeric strings. Keep
+                # their existing TTL, but give Celery an integer duration.
+                exc.reset = math.ceil(seconds)
+            raise
+        except _HTTP_ERROR_TYPES as exc:
+            if exc.status_code in (420, 429):
+                self._handle_http_error(
+                    exc,
+                    endpoint=endpoint,
+                    throttle_key=throttle_key,
+                    native_bucket=getattr(operation, "bucket", None),
+                )
+            raise
+        except (ValueError, OverflowError) as exc:
+            # Native reset conversion can fail while handling an HTTP 420.
+            # Only bridge that exact HTTP cause; unrelated conversion failures
+            # retain their normal error path and never replay the operation.
+            source = exc.__context__
+            if isinstance(source, OpenAPIHTTPClientError) and source.status_code == 420:
+                self._handle_http_error(
+                    source, endpoint=endpoint, throttle_key=throttle_key
+                )
+            raise
 
     @staticmethod
     def _is_running_in_task() -> bool:
@@ -278,20 +338,12 @@ class ESIClient:
         if not window_raw:
             return None, None
 
-        unit = window_raw[-1]
         try:
-            magnitude = int(window_raw[:-1])
-        except (TypeError, ValueError):
+            window_seconds = interval_to_seconds(window_raw)
+        except (KeyError, TypeError, ValueError):
             return None, None
 
-        if magnitude <= 0 or max_tokens <= 0:
-            return None, None
-
-        if unit == "m":
-            window_seconds = magnitude * 60
-        elif unit == "h":
-            window_seconds = magnitude * 60 * 60
-        else:
+        if window_seconds <= 0 or max_tokens <= 0:
             return None, None
 
         return max_tokens, window_seconds
@@ -312,7 +364,9 @@ class ESIClient:
         return max(remaining, 0)
 
     def _set_tranquility_cooldown(self, cooldown_seconds: int) -> int:
-        cooldown = max(int(cooldown_seconds), 1)
+        cooldown = max(
+            int(cooldown_seconds), self._tranquility_cooldown_seconds_remaining(), 1
+        )
         cache.set(
             _TRANQUILITY_COOLDOWN_CACHE_KEY,
             time.time() + cooldown,
@@ -385,13 +439,22 @@ class ESIClient:
         group: str,
         key_suffix: str,
         cooldown_seconds: int,
-    ) -> None:
-        cooldown = max(int(cooldown_seconds), 1)
+    ) -> int:
+        key = self._rate_limit_cooldown_cache_key(group, key_suffix)
+        previous = cache.get(key)
+        remaining = 0
+        if previous is not None:
+            try:
+                remaining = math.ceil(float(previous) - time.time())
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ESIClientError("Invalid stored ESI group cooldown") from exc
+        cooldown = max(int(cooldown_seconds), remaining, 1)
         cache.set(
-            self._rate_limit_cooldown_cache_key(group, key_suffix),
+            key,
             time.time() + cooldown,
             timeout=cooldown,
         )
+        return cooldown
 
     def _enforce_rate_limit_cooldown(
         self,
@@ -441,13 +504,13 @@ class ESIClient:
     ) -> None:
         if response is None:
             return
-        headers = getattr(response, "headers", None)
+        headers = _normalise_headers(getattr(response, "headers", None))
         if headers is None:
             return
 
-        group = str(headers.get("X-Ratelimit-Group") or "").strip()
-        limit_raw = headers.get("X-Ratelimit-Limit")
-        remaining_raw = headers.get("X-Ratelimit-Remaining")
+        group = str(headers.get("x-ratelimit-group") or "").strip()
+        limit_raw = headers.get("x-ratelimit-limit")
+        remaining_raw = headers.get("x-ratelimit-remaining")
         if not group:
             return
 
@@ -544,6 +607,9 @@ class ESIClient:
         *,
         throttle_key: str | None = None,
     ) -> None:
+        # Lists and public station lookups need the same global outage guard as
+        # scalar calls. This check also applies before a native response cache hit.
+        self._enforce_tranquility_cooldown(endpoint)
         self._enforce_rate_limit_cooldown(
             endpoint=endpoint,
             throttle_key=throttle_key,
@@ -887,21 +953,28 @@ class ESIClient:
 
     def fetch_industry_systems(self, *, force_refresh: bool = False) -> list[dict]:
         """Fetch public industry system cost indices from ESI."""
-        self._enforce_tranquility_cooldown("/industry/systems/")
+        self._enforce_task_scope_budget(
+            None, "/industry/systems/", throttle_key="public"
+        )
         results_kwargs = None
         if force_refresh:
             results_kwargs = {"use_etag": False, "force_refresh": True}
 
         try:
             operation_call = self.client.Industry.GetIndustrySystems()
-            if results_kwargs is None:
-                payload = operation_call.result()
-            else:
-                payload = operation_call.result(**results_kwargs)
+            with self._native_rate_limits(
+                "/industry/systems/", operation=operation_call
+            ):
+                if results_kwargs is None:
+                    payload = operation_call.result()
+                else:
+                    payload = operation_call.result(**results_kwargs)
         except HTTPNotModified:
             return []
         except _HTTP_ERROR_TYPES as exc:
-            self._handle_http_error(exc, endpoint="/industry/systems/")
+            self._handle_http_error(
+                exc, endpoint="/industry/systems/", throttle_key="public"
+            )
             raise
         except _DJANGO_ESI_RATE_LIMIT_ERRORS:
             raise
@@ -949,14 +1022,17 @@ class ESIClient:
         last_response = None
         try:
             operation_call = operation(**params, token=token_obj, **request_kwargs)
-            execute = operation_call.results if paginated else operation_call.result
-            if results_kwargs is None:
-                payload, last_response = execute(return_response=True)
-            else:
-                payload, last_response = execute(
-                    return_response=True,
-                    **results_kwargs,
-                )
+            with self._native_rate_limits(
+                endpoint, throttle_key, operation=operation_call
+            ):
+                execute = operation_call.results if paginated else operation_call.result
+                if results_kwargs is None:
+                    payload, last_response = execute(return_response=True)
+                else:
+                    payload, last_response = execute(
+                        return_response=True,
+                        **results_kwargs,
+                    )
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(f"ESI returned 304 for {endpoint}") from exc
         except _HTTP_ERROR_TYPES as exc:
@@ -1053,23 +1129,38 @@ class ESIClient:
                     page=page,
                     **request_kwargs,
                 )
-                _, page_response = operation_call.result(
-                    return_response=True,
-                    use_etag=False,
-                    use_cache=True,
-                )
+                character_id = getattr(token_obj, "character_id", None)
+                throttle_key = f"char:{int(character_id)}" if character_id else "public"
+                with self._native_rate_limits(
+                    endpoint, throttle_key, operation=operation_call
+                ):
+                    _, page_response = operation_call.result(
+                        return_response=True,
+                        use_etag=False,
+                        use_cache=True,
+                    )
             except HTTPNotModified:
                 # Should not happen with use_etag=False, but a 304 still means
                 # content is unchanged for that page.
                 continue
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.debug(
-                    "Failed Last-Modified pagination probe for %s page=%s: %s",
-                    endpoint,
-                    page,
+            except _DJANGO_ESI_RATE_LIMIT_ERRORS:
+                # A rate-limited validation is not a complete coherent snapshot.
+                # Stop here so the task retries before any missing-row cleanup.
+                raise
+            except _HTTP_ERROR_TYPES as exc:
+                self._handle_http_error(
                     exc,
+                    character_id=getattr(token_obj, "character_id", None),
+                    token_obj=token_obj,
+                    endpoint=endpoint,
                 )
-                continue
+                raise
+            except ESIClientError:
+                raise
+            except Exception as exc:
+                raise ESIClientError(
+                    f"Unable to verify paginated ESI snapshot for {endpoint} page={page}"
+                ) from exc
 
             page_last_modified = None
             if page_response is not None:
@@ -1256,12 +1347,16 @@ class ESIClient:
         throttle_key = "public-station"
         self._enforce_task_scope_budget(None, endpoint, throttle_key=throttle_key)
         try:
-            payload, response = self.client.Universe.GetUniverseStationsStationId(
+            operation_call = self.client.Universe.GetUniverseStationsStationId(
                 station_id=int(station_id)
-            ).result(
-                return_response=True,
-                use_etag=False,
             )
+            with self._native_rate_limits(
+                endpoint, throttle_key, operation=operation_call
+            ):
+                payload, response = operation_call.result(
+                    return_response=True,
+                    use_etag=False,
+                )
             self._update_rate_limit_state_from_response(
                 response=response,
                 endpoint=endpoint,
@@ -1270,13 +1365,17 @@ class ESIClient:
         except HTTPNotModified:
             # django-esi cache was stale; retry bypassing ETags entirely
             try:
-                payload, response = self.client.Universe.GetUniverseStationsStationId(
+                operation_call = self.client.Universe.GetUniverseStationsStationId(
                     station_id=int(station_id)
-                ).result(
-                    return_response=True,
-                    use_etag=False,
-                    force_refresh=True,
                 )
+                with self._native_rate_limits(
+                    endpoint, throttle_key, operation=operation_call
+                ):
+                    payload, response = operation_call.result(
+                        return_response=True,
+                        use_etag=False,
+                        force_refresh=True,
+                    )
                 self._update_rate_limit_state_from_response(
                     response=response,
                     endpoint=endpoint,
@@ -1318,7 +1417,7 @@ class ESIClient:
         if not ids:
             return {}
 
-        self._enforce_tranquility_cooldown("/universe/names/")
+        self._enforce_task_scope_budget(None, "/universe/names/", throttle_key="public")
 
         # ESI accepts max 1000 IDs per request
         result: dict[int, str] = {}
@@ -1326,9 +1425,13 @@ class ESIClient:
             try:
                 # django-esi 10.1 removes body before constructing its cache key.
                 # Different ID batches must never share a cached POST response.
-                payload = self.client.Universe.PostUniverseNames(body=batch).result(
-                    use_etag=False, use_cache=False, store_cache=False
-                )
+                operation_call = self.client.Universe.PostUniverseNames(body=batch)
+                with self._native_rate_limits(
+                    "/universe/names/", operation=operation_call
+                ):
+                    payload = operation_call.result(
+                        use_etag=False, use_cache=False, store_cache=False
+                    )
             except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc:
                 logger.warning(
                     "resolve_ids_to_names hit django-esi rate limit: %s",
@@ -1379,7 +1482,6 @@ class ESIClient:
     ):
         if operation is None:
             raise ESIClientError("No ESI operation provided")
-        self._enforce_tranquility_cooldown(endpoint)
         if throttle_key is None and character_id:
             throttle_key = f"char:{int(character_id)}"
         self._enforce_task_scope_budget(scope, endpoint, throttle_key=throttle_key)
@@ -1394,9 +1496,13 @@ class ESIClient:
             ) from exc
 
         try:
-            payload, response = operation(token_obj).result(
-                return_response=True, **(results_kwargs or {})
-            )
+            operation_call = operation(token_obj)
+            with self._native_rate_limits(
+                endpoint, throttle_key, operation=operation_call
+            ):
+                payload, response = operation_call.result(
+                    return_response=True, **(results_kwargs or {})
+                )
         except HTTPNotModified as exc:
             raise ESIUnmodifiedError(
                 f"ESI returned 304 for {endpoint or 'request'}"
@@ -1435,36 +1541,74 @@ class ESIClient:
         token_obj: Token | None = None,
         scope: str | None = None,
         throttle_key: str | None = None,
+        native_bucket: ESIRateLimitBucket | None = None,
     ) -> None:
         status_code = exc.status_code
         if status_code == 420:
             sleep_for, remaining = rate_limit_wait_seconds(exc)
+            delay = (
+                math.ceil(sleep_for)
+                if sleep_for is not None
+                else _PROTOCOL_RATE_LIMIT_FALLBACK_SECONDS
+            )
+            _record_native_error_limit(delay)
             raise ESIErrorLimitException(
-                reset=sleep_for or 1,
+                reset=delay,
                 message=f"ESI error limit reached (remaining={remaining})",
             ) from exc
 
         if status_code == 429:
             sleep_for, remaining = token_rate_limit_wait_seconds(exc)
+            delay = (
+                math.ceil(sleep_for)
+                if sleep_for is not None
+                else _PROTOCOL_RATE_LIMIT_FALLBACK_SECONDS
+            )
+            if isinstance(native_bucket, ESIRateLimitBucket):
+                # Native 10.1 forwards 429 without updating its bucket. Reuse
+                # its public limiter and exact group/character key rather than
+                # mirror that state. Keep the native full-window policy and
+                # never shorten a longer reset explicitly advertised by ESI.
+                delay = max(delay, native_bucket.window)
+                exhausted = ESIRateLimitBucket(
+                    native_bucket.slug, native_bucket.limit, delay
+                )
+                ESIRateLimits.set_bucket(exhausted, new_limit=0)
+                raise ESIBucketLimitException(
+                    bucket=native_bucket, reset=delay
+                ) from exc
             self._update_rate_limit_state_from_response(
                 response=exc,
                 endpoint=endpoint,
                 throttle_key=throttle_key,
             )
-            if sleep_for and throttle_key:
-                headers = exc.headers
-                group = ""
-                if headers is not None:
-                    group = str(headers.get("X-Ratelimit-Group") or "").strip()
-                if group:
-                    self._set_rate_limit_cooldown(
-                        group=group,
-                        key_suffix=str(throttle_key).strip(),
-                        cooldown_seconds=max(int(sleep_for), 1),
-                    )
+            meta = self._read_rate_limit_meta(endpoint) or {}
+            group = str(
+                _normalise_headers(exc.headers).get("x-ratelimit-group")
+                or meta.get("group")
+                or f"endpoint:{endpoint}"
+            ).strip()
+            # Native 10.1 forwards HTTP 429, and does not update its bucket on
+            # that error response. Keep the existing local keys, including when
+            # the response omits its limit/group headers. Other characters stay
+            # independent; a later complete header replaces this fallback metadata.
+            if group != meta.get("group"):
+                self._store_rate_limit_meta(
+                    endpoint=endpoint, group=group, max_tokens=0, window_seconds=0
+                )
+            delay = (
+                math.ceil(sleep_for)
+                if sleep_for is not None
+                else _PROTOCOL_RATE_LIMIT_FALLBACK_SECONDS
+            )
+            delay = self._set_rate_limit_cooldown(
+                group=group,
+                key_suffix=(throttle_key or "public").strip(),
+                cooldown_seconds=delay,
+            )
             raise ESIBucketLimitException(
                 bucket="esi-bucket",
-                reset=sleep_for or 1,
+                reset=delay,
                 message=f"ESI bucket limit reached (remaining={remaining})",
             ) from exc
 

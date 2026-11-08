@@ -779,3 +779,399 @@ class EsiClientNativeContractTests(TestCase):
                     else:
                         self.facade.fetch_character_blueprints(self.token.character_id)
             self.assertIs(caught.exception, error)
+
+    def test_native_420_blocks_other_characters_before_http(self):
+        self.status = 420
+        self.payload = {"error": "Synthetic error limit"}
+        self.headers = {"X-RateLimit-Reset": "37"}
+        with self.assertRaises(ESIErrorLimitException) as caught:
+            self.skills()
+        self.assertEqual(caught.exception.reset, 37)
+        self.assertEqual(cache.get("esi_error_limit_reset"), 37)
+        other = self.make_token(900002)
+        with self.assertRaises(ESIErrorLimitException):
+            self.facade.fetch_character_skills(other.character_id, token_obj=other)
+        self.assertEqual(len(self.wire_calls), 1)
+
+    def test_native_420_missing_or_malformed_reset_uses_the_shared_guard(self):
+        for headers, delay in [
+            ({}, 60),
+            ({"X-RateLimit-Reset": "bad"}, 60),
+            ({"X-RateLimit-Reset": "inf"}, 60),
+            ({"X-RateLimit-Reset": "1e308"}, 60),
+            ({"X-RateLimit-Reset": "1000000000000"}, 60),
+            ({"X-RateLimit-Reset": "2.5"}, 3),
+            ({"X-Esi-Error-Limit-Reset": "37"}, 37),
+        ]:
+            with self.subTest(headers=headers):
+                cache.clear()
+                self.wire_calls.clear()
+                self.status = 420
+                self.payload = {"error": "Synthetic global error limit"}
+                self.headers = headers
+                with self.assertRaises(ESIErrorLimitException) as caught:
+                    self.skills()
+                self.assertEqual(caught.exception.reset, delay)
+                self.assertEqual(cache.get("esi_error_limit_reset"), delay)
+                with self.assertRaises(ESIErrorLimitException):
+                    self.skills()
+                self.assertEqual(len(self.wire_calls), 1)
+
+    def test_old_native_reset_string_keeps_its_ttl_and_blocks_http(self):
+        cache.set("esi_error_limit_reset", "37", timeout=20)
+        with self.assertRaises(ESIErrorLimitException) as caught:
+            self.skills()
+        self.assertEqual(caught.exception.reset, 37)
+        self.assertIsInstance(caught.exception.reset, int)
+        self.assertEqual(cache.get("esi_error_limit_reset"), "37")
+        self.assertLessEqual(cache.ttl("esi_error_limit_reset"), 20)
+        self.assertEqual(self.wire_calls, [])
+
+    def test_unusable_old_native_reset_gets_a_bounded_guard_and_can_expire(self):
+        for raw in ["NaN", "1e308"]:
+            with self.subTest(reset=raw):
+                cache.clear()
+                self.wire_calls.clear()
+                cache.set("esi_error_limit_reset", raw, timeout=3600)
+                with self.assertRaises(ESIErrorLimitException) as caught:
+                    self.skills()
+                self.assertEqual(caught.exception.reset, 60)
+                self.assertEqual(cache.get("esi_error_limit_reset"), 60)
+                self.assertLessEqual(cache.ttl("esi_error_limit_reset"), 60)
+                with self.assertRaises(ESIErrorLimitException):
+                    self.skills()
+                self.assertEqual(self.wire_calls, [])
+                cache.touch("esi_error_limit_reset", timeout=0)
+                self.skills()
+                self.assertEqual(len(self.wire_calls), 1)
+
+    def test_native_bucket_is_scoped_and_checks_before_http(self):
+        spec_path = Path(self.directory.name) / "openapi.json"
+        spec = json.loads(spec_path.read_text())
+        spec["paths"]["/characters/{character_id}/skills"]["get"]["x-rate-limit"] = {
+            "group": "synthetic-skills",
+            "max-tokens": 100,
+            "window-size": "1m",
+        }
+        spec_path.write_text(json.dumps(spec))
+        self.headers = {"X-Ratelimit-Remaining": "0"}
+        self.skills(force_refresh=True)
+        self.assertEqual(cache.get("esi:bucket:synthetic-skills:900001"), 0)
+        with self.assertRaises(ESIBucketLimitException) as caught:
+            self.skills(force_refresh=True)
+        self.assertGreater(caught.exception.reset, 0)
+        self.assertLessEqual(caught.exception.reset, 61)
+        self.assertEqual(len(self.wire_calls), 1)
+        other = self.make_token(900002)
+        self.facade.fetch_character_skills(
+            other.character_id, token_obj=other, force_refresh=True
+        )
+        self.assertEqual(len(self.wire_calls), 2)
+        # Expire only this synthetic bucket, without waiting in real time.
+        cache.touch("esi:bucket:synthetic-skills:900001", timeout=0)
+        self.skills(force_refresh=True)
+        self.assertEqual(len(self.wire_calls), 3)
+
+    def test_declared_429_reuses_native_group_across_operations(self):
+        spec_path = Path(self.directory.name) / "openapi.json"
+        spec = json.loads(spec_path.read_text())
+        for path in [
+            "/characters/{character_id}/skills",
+            "/characters/{character_id}/industry/jobs",
+        ]:
+            spec["paths"][path]["get"]["x-rate-limit"] = {
+                "group": "synthetic-shared-group",
+                "max-tokens": 100,
+                "window-size": "1m",
+            }
+        spec_path.write_text(json.dumps(spec))
+        self.status = 429
+        self.payload = {"error": "Synthetic bucket exhaustion"}
+        self.headers = {"Retry-After": "12.1"}
+        with self.assertRaises(ESIBucketLimitException) as caught:
+            self.skills()
+        self.assertEqual(caught.exception.reset, 60)
+        self.assertEqual(cache.get("esi:bucket:synthetic-shared-group:900001"), 0)
+        self.assertIsNone(
+            cache.get(
+                self.facade._rate_limit_meta_cache_key("/characters/900001/skills/")
+            )
+        )
+        with self.assertRaises(ESIBucketLimitException):
+            self.facade.fetch_character_industry_jobs(self.token.character_id)
+        self.assertEqual(len(self.wire_calls), 1)
+        other = self.make_token(900002)
+        with self.assertRaises(ESIBucketLimitException):
+            self.facade.fetch_character_skills(other.character_id, token_obj=other)
+        self.assertEqual(len(self.wire_calls), 2)
+
+    def test_429_without_limit_header_still_blocks_until_the_full_delay(self):
+        self.status = 429
+        self.payload = {"error": "Synthetic bucket exhaustion"}
+        self.headers = {"Retry-After": "2.5", "X-Ratelimit-Group": "synthetic-group"}
+        with patch("indy_hub.services.esi_client.time.time", return_value=1000):
+            with self.assertRaises(ESIBucketLimitException) as caught:
+                self.skills()
+            self.assertEqual(caught.exception.reset, 3)
+        with patch("indy_hub.services.esi_client.time.time", return_value=1001):
+            with self.assertRaises((ESIErrorLimitException, ESIBucketLimitException)):
+                self.skills()
+        self.assertEqual(len(self.wire_calls), 1)
+        self.status = 200
+        self.payload = {"skills": [], "total_sp": 0}
+        self.headers = {}
+        with patch("indy_hub.services.esi_client.time.time", return_value=1003.1):
+            self.skills()
+        self.assertEqual(len(self.wire_calls), 2)
+
+    def test_headerless_429_has_scoped_conservative_cooldown(self):
+        self.status = 429
+        self.payload = {"error": "Synthetic bucket exhaustion"}
+        with self.assertRaises(ESIBucketLimitException) as caught:
+            self.skills()
+        self.assertEqual(caught.exception.reset, 60)
+        with self.assertRaises((ESIErrorLimitException, ESIBucketLimitException)):
+            self.skills()
+        self.assertEqual(len(self.wire_calls), 1)
+        other = self.make_token(900002)
+        with self.assertRaises(ESIBucketLimitException):
+            self.facade.fetch_character_skills(other.character_id, token_obj=other)
+        self.assertEqual(len(self.wire_calls), 2)
+
+    def test_global_outage_guard_applies_to_lists_and_public_stations(self):
+        self.facade._set_tranquility_cooldown(60)
+        for fetch in [
+            lambda: self.facade.fetch_character_blueprints(self.token.character_id),
+            lambda: self.facade.fetch_character_assets(
+                character_id=self.token.character_id
+            ),
+            lambda: self.facade.fetch_station_name(60003760),
+        ]:
+            with self.subTest(fetch=fetch):
+                with self.assertRaises(ESIErrorLimitException):
+                    fetch()
+        self.assertEqual(self.wire_calls, [])
+
+    def test_business_budget_blocks_when_native_bucket_would_allow(self):
+        self.skills()
+        with (
+            patch.object(self.facade, "_is_running_in_task", return_value=True),
+            patch.object(self.facade, "_target_per_min_for_scope", return_value=1),
+        ):
+            self.skills(force_refresh=True)
+            with self.assertRaises(ESIErrorLimitException):
+                self.skills(force_refresh=True)
+        self.assertEqual(len(self.wire_calls), 2)
+
+    def test_unavailable_budget_cache_never_falls_back_to_http(self):
+        with (
+            patch.object(self.facade, "_is_running_in_task", return_value=True),
+            patch(
+                "indy_hub.services.esi_client.cache.add",
+                side_effect=ConnectionError("synthetic cache failure"),
+            ),
+        ):
+            with self.assertRaises(ConnectionError):
+                self.skills()
+        self.assertEqual(self.wire_calls, [])
+        self.assertTrue(Token.objects.filter(pk=self.token.pk).exists())
+
+    def test_interrupted_native_asset_pages_preserve_snapshot_on_redelivery(self):
+        # Alliance Auth
+        from allianceauth.authentication.models import CharacterOwnership
+        from allianceauth.eveonline.models import EveCharacter
+
+        # AA Example App
+        from indy_hub.models import CachedCharacterAsset
+        from indy_hub.services import esi_client as client_module
+        from indy_hub.tasks.material_exchange import (
+            _me_sell_assets_progress_key,
+            refresh_material_exchange_sell_user_assets,
+        )
+
+        character = EveCharacter.objects.create(
+            character_id=self.token.character_id,
+            character_name="Synthetic Limited Pilot",
+            corporation_id=980001,
+            corporation_name="Synthetic Corp",
+            corporation_ticker="SYN",
+        )
+        CharacterOwnership.objects.create(
+            user=self.user, character=character, owner_hash="synthetic-limits"
+        )
+        old = CachedCharacterAsset.objects.create(
+            user=self.user,
+            character_id=character.character_id,
+            item_id=900099,
+            location_id=60003760,
+            location_flag="Hangar",
+            type_id=34,
+            quantity=10,
+            synced_at=timezone.now() - timedelta(hours=2),
+        )
+        before = CachedCharacterAsset.objects.filter(pk=old.pk).values().get()
+
+        def limited_pages(request):
+            if request.url.params.get("page", "1") == "2":
+                return self.response(
+                    request,
+                    status=429,
+                    payload={"error": "Synthetic limit"},
+                    headers={
+                        "Retry-After": "900.1",
+                        "X-Ratelimit-Group": "synthetic-assets",
+                    },
+                )
+            return self.response(
+                request,
+                payload=[
+                    {
+                        "item_id": 900100,
+                        "type_id": 35,
+                        "location_id": 60003760,
+                        "quantity": 20,
+                        "is_singleton": False,
+                        "location_flag": "Hangar",
+                        "location_type": "station",
+                    }
+                ],
+                headers={"X-Pages": "2"},
+            )
+
+        self.handler = limited_pages
+        task = refresh_material_exchange_sell_user_assets
+        with (
+            patch.object(client_module.shared_client, "provider", self.provider),
+            patch.object(task, "apply_async") as publication,
+        ):
+            for _ in range(2):
+                task.apply(
+                    args=(self.user.pk,), task_id="synthetic-redelivery", throw=True
+                )
+        self.assertEqual(len(self.wire_calls), 2)
+        self.assertEqual(publication.call_count, 2)  # One intention per delivery.
+        for call in publication.call_args_list:
+            self.assertGreaterEqual(call.kwargs["countdown"], 900)
+            self.assertLessEqual(call.kwargs["countdown"], 901)
+        self.assertEqual(list(CachedCharacterAsset.objects.values()), [before])
+        state = cache.get(_me_sell_assets_progress_key(self.user.pk))
+        self.assertFalse(state["finished"])
+        self.assertTrue(state["running"])
+        self.assertEqual(state["error"], "rate_limited")
+        self.assertGreaterEqual(
+            cache.ttl(_me_sell_assets_progress_key(self.user.pk)), 900
+        )
+        self.assertTrue(Token.objects.filter(pk=self.token.pk).exists())
+
+    def test_transport_failure_matches_native_without_a_facade_replay(self):
+        attempts = 0
+
+        def transient(request):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise httpx2.ConnectError(
+                    "Synthetic transport failure", request=request
+                )
+            return self.response(request)
+
+        self.handler = transient
+        native_error = None
+        with patch("tenacity.nap.time.sleep") as native_sleep:
+            try:
+                native_payload = (
+                    self.provider.client.Skills.GetCharactersCharacterIdSkills(
+                        character_id=self.token.character_id, token=self.token
+                    ).result()
+                )
+            except Exception as exc:
+                native_error = exc
+        native_attempts = len(self.wire_calls)
+        native_sleeps = native_sleep.call_count
+        self.wire_calls.clear()
+        cache.clear()
+        attempts = 0
+        original = EsiOperation.result
+        with (
+            patch("tenacity.nap.time.sleep") as sleep,
+            patch.object(
+                EsiOperation, "result", autospec=True, side_effect=original
+            ) as logical,
+        ):
+            if native_error is None:
+                self.assertEqual(self.skills(), native_payload.model_dump())
+            else:
+                with self.assertRaises(ESIClientError) as caught:
+                    self.skills()
+                self.assertIsInstance(caught.exception.__cause__, type(native_error))
+        logical.assert_called_once()
+        self.assertEqual(len(self.wire_calls), native_attempts)
+        self.assertEqual(sleep.call_count, native_sleeps)
+
+    def test_interrupted_consistency_probe_cannot_return_a_complete_snapshot(self):
+        last_modified = format_datetime(timezone.now(), usegmt=True)
+        for status, expected in [
+            (429, ESIBucketLimitException),
+            (503, ESIClientError),
+            ("transport", ESIClientError),
+        ]:
+            with self.subTest(status=status):
+                cache.clear()
+                self.wire_calls.clear()
+
+                def interrupted_probe(request):
+                    if len(self.wire_calls) >= 3:
+                        if status == "transport":
+                            raise httpx2.ConnectError(
+                                "Synthetic probe failure", request=request
+                            )
+                        return self.response(
+                            request,
+                            status=status,
+                            payload={"error": "Synthetic probe interruption"},
+                            headers={
+                                "Retry-After": "12.1",
+                                "X-Ratelimit-Group": "synthetic-probe",
+                            },
+                        )
+                    page = int(request.url.params.get("page", "1"))
+                    return self.response(
+                        request,
+                        payload=[
+                            {
+                                "item_id": 900010 + page,
+                                "type_id": 34,
+                                "location_id": 60003760,
+                                "location_flag": "Hangar",
+                                "quantity": 1,
+                                "material_efficiency": 10,
+                                "time_efficiency": 20,
+                                "runs": -1,
+                            }
+                        ],
+                        headers={
+                            "X-Pages": "2",
+                            "Last-Modified": last_modified,
+                            "Cache-Control": "max-age=0",
+                        },
+                    )
+
+                self.handler = interrupted_probe
+                original = EsiOperation.result
+                with (
+                    patch.object(
+                        EsiOperation, "result", autospec=True, side_effect=original
+                    ) as logical,
+                    patch("tenacity.nap.time.sleep"),
+                ):
+                    with self.assertRaises(expected) as caught:
+                        self.facade.fetch_character_blueprints(self.token.character_id)
+                if status == 429:
+                    self.assertEqual(caught.exception.reset, 13)
+                elif status == 503:
+                    self.assertEqual(caught.exception.retry_after, 13)
+                # Two native pages and only the first consistency probe. Native
+                # transport attempts remain distinct from logical operations.
+                self.assertEqual(logical.call_count, 3)
+                self.assertGreaterEqual(len(self.wire_calls), 3)
+                self.assertTrue(Token.objects.filter(pk=self.token.pk).exists())

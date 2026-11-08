@@ -19,6 +19,7 @@ from indy_hub.services.esi_client import (
     ESIForbiddenError,
     ESITokenError,
     ESIUnmodifiedError,
+    get_rate_limit_reset_seconds,
     get_retry_after_seconds,
     shared_client,
 )
@@ -502,6 +503,7 @@ def sync_corporation_structure_targets(
             continue
         except (ESIErrorLimitException, ESIBucketLimitException) as exc:
             summary["rate_limited"] += 1
+            summary["retry_after_seconds"] = get_rate_limit_reset_seconds(exc)
             rate_limit_samples = summary["rate_limit_samples"]
             if len(rate_limit_samples) < SYNC_ERROR_SAMPLE_LIMIT:
                 rate_limit_samples.append(f"{corporation_name}: {exc}")
@@ -510,9 +512,10 @@ def sync_corporation_structure_targets(
             if remaining_targets:
                 summary["deferred_due_to_rate_limit"] += int(remaining_targets)
             logger.info(
-                "Stopping structure sync early after local ESI throttle for corporation %s; deferred=%s",
+                "Stopping structure sync after ESI limit for corporation %s; deferred=%s retry_in=%ss",
                 corporation_id,
                 remaining_targets,
+                summary["retry_after_seconds"],
             )
             break
         except ESIClientError as exc:

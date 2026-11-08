@@ -101,6 +101,16 @@
             </div>
             {% endif %}
 
+            {% if sell_assets_progress.error == "rate_limited" %}
+            <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status" data-esi-rate-limit>
+                <i class="fas fa-hourglass-half mt-1" aria-hidden="true"></i>
+                <div>
+                    <div class="fw-semibold">{% trans "ESI has deferred the asset refresh. Using cached assets." %}</div>
+                    <small class="text-muted">{% trans "The refresh will retry after the ESI cooldown." %}</small>
+                </div>
+            </div>
+            {% endif %}
+
             {% if sell_assets_progress.error == "esi_down" %}
             <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status">
                 <i class="fas fa-cloud-bolt mt-1" aria-hidden="true"></i>

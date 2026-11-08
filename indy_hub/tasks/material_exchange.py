@@ -8,6 +8,7 @@ from decimal import Decimal
 
 # Third Party
 from celery import shared_task
+from celery.exceptions import Reject
 
 # Django
 from django.contrib.auth import get_user_model
@@ -17,7 +18,6 @@ from django.utils import timezone
 
 # Alliance Auth
 from allianceauth.services.hooks import get_extension_logger
-from esi.decorators import rate_limit_retry_task
 from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 from esi.models import Token
 
@@ -41,6 +41,7 @@ from indy_hub.services.esi_client import (
     ESIForbiddenError,
     ESITokenError,
     get_rate_limit_reset_seconds,
+    get_retry_after_seconds,
     shared_client,
 )
 from indy_hub.services.material_exchange_assets import (
@@ -127,12 +128,19 @@ def _me_sell_assets_progress_key(user_id: int) -> str:
 
 @shared_task(
     autoretry_for=(Exception,),
+    # These outcomes already have an explicit owner below. In particular a
+    # failed retry publication raises Reject: autoretry must not publish again.
+    dont_autoretry_for=(
+        Reject,
+        ESIClientError,
+        ESIErrorLimitException,
+        ESIBucketLimitException,
+    ),
     retry_kwargs={"max_retries": 3, "countdown": 5},
     rate_limit="100/m",
     time_limit=300,
     soft_time_limit=280,
 )
-@rate_limit_retry_task
 def refresh_corp_assets_cached(
     corporation_id: int, director_character_id: int | None = None
 ) -> None:
@@ -250,6 +258,24 @@ def refresh_corp_assets_cached(
             result="success",
         )
 
+    except (ESIErrorLimitException, ESIBucketLimitException) as exc:
+        delay = get_rate_limit_reset_seconds(exc)
+        logger.warning(
+            "Corporation asset refresh deferred for %s by ESI limit; retry in %ss",
+            corporation_id,
+            delay,
+        )
+        raise refresh_corp_assets_cached.retry(exc=exc, countdown=delay)
+    except ESIClientError as exc:
+        if 500 <= int(exc.status_code or 0) < 600:
+            delay = get_retry_after_seconds(exc, fallback=60, minimum=5)
+            logger.warning(
+                "Corporation asset refresh deferred for %s by ESI outage; retry in %ss",
+                corporation_id,
+                delay,
+            )
+            raise refresh_corp_assets_cached.retry(exc=exc, countdown=delay)
+        raise
     except Exception as exc:
         logger.exception(
             "Failed to refresh corp assets/structures for corporation %s: %s",
@@ -271,7 +297,6 @@ def refresh_corp_assets_cached(
     time_limit=300,
     soft_time_limit=280,
 )
-@rate_limit_retry_task
 def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
     """Refresh CachedCharacterAsset for all of a user's characters, tracking progress.
 
@@ -290,7 +315,10 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             fields["started_at"] = started_at
         if "last_progress_at" not in fields:
             fields["last_progress_at"] = timezone.now().timestamp()
-        cache.set(progress_key, fields, ttl_seconds)
+        progress_ttl = ttl_seconds
+        if fields.get("error") == "rate_limited":
+            progress_ttl = max(progress_ttl, int(fields["retry_after_seconds"]) + 180)
+        cache.set(progress_key, fields, progress_ttl)
 
     UserModel = get_user_model()
 
@@ -398,6 +426,16 @@ def refresh_material_exchange_sell_user_assets(user_id: int) -> None:
             refresh_material_exchange_sell_user_assets.apply_async(
                 args=(int(user_id),),
                 countdown=delay,
+            )
+            _set_progress(
+                running=True,
+                finished=False,
+                error="rate_limited",
+                total=total,
+                done=done,
+                failed=failed,
+                retry_at=timezone.now().timestamp() + delay,
+                retry_after_seconds=delay,
             )
             return
         except ESIClientError as exc:
