@@ -101,6 +101,7 @@ from ..utils.token_status import (
 from ..utils.token_status import (
     token_management_live_cache_key as _token_management_live_cache_key,
 )
+from .legacy import redirect_legacy_simulation
 from .navigation import build_nav_context
 
 User = get_user_model()
@@ -3966,22 +3967,10 @@ def onboarding_set_visibility(request):
 @login_required
 def production_simulations(request):
     emit_view_analytics_event(view_name="user.production_simulations", request=request)
-    messages.info(
-        request,
-        _(
-            "Legacy single-blueprint simulations were removed. Use craft tables instead."
-        ),
-    )
-    return redirect("indy_hub:production_simulations_list")
+    return redirect_legacy_simulation(request)
 
 
 @indy_hub_access_required
 @login_required
 def rename_production_simulation(request, simulation_id):
-    messages.info(
-        request,
-        _(
-            "Legacy single-blueprint simulations were removed. Use craft tables instead."
-        ),
-    )
-    return redirect("indy_hub:production_simulations_list")
+    return redirect_legacy_simulation(request)
