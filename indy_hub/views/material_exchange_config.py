@@ -11,7 +11,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import Http404, HttpResponseForbidden, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -26,6 +26,7 @@ from esi.views import sso_redirect
 # AA Example App
 from indy_hub.services.providers import esi_provider
 
+from .. import authorization
 from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
 from ..decorators import indy_hub_permission_required
 from ..models import (
@@ -309,62 +310,51 @@ def _format_sell_price_overrides(config: MaterialExchangeConfig | None) -> str:
     return "\n".join(lines)
 
 
+def _request_authorization_profile(request, profile_name):
+    """Only fixed config profiles reach native SSO; no browser-supplied scopes."""
+    try:
+        profile = authorization.AUTHORIZATION_PROFILES[profile_name]
+    except KeyError:
+        raise Http404("Unknown Indy Hub authorization profile") from None
+    if not request.user.has_perms(profile.permissions):
+        return HttpResponseForbidden(
+            "You do not have the required Indy Hub permission."
+        )
+    return sso_redirect(
+        request, scopes=" ".join(profile.scope_list()), return_to=profile.return_to
+    )
+
+
 @login_required
-@indy_hub_permission_required("can_manage_material_hub")
+@indy_hub_permission_required(authorization.MATERIAL_PERMISSION.split(".", 1)[1])
 def material_exchange_request_divisions_token(request):
-    """Request ESI token with divisions scope, then redirect back to config."""
+    """Request the fixed divisions_token profile."""
     emit_view_analytics_event(
-        view_name="material_exchange_config.request_divisions_token",
-        request=request,
+        view_name="material_exchange_config.request_divisions_token", request=request
     )
-    return sso_redirect(
-        request,
-        scopes="esi-corporations.read_divisions.v1",
-        return_to="indy_hub:material_exchange_config",
+    return _request_authorization_profile(
+        request, "material_exchange_request_divisions_token"
     )
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_hub")
+@indy_hub_permission_required(authorization.MATERIAL_PERMISSION.split(".", 1)[1])
 def material_exchange_request_all_scopes(request):
-    """
-    emit_view_analytics_event(
-        view_name="material_exchange_config.request_all_scopes", request=request
-    )
-    Request all Material Exchange required ESI scopes at once.
-
-    Required scopes:
-    - esi-assets.read_corporation_assets.v1 (for structures)
-    - esi-corporations.read_divisions.v1 (for hangar divisions)
-    - esi-contracts.read_corporation_contracts.v1 (for contract validation)
-    - esi-universe.read_structures.v1 (for structure names)
-    """
-    scopes = " ".join(
-        [
-            "esi-assets.read_corporation_assets.v1",
-            "esi-corporations.read_divisions.v1",
-            "esi-contracts.read_corporation_contracts.v1",
-            "esi-universe.read_structures.v1",
-        ]
-    )
-    return sso_redirect(
-        request,
-        scopes=scopes,
-        return_to="indy_hub:material_exchange_config",
+    """Request the narrower four-scope configuration profile."""
+    return _request_authorization_profile(
+        request, "material_exchange_request_all_scopes"
     )
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_hub")
+@indy_hub_permission_required(authorization.MATERIAL_PERMISSION.split(".", 1)[1])
 def material_exchange_request_contracts_scope(request):
-    """Request ESI token with contracts scope, then redirect back to config."""
+    """Request the fixed contracts_scope profile."""
     emit_view_analytics_event(
         view_name="material_exchange_config.request_contracts_scope", request=request
     )
-    return sso_redirect(
-        request,
-        scopes="esi-contracts.read_corporation_contracts.v1",
-        return_to="indy_hub:material_exchange_config",
+    return _request_authorization_profile(
+        request, "material_exchange_request_contracts_scope"
     )
 
 
@@ -608,7 +598,7 @@ def material_exchange_config(request, tokens=None):
     return render(request, "indy_hub/material_exchange/config.html", context)
 
 
-@tokens_required(scopes="esi-characters.read_corporation_roles.v1")
+@tokens_required(scopes=[authorization.CORP_ROLES_SCOPE])
 def _material_exchange_config_post(request, tokens):
     config = MaterialExchangeConfig.objects.first()
     if request.POST.get("delete_config") == "1":
@@ -692,7 +682,7 @@ def material_exchange_get_structures(request, corp_id):
 
 
 @tokens_required(
-    scopes="esi-assets.read_corporation_assets.v1 esi-corporations.read_divisions.v1"
+    scopes=sorted({authorization.CORP_ASSETS_SCOPE, authorization.CORP_DIVISIONS_SCOPE})
 )
 def _material_exchange_get_structures(request, tokens, corp_id):
     emit_view_analytics_event(
@@ -743,7 +733,7 @@ def _find_director_character(user, corp_id):
     try:
         all_tokens = (
             Token.objects.filter(user=user)
-            .require_scopes(["esi-characters.read_corporation_roles.v1"])
+            .require_scopes([authorization.CORP_ROLES_SCOPE])
             .require_valid()
         )
         all_tokens_list = list(all_tokens)
@@ -761,7 +751,7 @@ def _find_director_character(user, corp_id):
     try:
         scoped_tokens = (
             Token.objects.filter(user=user)
-            .require_scopes(["esi-characters.read_corporation_roles.v1"])
+            .require_scopes([authorization.CORP_ROLES_SCOPE])
             .require_valid()
         )
         scoped_tokens_list = list(scoped_tokens)
@@ -906,7 +896,7 @@ def _find_director_character(user, corp_id):
 
     all_tokens = (
         Token.objects.filter(user=user)
-        .require_scopes(["esi-characters.read_corporation_roles.v1"])
+        .require_scopes([authorization.CORP_ROLES_SCOPE])
         .require_valid()
     )
     for token in all_tokens:
@@ -968,7 +958,7 @@ def _find_director_character(user, corp_id):
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
 @tokens_required(
-    scopes="esi-characters.read_corporation_roles.v1 esi-assets.read_corporation_assets.v1"
+    scopes=sorted({authorization.CORP_ROLES_SCOPE, authorization.CORP_ASSETS_SCOPE})
 )
 def material_exchange_refresh_corp_assets(request, tokens):
     emit_view_analytics_event(
@@ -1384,16 +1374,14 @@ def _get_corp_structures(user, corp_id):
 
 
 @login_required
-@indy_hub_permission_required("can_manage_material_hub")
+@indy_hub_permission_required(authorization.MATERIAL_PERMISSION.split(".", 1)[1])
 def material_exchange_request_assets_token(request):
+    """Request the fixed assets_token profile."""
     emit_view_analytics_event(
         view_name="material_exchange_config.request_assets_token", request=request
     )
-    """Request ESI token with corp assets scope, then redirect back to config."""
-    return sso_redirect(
-        request,
-        scopes="esi-assets.read_corporation_assets.v1",
-        return_to="indy_hub:material_exchange_config",
+    return _request_authorization_profile(
+        request, "material_exchange_request_assets_token"
     )
 
 
@@ -1893,7 +1881,7 @@ def _handle_config_save(request, existing_config):
         if corporation_id and structure_id:
             try:
                 token_for_names = _get_token_for_corp(
-                    request.user, corporation_id, "esi-universe.read_structures.v1"
+                    request.user, corporation_id, authorization.STRUCTURE_SCOPE
                 )
                 character_id_for_names = (
                     getattr(token_for_names, "character_id", None)
@@ -2003,7 +1991,7 @@ def _handle_config_save(request, existing_config):
 
 @login_required
 @indy_hub_permission_required("can_manage_material_hub")
-@tokens_required(scopes="esi-characters.read_corporation_roles.v1")
+@tokens_required(scopes=[authorization.CORP_ROLES_SCOPE])
 def material_exchange_debug_tokens(request, tokens, corp_id):
     emit_view_analytics_event(
         view_name="material_exchange_config.debug_tokens", request=request

@@ -53,6 +53,20 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pre-commit==4.5.1
 
+      - name: Install pre-commit hook environments
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if pre-commit install-hooks; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Hook installation failed (attempt $attempt/3); retrying in 10 seconds."
+              sleep 10
+            fi
+          done
+          exit 1
+
       - name: Run Pre Commit Checks
         run: |
           set -e

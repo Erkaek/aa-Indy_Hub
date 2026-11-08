@@ -17,6 +17,7 @@ from allianceauth.authentication.models import CharacterOwnership
 from esi.models import Token
 
 # AA Example App
+from indy_hub.authorization import SKILLS_SCOPE
 from indy_hub.models import (
     Blueprint,
     IndustryActivityMixin,
@@ -26,8 +27,6 @@ from indy_hub.models import (
 from indy_hub.services.esi_client import ESITokenError, ESIUnmodifiedError
 from indy_hub.utils.eve import get_character_name, get_type_name
 from indy_hub.utils.token_status import apply_token_validity_filter
-
-SKILLS_SCOPE = "esi-skills.read_skills.v1"
 
 SKILL_TYPE_IDS = {
     "industry": 3380,

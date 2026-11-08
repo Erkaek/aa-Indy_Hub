@@ -31,6 +31,7 @@ from esi.exceptions import (
 )
 from esi.models import Token
 
+from .. import authorization
 from ..app_settings import (
     BLUEPRINTS_BULK_WINDOW_MINUTES,
     BULK_UPDATE_WINDOW_MINUTES,
@@ -97,38 +98,19 @@ _CORPTOOLS_FALLBACK_LOG_CACHE_KEY = (
 )
 _CORPTOOLS_FALLBACK_LOG_TTL_SECONDS = 3600
 
-BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
-JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
-STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
-CORP_BLUEPRINT_SCOPE = "esi-corporations.read_blueprints.v1"
-CORP_JOBS_SCOPE = "esi-industry.read_corporation_jobs.v1"
-CORP_ROLES_SCOPE = "esi-characters.read_corporation_roles.v1"
-CORP_STRUCTURES_SCOPE = "esi-corporations.read_structures.v1"
-CORP_ASSETS_SCOPE = "esi-assets.read_corporation_assets.v1"
+# Compatibility exports for existing task/service consumers.
+BLUEPRINT_SCOPE = authorization.BLUEPRINT_SCOPE
+JOBS_SCOPE = authorization.JOBS_SCOPE
+STRUCTURE_SCOPE = authorization.STRUCTURE_SCOPE
+CORP_BLUEPRINT_SCOPE = authorization.CORP_BLUEPRINT_SCOPE
+CORP_JOBS_SCOPE = authorization.CORP_JOBS_SCOPE
+CORP_ROLES_SCOPE = authorization.CORP_ROLES_SCOPE
+CORP_STRUCTURES_SCOPE = authorization.CORP_STRUCTURES_SCOPE
+CORP_ASSETS_SCOPE = authorization.CORP_ASSETS_SCOPE
 CORP_WALLET_SCOPE = "esi-wallet.read_corporation_wallets.v1"
-CORP_BLUEPRINT_SCOPE_SET = [
-    CORP_BLUEPRINT_SCOPE,
-    STRUCTURE_SCOPE,
-    CORP_ROLES_SCOPE,
-    CORP_STRUCTURES_SCOPE,
-    CORP_ASSETS_SCOPE,
-]
-CORP_JOBS_SCOPE_SET = [
-    CORP_JOBS_SCOPE,
-    STRUCTURE_SCOPE,
-    CORP_ROLES_SCOPE,
-    CORP_STRUCTURES_SCOPE,
-    CORP_ASSETS_SCOPE,
-]
-MATERIAL_EXCHANGE_SCOPE_SET = [
-    STRUCTURE_SCOPE,
-    CORP_ROLES_SCOPE,
-    CORP_STRUCTURES_SCOPE,
-    CORP_ASSETS_SCOPE,
-    "esi-corporations.read_divisions.v1",
-    "esi-contracts.read_corporation_contracts.v1",
-]
-
+CORP_BLUEPRINT_SCOPE_SET = sorted(authorization.CORPORATION_BLUEPRINT_SCOPES)
+CORP_JOBS_SCOPE_SET = sorted(authorization.CORPORATION_JOBS_SCOPES)
+MATERIAL_EXCHANGE_SCOPE_SET = sorted(authorization.MATERIAL_EXCHANGE_SCOPES)
 
 _is_deadlock_error = is_deadlock_error
 

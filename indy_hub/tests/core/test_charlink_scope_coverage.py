@@ -1,11 +1,13 @@
 # Standard Library
 import importlib.util
+import json
+from pathlib import Path
 from unittest import skipUnless
 from unittest.mock import patch
 
 # Django
 from django.apps import apps
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, Permission, User
 from django.db.models import Exists, OuterRef
 from django.test import TestCase
 
@@ -156,3 +158,189 @@ class CharacterScopeCoverageAnnotationTests(TestCase):
         _make_token(self.user, self.character, _SCOPES[:3])
         _make_token(self.user, self.character, _SCOPES[3:])
         self.assertFalse(self._annotate(_SCOPES))
+
+    def test_foreign_user_token_matches_python_owner_refusal(self):
+        # A transferred character may still have a historical shared grant.
+        # Bypass Token post_save, which would transfer the AA ownership itself.
+        other = _make_user("previousowner")
+        token = Token.objects.bulk_create(
+            [
+                Token(
+                    user=other,
+                    character_id=self.character.character_id,
+                    character_name=self.character.character_name,
+                    character_owner_hash="historical-owner",
+                    token_type="Character",
+                    access_token="synthetic",
+                    refresh_token="synthetic",
+                )
+            ]
+        )[0]
+        token.scopes.set([Scope.objects.get_or_create(name=s)[0] for s in _SCOPES])
+        # AA Example App
+        from indy_hub.thirdparty.charlink_hook import _has_scope_coverage
+
+        with patch("esi.managers.TokenQueryset.require_valid") as validate:
+            self.assertFalse(_has_scope_coverage(self.character, _SCOPES))
+            self.assertFalse(self._annotate(_SCOPES))
+        validate.assert_not_called()
+
+
+@skipUnless(_CHARLINK_AVAILABLE, "charlink not in INSTALLED_APPS")
+class CharLinkProfileContractTests(TestCase):
+    def setUp(self):
+        # AA Example App
+        from indy_hub.thirdparty.charlink_hook import app_import
+
+        self.imports = app_import.imports
+        self.app_import = app_import
+        self.user = _make_user("profile-charlink")
+
+    def test_profiles_use_exact_historical_scopes_permissions_and_defaults(self):
+        before = json.loads(
+            Path(__file__).with_name("authorization_scopes_before.json").read_text()
+        )
+        expected_permissions = {
+            "personal": ["can_access_indy_hub"],
+            "corporation": ["can_access_indy_hub", "can_manage_corp_bp_requests"],
+            "materialhub": ["can_access_indy_hub", "can_manage_material_hub"],
+        }
+        self.assertEqual(
+            [item.unique_id for item in self.imports], list(expected_permissions)
+        )
+        permissions = list(
+            Permission.objects.filter(
+                content_type__app_label="indy_hub",
+                codename__in=[
+                    "can_access_indy_hub",
+                    "can_manage_corp_bp_requests",
+                    "can_manage_material_hub",
+                ],
+            )
+        )
+        for item in self.imports:
+            with self.subTest(profile=item.unique_id):
+                item.validate_import()
+                self.assertEqual(item.scopes, before["charlink_" + item.unique_id])
+                self.assertEqual(
+                    item.default_initial_selection, item.unique_id == "personal"
+                )
+                for mask in range(8):
+                    self.user.user_permissions.set(
+                        [
+                            permission
+                            for i, permission in enumerate(permissions)
+                            if mask & (1 << i)
+                        ]
+                    )
+                    fresh = User.objects.get(pk=self.user.pk)
+                    expected = fresh.has_perms(
+                        [
+                            "indy_hub." + name
+                            for name in expected_permissions[item.unique_id]
+                        ]
+                    )
+                    self.assertEqual(item.check_permissions(fresh), expected)
+                superuser = User(username="synthetic-admin", is_superuser=True)
+                self.assertTrue(item.check_permissions(superuser))
+
+    def test_group_permissions_and_existing_audience_selector_are_preserved(self):
+        group = Group.objects.create(name="profile-managers")
+        permission = Permission.objects.get(
+            content_type__app_label="indy_hub", codename="can_manage_corp_bp_requests"
+        )
+        group.permissions.add(permission)
+        self.user.groups.add(group)
+        corporation = self.imports[1]
+        # Native CharLink's reporting audience is not its consent permission check.
+        self.assertIn(self.user, corporation.get_users_with_perms())
+        self.assertFalse(
+            corporation.check_permissions(User.objects.get(pk=self.user.pk))
+        )
+        group.permissions.add(
+            Permission.objects.get(
+                content_type__app_label="indy_hub", codename="can_access_indy_hub"
+            )
+        )
+        self.assertTrue(
+            corporation.check_permissions(User.objects.get(pk=self.user.pk))
+        )
+
+    def test_python_and_sql_agree_for_all_profiles_and_correlated_characters(self):
+        # Third Party
+        from charlink.utils import chars_annotate_linked_apps
+
+        all_scopes = sorted({scope for item in self.imports for scope in item.scopes})
+        characters = [_make_character(1_905_001 + i) for i in range(6)]
+        for character in characters[:-1]:
+            _link(self.user, character)
+        _make_token(self.user, characters[0], all_scopes)
+        _make_token(self.user, characters[1], ["esi-universe.read_structures.v1"])
+        for scope in all_scopes:
+            _make_token(self.user, characters[2], [scope])
+        other = _make_user("charlink-foreign-owner")
+        foreign = Token.objects.bulk_create(
+            [
+                Token(
+                    user=other,
+                    character_id=characters[3].character_id,
+                    character_name=characters[3].character_name,
+                    character_owner_hash="historical",
+                    token_type="Character",
+                    access_token="synthetic",
+                    refresh_token="synthetic",
+                )
+            ]
+        )[0]
+        foreign.scopes.set([Scope.objects.get(name=s) for s in all_scopes])
+        unowned = Token.objects.bulk_create(
+            [
+                Token(
+                    user=self.user,
+                    character_id=characters[5].character_id,
+                    character_name=characters[5].character_name,
+                    character_owner_hash="unowned",
+                    token_type="Character",
+                    access_token="synthetic",
+                    refresh_token="synthetic",
+                )
+            ]
+        )[0]
+        unowned.scopes.set([Scope.objects.get(name=s) for s in all_scopes])
+        with (
+            patch("esi.managers.TokenQueryset.require_valid") as validate,
+            patch.object(Token, "refresh") as refresh,
+        ):
+            rows = chars_annotate_linked_apps(
+                EveCharacter.objects.filter(pk__in=[c.pk for c in characters]),
+                self.imports,
+            )
+            for row in rows:
+                expected = row.pk == characters[0].pk
+                for item in self.imports:
+                    with self.subTest(
+                        character=row.character_id, profile=item.unique_id
+                    ):
+                        self.assertEqual(item.is_character_added(row), expected)
+                        self.assertEqual(getattr(row, item.get_query_id()), expected)
+        validate.assert_not_called()
+        refresh.assert_not_called()
+
+    def test_persisted_charlink_selection_is_not_overwritten_by_registry(self):
+        # Third Party
+        from charlink.models import AppSettings
+
+        self.user.is_superuser = True
+        for item in self.imports:
+            AppSettings.objects.update_or_create(
+                app_name=item.get_query_id(),
+                defaults={
+                    "ignored": False,
+                    "default_selection": not item.default_initial_selection,
+                },
+            )
+        fields = self.app_import.get_form_fields(self.user)
+        for item in self.imports:
+            self.assertEqual(
+                fields[item.get_query_id()].initial, not item.default_initial_selection
+            )
