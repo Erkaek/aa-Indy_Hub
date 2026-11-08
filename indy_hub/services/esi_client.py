@@ -18,6 +18,7 @@ except ImportError:  # pragma: no cover - celery always available in runtime
 
 # Third Party
 from aiopenapi3.errors import HTTPClientError as OpenAPIHTTPClientError
+from aiopenapi3.errors import ResponseError, ResponseSchemaError
 from pydantic import BaseModel
 
 # Django
@@ -954,6 +955,78 @@ class ESIClient:
         if isinstance(coerced, dict):
             return coerced.get("name")
         return None
+
+    def fetch_market_prices(self) -> list:
+        """Fetch the public price body; the price service owns its one-hour cache.
+
+        Use the public response JSON rather than Pydantic's float-coerced price
+        fields: decimal strings and the legacy per-row validation stay intact.
+        Only schema errors on an actual 200 response can use that same body.
+        Transport failures and 304 responses never become empty price data.
+        """
+        endpoint = "/markets/prices/"
+        throttle_key = "public-market-prices"
+        self._enforce_task_scope_budget(None, endpoint, throttle_key=throttle_key)
+        try:
+            operation = self.client.Market.GetMarketsPrices()
+            with self._native_rate_limits(endpoint, throttle_key, operation=operation):
+                try:
+                    _, response = operation.result(
+                        return_response=True,
+                        use_etag=False,
+                        use_cache=False,
+                        store_cache=False,
+                    )
+                except ResponseError as exc:
+                    # A bodyless 304 can fail native JSON decoding before the
+                    # operation raises its usual HTTPNotModified exception.
+                    if exc.response.status_code == 304:
+                        raise HTTPNotModified(
+                            status_code=304, headers=exc.response.headers
+                        ) from exc
+                    if exc.response.status_code >= 400:
+                        # HTML gateways or malformed error bodies can fail
+                        # validation before django-esi classifies their status.
+                        # Preserve the shared limit/outage handling, no replay.
+                        error_type = (
+                            HTTPServerError
+                            if exc.response.status_code >= 500
+                            else HTTPClientError
+                        )
+                        raise error_type(
+                            status_code=exc.response.status_code,
+                            headers=exc.response.headers,
+                            data=None,
+                        ) from exc
+                    if exc.response.status_code != 200 or not isinstance(
+                        exc, ResponseSchemaError
+                    ):
+                        raise
+                    response = exc.response
+                payload = response.json()
+        except HTTPNotModified as exc:
+            raise ESIUnmodifiedError(
+                "Public market prices returned 304 without a response body",
+                status_code=304,
+            ) from exc
+        except _HTTP_ERROR_TYPES as exc:
+            self._handle_http_error(exc, endpoint=endpoint, throttle_key=throttle_key)
+            raise
+        except _DJANGO_ESI_RATE_LIMIT_ERRORS:
+            raise
+        except Exception as exc:
+            raise ESIClientError(
+                f"ESI request failed for {endpoint}: {exc}",
+                status_code=getattr(
+                    getattr(exc, "response", None), "status_code", None
+                ),
+            ) from exc
+        self._update_rate_limit_state_from_response(
+            response=response, endpoint=endpoint, throttle_key=throttle_key
+        )
+        if not isinstance(payload, list):
+            raise ESIClientError("ESI /markets/prices/ returned a non-list body")
+        return payload
 
     def fetch_industry_systems(self, *, force_refresh: bool = False) -> list[dict]:
         """Fetch public industry system cost indices from ESI."""
