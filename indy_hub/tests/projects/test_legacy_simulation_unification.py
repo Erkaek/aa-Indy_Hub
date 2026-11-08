@@ -2146,7 +2146,7 @@ class ProductionProjectDataMigrationTests(TransactionTestCase):
 
         project = production_project.objects.create(
             user_id=user.id,
-            project_ref="preexist95a",
+            project_ref="preexist95",
             name="Preexisting Table Project",
             status="saved",
             source_kind="manual",

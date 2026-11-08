@@ -2480,7 +2480,7 @@ def craft_project(request, project_ref):
         [
             (
                 '<li><button type="button" class="dropdown-item project-status-option'
-                f'{ " active" if value == current_status else "" }"'
+                f'{" active" if value == current_status else ""}"'
                 f' data-status="{escape(value)}">'
                 f'<i class="{status_icon_map.get(value, "fas fa-circle")} me-2"></i>'
                 f"{escape(str(label))}"

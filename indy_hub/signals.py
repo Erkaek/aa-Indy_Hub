@@ -1,5 +1,4 @@
 # Django
-from django.core.cache import cache
 from django.db import connection, transaction
 from django.db.models.signals import m2m_changed, post_delete, post_save, pre_save
 from django.dispatch import receiver
@@ -38,107 +37,10 @@ try:
 except ImportError:
     Token = None
 
-# AA Example App
-# Task imports
-from indy_hub.tasks.industry import (
-    BLUEPRINT_SCOPE,
-    CORP_ASSETS_SCOPE,
-    CORP_BLUEPRINT_SCOPE_SET,
-    CORP_JOBS_SCOPE_SET,
-    CORP_STRUCTURES_SCOPE,
-    JOBS_SCOPE,
-    STRUCTURE_SCOPE,
-)
-
 from .utils.menu_badge import invalidate_menu_badge_cache
 from .utils.token_status import invalidate_token_status_cache
 
 logger = get_extension_logger(__name__)
-
-_TOKEN_SCOPE_GROUPS = {
-    "blueprints": {
-        "scopes": [BLUEPRINT_SCOPE, STRUCTURE_SCOPE],
-        "label": "Blueprints",
-    },
-    "jobs": {
-        "scopes": [JOBS_SCOPE, STRUCTURE_SCOPE],
-        "label": "Industry jobs",
-    },
-    "assets": {
-        "scopes": ["esi-assets.read_assets.v1"],
-        "label": "Character assets",
-    },
-    "corp_blueprints": {
-        "scopes": list(CORP_BLUEPRINT_SCOPE_SET),
-        "label": "Corporation blueprints",
-    },
-    "corp_jobs": {
-        "scopes": list(CORP_JOBS_SCOPE_SET),
-        "label": "Corporation industry jobs",
-    },
-    "corp_assets": {
-        "scopes": [CORP_ASSETS_SCOPE],
-        "label": "Corporation assets",
-    },
-    "corp_structures": {
-        "scopes": [CORP_STRUCTURES_SCOPE],
-        "label": "Corporation structures",
-    },
-    "material_exchange": {
-        "scopes": [
-            "esi-assets.read_corporation_assets.v1",
-            "esi-corporations.read_divisions.v1",
-            "esi-contracts.read_corporation_contracts.v1",
-            "esi-universe.read_structures.v1",
-        ],
-        "label": "Material Exchange",
-    },
-}
-
-
-def _token_scope_cache_key(user_id: int, group: str) -> str:
-    return f"indy_hub:token_scope_ok:{int(user_id)}:{group}"
-
-
-def _has_valid_token_for_scopes(user, scopes: list[str]) -> bool:
-    if not user or not Token:
-        return False
-    try:
-        token = (
-            Token.objects.filter(user=user)
-            .require_scopes(scopes)
-            .order_by("-created")
-            .first()
-        )
-        if not token:
-            return False
-        try:
-            if not token.expired:
-                return True
-            refresh_cache_key = f"indy_hub:token_refresh_checked:{token.id}"
-            if cache.get(refresh_cache_key):
-                return False
-            refresh_lock_key = f"indy_hub:token_refresh_lock:{token.id}"
-            if not cache.add(refresh_lock_key, True, 10):
-                return False
-            try:
-                token.refresh()
-                return True
-            finally:
-                cache.set(refresh_cache_key, True, 30)
-                cache.delete(refresh_lock_key)
-        except Exception:
-            return False
-    except Exception:
-        return False
-
-
-def _update_scope_status_cache(user) -> None:
-    if not user:
-        return
-    for group, meta in _TOKEN_SCOPE_GROUPS.items():
-        ok = _has_valid_token_for_scopes(user, meta["scopes"])
-        cache.set(_token_scope_cache_key(user.id, group), ok, 3600)
 
 
 def _normalize_int(value):

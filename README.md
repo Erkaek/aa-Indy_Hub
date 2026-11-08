@@ -23,7 +23,7 @@ For the complete list of changes in each release, see
 ## Requirements
 
 - Alliance Auth 5
-- Python 3.12 or newer recommended
+- Python 3.12 or newer (tested on 3.12, 3.13 and 3.14)
 - Celery workers and Celery Beat
 - A shared Django cache, normally Redis
 - `django-eveonline-sde` with its base SDE data loaded

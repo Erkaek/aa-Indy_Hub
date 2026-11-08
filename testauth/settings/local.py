@@ -98,6 +98,41 @@ INSTALLED_APPS += [
     PACKAGE,
 ]
 
+if os.environ.get("INDY_HUB_TEST_CHARLINK") == "1":
+    INSTALLED_APPS.append("charlink")
+
+# This project is a test harness, never the deployed AA project. The runner
+# creates a dedicated Redis socket before importing these settings.
+TESTING = True
+DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
+if os.environ.get("INDY_HUB_TEST_DATABASE") == "mysql":
+    if not os.environ.get("INDY_HUB_TEST_DB_HOST"):
+        raise ValueError("Set INDY_HUB_TEST_DB_HOST to the disposable test server")
+    DATABASES["default"] = {
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": "indyhub_test",
+        "USER": os.environ.get("INDY_HUB_TEST_DB_USER", "root"),
+        "PASSWORD": os.environ.get("INDY_HUB_TEST_DB_PASSWORD", ""),
+        "HOST": os.environ["INDY_HUB_TEST_DB_HOST"],
+        "PORT": os.environ.get("INDY_HUB_TEST_DB_PORT", ""),
+        "OPTIONS": {"charset": "utf8mb4"},
+        "TEST": {"NAME": "test_indyhub_test", "CHARSET": "utf8mb4"},
+    }
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.environ.get(
+            "INDY_HUB_TEST_REDIS_URL",
+            "unix:///tmp/indyhub-test-runner-required.sock?db=1",
+        ),
+        "KEY_PREFIX": "indyhub-tests",
+    }
+}
+BROKER_URL = CELERY_BROKER_URL = "memory://"
+CELERY_RESULT_BACKEND = "cache+memory://"
+EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
 # By default, apps are prevented from having public views for security reasons.
 # If you want to allow specific apps to have public views,
 # you can put their names here (same name as in INSTALLED_APPS).

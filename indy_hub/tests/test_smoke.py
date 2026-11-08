@@ -4,7 +4,6 @@
 from datetime import timedelta
 from decimal import Decimal
 from html.parser import HTMLParser
-from unittest import skip
 from unittest.mock import patch
 
 # Django
@@ -2294,9 +2293,6 @@ class BlueprintCopyFulfillViewTests(TestCase):
         scope_script_id = f"bp-scope-options-{entry['id']}"
         self.assertNotIn(scope_script_id, html)
 
-    @skip(
-        "Pre-existing test failure: personal_provider not seeing corporation-scoped requests after rejection"
-    )
     def test_corporate_rejection_hides_request_for_all_managers(self) -> None:
 
         settings = CharacterSettings.objects.get(user=self.user, character_id=0)

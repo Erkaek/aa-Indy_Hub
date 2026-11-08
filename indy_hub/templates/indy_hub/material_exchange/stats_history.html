@@ -209,7 +209,7 @@
 
 {% block extra_javascript %}
 {{ block.super }}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="{% static 'indy_hub/libs/chartjs/4.6.1/chart.umd.min.js' %}"></script>
 <script>
     document.addEventListener("DOMContentLoaded", function () {
         const labels = JSON.parse(document.getElementById("meChartLabels").textContent || "[]");
