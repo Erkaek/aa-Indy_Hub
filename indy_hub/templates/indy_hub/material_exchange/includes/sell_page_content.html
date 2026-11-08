@@ -101,6 +101,12 @@
             </div>
             {% endif %}
 
+            {% if sell_assets_progress.error == "incomplete_snapshot" %}
+            <div class="alert alert-warning mb-3" role="status" data-esi-incomplete-snapshot>
+                {% trans "The asset refresh could not be completed. Using cached assets." %}
+            </div>
+            {% endif %}
+
             {% if sell_assets_progress.error == "rate_limited" %}
             <div class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="status" data-esi-rate-limit>
                 <i class="fas fa-hourglass-half mt-1" aria-hidden="true"></i>

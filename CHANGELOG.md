@@ -24,6 +24,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Fixed
 
+- ESI snapshots: reuse the native final page during consistency validation, verify probed content and page metadata even for forced/uncached refreshes, and preserve user asset caches when any character refresh fails. Complete empty inventories now clear only the fetched character scopes.
 - ESI limits: preserve native bucket/global guards, round retry delays up, handle incomplete rate-limit headers conservatively, and enforce outage pauses before list reads. Deferred asset refreshes retain cached data and entered quantities; contract and structure refreshes report interrupted work and publish one appropriate retry.
 - ESI roles: refresh role eligibility after reauthorization even when Corptools considers the owner inactive, and describe stale role snapshots as unverified. Structure-name candidate discovery no longer renews shared tokens before an authenticated lookup is needed.
 - Blueprint lists: restore the missing icon fallback so unavailable EVE images do not raise JavaScript errors during background updates.
