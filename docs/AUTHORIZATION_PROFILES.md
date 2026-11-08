@@ -145,13 +145,8 @@ Django setup. No active database, Redis, broker or installation was used.
 The isolated targeted command was:
 
 ```sh
-PROFILES05_CHARLINK=1 /home/aadev/venv-v5/bin/python /tmp/indyhub-profiles-05/run.py \
-  indy_hub.tests.core.test_authorization_profiles \
-  indy_hub.tests.core.test_charlink_scope_coverage \
-  indy_hub.tests.core.test_corporation_scope_status \
-  indy_hub.tests.core.test_shared_token_lifecycle
-PROFILES05_CHARLINK=1 /home/aadev/venv-v5/bin/python /tmp/indyhub-profiles-05/run.py \
-  indy_hub.tests.test_smoke.AuthHookTests
+PROFILES05_CHARLINK=1 /home/aadev/venv-v5/bin/python /tmp/indyhub-profiles-05/run.py indy_hub.tests.core.test_authorization_profiles indy_hub.tests.core.test_charlink_scope_coverage indy_hub.tests.core.test_corporation_scope_status indy_hub.tests.core.test_shared_token_lifecycle
+PROFILES05_CHARLINK=1 /home/aadev/venv-v5/bin/python /tmp/indyhub-profiles-05/run.py indy_hub.tests.test_smoke.AuthHookTests
 /home/aadev/venv-v5/bin/python /tmp/indyhub-profiles-05/run_tox.py
 node scripts/check_indyhub_chrome.cjs --all-modes
 node /tmp/indyhub-profiles-05/browser.cjs
@@ -215,6 +210,12 @@ dependencies. No hook was disabled. Follow-up checks run `pre-commit --all-files
 in a disposable clone with a new hook cache, and repeat the isolated full tox
 matrix. Temporary EditorConfig download HTTP 504 failures are retained in the
 evidence; a subsequent download succeeded without copying an old environment.
+The follow-up CI also caught shell-code indentation in this document: its
+`shfmt` executable was absent locally, so mdformat had not reformatted those
+examples. Local follow-up checks provide `shfmt` on PATH. Single-line commands
+avoid differences between shfmt versions' continuation-indentation defaults.
+A hook exit status alone does not prove
+that its optional external formatter was available.
 
 ## Files in this change
 
