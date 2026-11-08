@@ -205,6 +205,17 @@ The browser, synthetic OAuth boundary, test server and their private Redis were
 closed after the run; their host PIDs were checked as absent. The synthetic
 cookie file was removed. No active service was restarted.
 
+### CI bootstrap follow-up
+
+The initial GitHub run failed while installing ESLint, before running the hooks;
+its dependent tox and build jobs were skipped. Previously installed local hook
+environments had not exposed this installation failure. The hook configuration
+now pins Node 22.22.2 instead of 22.13.1 to satisfy the current transitive
+dependencies. No hook was disabled. Follow-up checks run `pre-commit --all-files`
+in a disposable clone with a new hook cache, and repeat the isolated full tox
+matrix. Temporary EditorConfig download HTTP 504 failures are retained in the
+evidence; a subsequent download succeeded without copying an old environment.
+
 ## Files in this change
 
 - `indy_hub/authorization.py`: immutable scope components and fixed profiles.
@@ -217,6 +228,7 @@ cookie file was removed. No active service was restarted.
 - `indy_hub/tests/core/authorization_scopes_before.json`: independent exact scope baseline.
 - `indy_hub/tests/core/test_charlink_scope_coverage.py`: optional integration and Python/SQL agreement.
 - `docs/AUTHORIZATION_PROFILES.md`: before/after matrix, decisions and qualification.
+- `.pre-commit-config.yaml`: compatible Node runtime for fresh hook installations.
 
 The local permission/ESI knowledge notes also point to this registry and matrix;
 `docs/codex/` remains ignored under the repository's existing Git policy.
