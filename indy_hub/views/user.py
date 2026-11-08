@@ -25,7 +25,7 @@ from django.db.models import (
     Sum,
     When,
 )
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -53,6 +53,7 @@ from indy_hub.models import (
     MaterialExchangeSettings,
 )
 
+from .. import authorization
 from ..app_settings import ROLE_SNAPSHOT_STALE_HOURS
 from ..decorators import indy_hub_access_required
 from ..models import (
@@ -80,9 +81,7 @@ from ..services.industry_skills import build_user_character_skill_contexts
 from ..tasks.industry import (
     CORP_ASSETS_SCOPE,
     CORP_BLUEPRINT_SCOPE,
-    CORP_BLUEPRINT_SCOPE_SET,
     CORP_JOBS_SCOPE,
-    CORP_JOBS_SCOPE_SET,
     CORP_ROLES_SCOPE,
     MANUAL_REFRESH_KIND_BLUEPRINTS,
     MANUAL_REFRESH_KIND_JOBS,
@@ -244,14 +243,17 @@ MANUAL_ONBOARDING_KEYS = {
 }
 MANUAL_ONBOARDING_KEYS.add("overview_intro_seen")
 
-BLUEPRINT_SCOPE = "esi-characters.read_blueprints.v1"
-JOBS_SCOPE = "esi-industry.read_character_jobs.v1"
-STRUCTURE_SCOPE = "esi-universe.read_structures.v1"
-SKILLS_SCOPE = "esi-skills.read_skills.v1"
-BLUEPRINT_SCOPE_SET = [BLUEPRINT_SCOPE, STRUCTURE_SCOPE]
-JOBS_SCOPE_SET = [JOBS_SCOPE, STRUCTURE_SCOPE]
-ASSETS_SCOPE = "esi-assets.read_assets.v1"
-ASSETS_SCOPE_SET = [ASSETS_SCOPE]
+# Compatibility exports; profile scope unions live only in authorization.py.
+BLUEPRINT_SCOPE = authorization.BLUEPRINT_SCOPE
+JOBS_SCOPE = authorization.JOBS_SCOPE
+STRUCTURE_SCOPE = authorization.STRUCTURE_SCOPE
+SKILLS_SCOPE = authorization.SKILLS_SCOPE
+ASSETS_SCOPE = authorization.ASSETS_SCOPE
+BLUEPRINT_SCOPE_SET = sorted(authorization.BLUEPRINT_SCOPES)
+JOBS_SCOPE_SET = sorted(authorization.JOBS_SCOPES)
+ASSETS_SCOPE_SET = sorted(authorization.ASSETS_SCOPES)
+CORP_BLUEPRINT_SCOPE_SET = sorted(authorization.CORPORATION_BLUEPRINT_SCOPES)
+CORP_JOBS_SCOPE_SET = sorted(authorization.CORPORATION_JOBS_SCOPES)
 
 
 def _fetch_character_corporation_roles_with_token(
@@ -466,13 +468,9 @@ def _collect_corporation_scope_status(
         for setting in CorporationSharingSetting.objects.filter(user=user)
     }
     corp_status: dict[int, dict[str, Any]] = {}
-    required_corporation_scopes = sorted(
-        {
-            *CORP_BLUEPRINT_SCOPE_SET,
-            *CORP_JOBS_SCOPE_SET,
-            *MATERIAL_EXCHANGE_SCOPE_SET,
-        }
-    )
+    required_corporation_scopes = authorization.AUTHORIZATION_PROFILES[
+        "authorize_corp_all"
+    ].scope_list()
     corp_available_scopes: dict[int, set[str]] = {}
     corp_role_state: dict[int, dict[str, bool]] = {}
     warnings: list[dict[str, Any]] = [] if include_warnings else []
@@ -2656,13 +2654,8 @@ def token_management(request):
         else None
     )
     character_required_scopes = sorted(
-        {
-            *BLUEPRINT_SCOPE_SET,
-            *JOBS_SCOPE_SET,
-            *ASSETS_SCOPE_SET,
-            SKILLS_SCOPE,
-            *([CORP_ROLES_SCOPE] if can_manage_corp else []),
-        }
+        authorization.PERSONAL_SCOPES
+        | ({CORP_ROLES_SCOPE} if can_manage_corp else set())
     )
     user_chars = []
     ownerships = CharacterOwnership.objects.filter(user=request.user)
@@ -2757,13 +2750,9 @@ def token_management(request):
             CORP_ROLES_SCOPE,
         }
     )
-    required_corporation_scopes = sorted(
-        {
-            *CORP_BLUEPRINT_SCOPE_SET,
-            *CORP_JOBS_SCOPE_SET,
-            *MATERIAL_EXCHANGE_SCOPE_SET,
-        }
-    )
+    required_corporation_scopes = authorization.AUTHORIZATION_PROFILES[
+        "authorize_corp_all"
+    ].scope_list()
     required_character_scope_groups = [
         _("Blueprints"),
         _("Industry"),
@@ -2873,280 +2862,130 @@ def token_management_live_refresh(request):
         return JsonResponse({"updated": False, "has_changes": False}, status=200)
 
 
-@indy_hub_access_required
-@login_required
-def authorize_assets(request):
+def _authorize_profile(
+    request, profile_name, *, already_message=None, error_label="ESI"
+):
+    """Prepare a known request; native django-esi owns SSO and callback handling."""
+    try:
+        profile = authorization.AUTHORIZATION_PROFILES[profile_name]
+    except KeyError:
+        raise Http404("Unknown Indy Hub authorization profile") from None
     next_url = _resolve_next_url(request)
-    # Only skip if ALL characters are already authorized for assets scope
-    all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
-        "character__character_id", flat=True
-    )
-    authorized = (
-        Token.objects.filter(user=request.user)
-        .require_scopes(ASSETS_SCOPE_SET)
-        .require_valid()
-        .values_list("character_id", flat=True)
-    )
-    missing = set(all_chars) - set(authorized)
-    if not missing:
-        messages.info(request, "All characters already have assets access.")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
+
+    def back():
+        return redirect(next_url) if next_url else redirect(profile.return_to)
+
+    if not request.user.has_perms(profile.permissions):
+        if authorization.CORPORATION_PERMISSION in profile.permissions:
+            text = "You do not have permission to manage corporation assets."
+        else:
+            text = "You do not have permission to manage Material Exchange."
+        messages.error(request, text)
+        return back()
+
+    if profile.coverage_groups:
+        owned = set(
+            CharacterOwnership.objects.filter(user=request.user).values_list(
+                "character__character_id", flat=True
+            )
+        )
+        covered = set(owned)
+        for scopes in profile.coverage_groups:
+            # Filter scopes and owner before any active validation. Different
+            # capabilities may use different grants for the same character.
+            covered.intersection_update(
+                Token.objects.filter(user=request.user)
+                .require_scopes(sorted(scopes))
+                .require_valid()
+                .values_list("character_id", flat=True)
+            )
+        force = profile.allow_force and request.GET.get("force") == "1"
+        if not (owned - covered) and not force:
+            messages.info(request, already_message)
+            return back()
     if not CallbackRedirect:
         messages.error(request, "ESI module not available")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
+        return back()
     try:
         _stash_next_in_session(request, next_url)
         return sso_redirect(
             request,
-            scopes=" ".join(sorted(ASSETS_SCOPE_SET)),
-            return_to="indy_hub:token_management",
+            scopes=" ".join(profile.scope_list()),
+            return_to=profile.return_to,
         )
-    except Exception as e:
-        logger.error(f"Error creating assets authorization: {e}")
-        messages.error(request, f"Error setting up assets authorization: {e}")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
+    except Exception as exc:
+        logger.error("Error creating %s authorization: %s", profile_name, exc)
+        messages.error(request, f"Error setting up {error_label} authorization: {exc}")
+        return back()
+
+
+@indy_hub_access_required
+@login_required
+def authorize_assets(request):
+    return _authorize_profile(
+        request,
+        "authorize_assets",
+        already_message="All characters already have assets access.",
+        error_label="assets",
+    )
 
 
 @indy_hub_access_required
 @login_required
 def authorize_blueprints(request):
-    next_url = _resolve_next_url(request)
-    # Only skip if ALL characters are already authorized for blueprint scope
-    all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
-        "character__character_id", flat=True
+    return _authorize_profile(
+        request,
+        "authorize_blueprints",
+        already_message="All characters already have blueprint access.",
     )
-    authorized = (
-        Token.objects.filter(user=request.user)
-        .require_scopes(BLUEPRINT_SCOPE_SET)
-        .require_valid()
-        .values_list("character_id", flat=True)
-    )
-    missing = set(all_chars) - set(authorized)
-    if not missing:
-        messages.info(request, "All characters already have blueprint access.")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    if not CallbackRedirect:
-        messages.error(request, "ESI module not available")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    try:
-        _stash_next_in_session(request, next_url)
-        return sso_redirect(
-            request,
-            scopes=" ".join(sorted(BLUEPRINT_SCOPE_SET)),
-            return_to="indy_hub:token_management",
-        )
-    except Exception as e:
-        logger.error(f"Error creating blueprint authorization: {e}")
-        messages.error(request, f"Error setting up ESI authorization: {e}")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_jobs(request):
-    next_url = _resolve_next_url(request)
-    # Only skip if ALL characters have jobs access
-    all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
-        "character__character_id", flat=True
+    return _authorize_profile(
+        request,
+        "authorize_jobs",
+        already_message="All characters already have jobs access.",
     )
-    authorized = (
-        Token.objects.filter(user=request.user)
-        .require_scopes(JOBS_SCOPE_SET)
-        .require_valid()
-        .values_list("character_id", flat=True)
-    )
-    missing = set(all_chars) - set(authorized)
-    if not missing:
-        messages.info(request, "All characters already have jobs access.")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    if not CallbackRedirect:
-        messages.error(request, "ESI module not available")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    try:
-        _stash_next_in_session(request, next_url)
-        return sso_redirect(
-            request,
-            scopes=" ".join(sorted(JOBS_SCOPE_SET)),
-            return_to="indy_hub:token_management",
-        )
-    except Exception as e:
-        logger.error(f"Error creating jobs authorization: {e}")
-        messages.error(request, f"Error setting up ESI authorization: {e}")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_corp_blueprints(request):
-    next_url = _resolve_next_url(request)
-    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
-        messages.error(
-            request, "You do not have permission to manage corporation assets."
-        )
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    if not CallbackRedirect:
-        messages.error(request, "ESI module not available")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    try:
-        _stash_next_in_session(request, next_url)
-        return sso_redirect(
-            request,
-            scopes=" ".join(sorted(set(CORP_BLUEPRINT_SCOPE_SET))),
-            return_to="indy_hub:token_management",
-        )
-    except Exception as e:
-        logger.error(f"Error creating corporation blueprint authorization: {e}")
-        messages.error(request, f"Error setting up corporation authorization: {e}")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
+    return _authorize_profile(
+        request, "authorize_corp_blueprints", error_label="corporation"
+    )
 
 
 @indy_hub_access_required
 @login_required
 def authorize_corp_jobs(request):
-    next_url = _resolve_next_url(request)
-    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
-        messages.error(
-            request, "You do not have permission to manage corporation assets."
-        )
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    if not CallbackRedirect:
-        messages.error(request, "ESI module not available")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    try:
-        _stash_next_in_session(request, next_url)
-        return sso_redirect(
-            request,
-            scopes=" ".join(sorted(set(CORP_JOBS_SCOPE_SET))),
-            return_to="indy_hub:token_management",
-        )
-    except Exception as e:
-        logger.error(f"Error creating corporation job authorization: {e}")
-        messages.error(request, f"Error setting up corporation authorization: {e}")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
+    return _authorize_profile(request, "authorize_corp_jobs", error_label="corporation")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_corp_all(request):
-    next_url = _resolve_next_url(request)
-    if not request.user.has_perm("indy_hub.can_manage_corp_bp_requests"):
-        messages.error(
-            request, "You do not have permission to manage corporation assets."
-        )
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    if not CallbackRedirect:
-        messages.error(request, "ESI module not available")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    try:
-        _stash_next_in_session(request, next_url)
-        scope_set = sorted(
-            {
-                *CORP_BLUEPRINT_SCOPE_SET,
-                *CORP_JOBS_SCOPE_SET,
-                *MATERIAL_EXCHANGE_SCOPE_SET,
-            }
-        )
-        return sso_redirect(
-            request,
-            scopes=" ".join(scope_set),
-            return_to="indy_hub:token_management",
-        )
-    except Exception as e:
-        logger.error(f"Error creating corporation authorization: {e}")
-        messages.error(request, f"Error setting up corporation authorization: {e}")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
+    return _authorize_profile(request, "authorize_corp_all", error_label="corporation")
 
 
 @indy_hub_access_required
 @login_required
 def authorize_material_exchange(request):
-    next_url = _resolve_next_url(request)
-    if not request.user.has_perm("indy_hub.can_manage_material_hub"):
-        messages.error(
-            request, "You do not have permission to manage Material Exchange."
-        )
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    if not CallbackRedirect:
-        messages.error(request, "ESI module not available")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    try:
-        _stash_next_in_session(request, next_url)
-        scope_set = sorted(MATERIAL_EXCHANGE_SCOPE_SET)
-        return sso_redirect(
-            request,
-            scopes=" ".join(scope_set),
-            return_to="indy_hub:token_management",
-        )
-    except Exception as e:
-        logger.error(f"Error creating Material Exchange authorization: {e}")
-        messages.error(
-            request, f"Error setting up Material Exchange authorization: {e}"
-        )
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
+    return _authorize_profile(
+        request, "authorize_material_exchange", error_label="Material Exchange"
+    )
 
 
 @indy_hub_access_required
 @login_required
 def authorize_all(request):
-    next_url = _resolve_next_url(request)
-    # Only skip if ALL characters have blueprint, jobs, and assets access
-    force = request.GET.get("force") == "1"
-    all_chars = CharacterOwnership.objects.filter(user=request.user).values_list(
-        "character__character_id", flat=True
+    return _authorize_profile(
+        request,
+        "authorize_all",
+        already_message="All characters already authorized for all scopes.",
     )
-    blueprint_auth = (
-        Token.objects.filter(user=request.user)
-        .require_scopes(BLUEPRINT_SCOPE_SET)
-        .require_valid()
-        .values_list("character_id", flat=True)
-    )
-    jobs_auth = (
-        Token.objects.filter(user=request.user)
-        .require_scopes(JOBS_SCOPE_SET)
-        .require_valid()
-        .values_list("character_id", flat=True)
-    )
-    assets_auth = (
-        Token.objects.filter(user=request.user)
-        .require_scopes(ASSETS_SCOPE_SET)
-        .require_valid()
-        .values_list("character_id", flat=True)
-    )
-    skills_auth = (
-        Token.objects.filter(user=request.user)
-        .require_scopes([SKILLS_SCOPE])
-        .require_valid()
-        .values_list("character_id", flat=True)
-    )
-    missing = set(all_chars) - (
-        set(blueprint_auth) & set(jobs_auth) & set(assets_auth) & set(skills_auth)
-    )
-    if not missing and not force:
-        messages.info(request, "All characters already authorized for all scopes.")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    if not CallbackRedirect:
-        messages.error(request, "ESI module not available")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
-    try:
-        _stash_next_in_session(request, next_url)
-        combined_scopes = sorted(
-            {
-                *BLUEPRINT_SCOPE_SET,
-                *JOBS_SCOPE_SET,
-                *ASSETS_SCOPE_SET,
-                SKILLS_SCOPE,
-                CORP_ROLES_SCOPE,
-            }
-        )
-        return sso_redirect(
-            request,
-            scopes=" ".join(combined_scopes),
-            return_to="indy_hub:token_management",
-        )
-    except Exception as e:
-        logger.error(f"Error creating combined authorization: {e}")
-        messages.error(request, f"Error setting up ESI authorization: {e}")
-        return redirect(next_url) if next_url else redirect("indy_hub:token_management")
 
 
 @indy_hub_access_required
