@@ -5,7 +5,7 @@
 
 # Set the default language versions for the hooks
 default_language_version:
-  python: python3.10  # Match the project's minimum supported Python version.
+  python: python3.12  # Match the project's minimum supported Python version.
   node: 22.22.2  # Match the minimum Node 22 version required by hook dependencies.
 
 # https://pre-commit.ci/
@@ -26,7 +26,6 @@ ci:
 # https://pre-commit.com/#top_level-exclude
 exclude: |
   (?x)(
-    .github/|
     LICENSE|
     .min(.css|.css.map|.js|.js.map)|
     locale/|
@@ -190,19 +189,21 @@ repos:
     rev: 700530171ecf380bc829a64388f49d14ecd61c53  # frozen: 1.25.0
     hooks:
       - id: django-upgrade
+        exclude: (^|/)migrations/
         name: Django upgrade
         description: Upgrade Django code to a target version.
         args:
-          - --target-version=4.2  # Minimum supported Django version for AA. Update as needed.
+          - --target-version=5.2
 
   - repo: https://github.com/asottile/pyupgrade
     rev: 37bfa06d791fd38fb4e54910b36a2ff57641b074  # frozen: v3.20.0
     hooks:
       - id: pyupgrade
+        exclude: (^|/)migrations/
         name: PyUpgrade
         description: Upgrade syntax to newer versions of Python.
         args:
-          - --py310-plus  # Minimum required Python version for AA. Update as needed.
+          - --py312-plus
 
   - repo: https://github.com/pycqa/flake8
     rev: 4b5e89b4b108a6c1a000c591d334a99a80d34c7b  # frozen: 7.2.0
@@ -239,7 +240,7 @@ repos:
         name: Black
         description: Format Python code.
         args:
-          - --target-version=py310  # Minimum required Python version for AA. Update as needed.
+          - --target-version=py312
 
   - repo: https://github.com/asottile/blacken-docs
     rev: 78a9dcbecf4f755f65d1f3dec556bc249d723600  # frozen: 1.19.1
@@ -250,12 +251,13 @@ repos:
         additional_dependencies:
           - black==25.1.0  # https://github.com/psf/black/releases/latest
         args:
-          - --target-version=py310  # Minimum required Python version for AA. Update as needed.
+          - --target-version=py312
 
   - repo: https://github.com/executablebooks/mdformat
     rev: ff29be1a1ba8029d9375882aa2c812b62112a593  # frozen: 0.7.22
     hooks:
       - id: mdformat
+        exclude: ^\.github/
         name: Mdformat
         description: Format Markdown files.
         additional_dependencies:
@@ -279,6 +281,7 @@ repos:
         description: Format the pyproject.toml file.
         args:
           - --indent=4
+          - --max-supported-python=3.14
         additional_dependencies:
           - tox==4.25.0  # https://github.com/tox-dev/tox/releases/latest
 
@@ -296,7 +299,7 @@ repos:
 #        name: Pylint
 #        description: Check for errors and code smells in Python code.
 #        args:
-#          - --py-version=3.10  # Minimum required Python version for AA. Update as needed.
+#          - --py-version=3.12  # Minimum supported Python version for Indy Hub.
 
   - repo: https://github.com/python-jsonschema/check-jsonschema
     rev: 06e4cc849d03f3a59ca223a4046f4bb5bb2aba6d  # frozen: 0.33.0

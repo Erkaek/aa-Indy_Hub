@@ -33,6 +33,7 @@ from indy_hub.services.esi_client import (
 from indy_hub.services.material_exchange_assets import get_sell_assets_refresh_progress
 from indy_hub.tasks import material_exchange
 from indy_hub.tasks import material_exchange_contracts as contracts
+from indy_hub.tests.fixtures import create_raw_fixture
 
 
 class RetryDelayTests(SimpleTestCase):
@@ -221,9 +222,9 @@ class ContractInterruptionTests(TestCase):
         self.addCleanup(cache.clear)
         self.user = User.objects.create_user("synthetic-contract-limits")
         # Avoid configuration-save dispatch: this is a disposable fixture.
-        self.config = MaterialExchangeConfig.objects.bulk_create(
-            [MaterialExchangeConfig(corporation_id=980001, structure_id=60003760)]
-        )[0]
+        self.config = create_raw_fixture(
+            MaterialExchangeConfig(corporation_id=980001, structure_id=60003760)
+        )
         self.enabled = patch.object(
             contracts.MaterialExchangeSettings,
             "get_solo",

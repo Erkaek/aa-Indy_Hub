@@ -21,7 +21,8 @@
         "lint:css": "stylelint \"indy_hub/static/indy_hub/css/**/*.css\"",
         "lint:css:fix": "npm run lint:css -- --fix",
         "test:sell-paste-parser": "node scripts/test_material_exchange_sell_paste_parser.js",
-        "test": "npm run lint"
+        "test": "npm run lint && npm run test:regressions",
+        "test:regressions": "node scripts/test_craft_financial_price_refresh.js && node scripts/test_craft_price_scope.js && node scripts/test_craft_market_fee_switch.js && node scripts/test_material_exchange_sell_paste_parser.js && node scripts/test_personal_blueprint_ajax.js"
     },
     "keywords": [
         "allianceauth",

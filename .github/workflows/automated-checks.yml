@@ -1,59 +1,24 @@
 name: Tests
 
-env:
-  COVERAGE_DATABASE_VERSION: mariadb:10.11
-  COVERAGE_PYTHON_VERSION: 3.12
-  NODE_VERSION: 22 # [LTS] End of Life: 30 Apr 2027 (https://endoflife.date/nodejs)
-  REDIS_VERSION: latest
-
 on:
   push:
-    branches:
-      - '**'
-
-    tags-ignore:
-      - '**'
-
+    branches: ['**']
+    tags-ignore: ['**']
   pull_request:
-    branches:
-      - '**'
-
-    tags-ignore:
-      - '**'
+    branches: ['**']
 
 jobs:
-  # Run pre-commit Checks
   pre-commit:
     name: Pre Commit Checks
     runs-on: ubuntu-latest
-
+    timeout-minutes: 30
     steps:
-      # Checkout the repository
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      # Set up Python
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
-          python-version: '3.10'
-
-      # Set up Node.js
-#      - name: Setup Node.js
-#        uses: actions/setup-node@v4
-#        with:
-#          # https://endoflife.date/nodejs
-#          node-version: ${{ env.NODE_VERSION }}
-#          cache: 'npm'
-#          cache-dependency-path: 'package-lock.json'
-#      - run: npm install
-
-      - name: Install pre-commit
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install pre-commit==4.5.1
-
-      - name: Install pre-commit hook environments
+          python-version: '3.12'
+      - run: python -m pip install pre-commit==4.5.1
+      - name: Install hook environments
         shell: bash
         run: |
           for attempt in 1 2 3; do
@@ -61,166 +26,145 @@ jobs:
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then
-              echo "Hook installation failed (attempt $attempt/3); retrying in 10 seconds."
               sleep 10
             fi
           done
           exit 1
-
-      - name: Run Pre Commit Checks
+      - name: Run pre-commit
         run: |
-          set -e
           if ! pre-commit run --all-files; then
-            echo "::group::pre-commit workspace diff"
             git status --short
             git --no-pager diff
-            echo "::endgroup::"
             exit 1
           fi
 
-  # Run Test Coverage
   test-coverage:
     needs: [pre-commit]
-    name: AA Latest (Python ${{ matrix.python-version }})
+    name: AA / CharLink (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
-
+    timeout-minutes: 30
     strategy:
-      # Set Python versions to test against
+      fail-fast: false
       matrix:
-        python-version:
-          # https://endoflife.date/python
-          - '3.10'  # [EOL] End of Life: 31 Oct 2026
-          - '3.11'  # [EOL] End of Life: 31 Dec 2027
-          - '3.12'  # [EOL] End of Life: 31 Dec 2028
         include:
-          - python-version: '3.10'
-            tox-env: py310
-          - python-version: '3.11'
-            tox-env: py311
-          - python-version: '3.12'
-            tox-env: py312
-#        # MySQL versions to test against
-#        database:
-#          # https://endoflife.date/mysql
-#          - mysql:8.0     # [LTS] Maintained until: 30 Apr 2026
-#          - mysql:8.4     # [LTS] Maintained until: 30 Apr 2032
-#          # https://endoflife.date/mariadb and https://mariadb.com/kb/en/mariadb-server-release-dates/
-#          - mariadb:10.5  # [LTS] Maintained until: 24 Jun 2025
-#          - mariadb:10.6  # [LTS] Maintained until: 06 Jul 2026
-#          - mariadb:10.11 # [LTS] Maintained until: 16 Feb 2028
-#          - mariadb:11.4  # [LTS] Maintained until: 29 May 2029
-#
-##    continue-on-error: ${{ matrix.python-version == '3.12' }}
-#
-#    # Set up services
-#    services:
-#      database:
-#        image: ${{ matrix.database }}
-#        env:
-#          MYSQL_ROOT_PASSWORD: temp_password_aa_tox_tests
-#          MYSQL_DATABASE: tox_allianceauth
-#        ports:
-#          - 3306:3306
-#        options: --tmpfs /var/lib/mysql
-
+          - python: '3.12'
+            tox: py312
+          - python: '3.13'
+            tox: py313
+          - python: '3.14'
+            tox: py314
     steps:
-      # Checkout the repository
-      - name: Checkout
-        uses: actions/checkout@v6
-
-        # Install redis
-      - name: Install redis
-        uses: shogo82148/actions-setup-redis@v1
-        with:
-          redis-version: ${{ env.REDIS_VERSION }}
-
-      # Verify that redis is up
-      - name: Verify that redis is up
-        run: redis-cli ping
-
-      # Set up Python
-      - name: Setup Python ${{ matrix.python-version }}
+      - uses: actions/checkout@v6
+      - name: Install the packaging interpreter
+        if: matrix.python != '3.12'
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: shogo82148/actions-setup-redis@v1
+        with:
+          redis-version: '7'
+      - run: python -m pip install tox
+      - run: tox -v -e ${{ matrix.tox }}
 
-      # Install Tox and any other packages
-      - name: Install Tox and any other packages
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade tox
-
-      # Run Tox with the specified environment
-      - name: Run Tox
-#        env:
-#          TOX_ENV: allianceauth-latest
-#          DB_HOST: 127.0.0.1
-#          DB_USER: root
-#          DB_PASSWORD: temp_password_aa_tox_tests
-#        run: tox -v -e ${{ env.TOX_ENV }}
-        run: tox -v -e ${{ matrix.tox-env }}
-
-      # Upload coverage to Codecov
-#      - name: Upload Coverage
-#        if: ${{
-#              (
-#                github.event_name == 'pull_request'
-#                || (
-#                  github.event_name == 'push'
-#                  && github.ref == 'refs/heads/master'
-#                )
-#              )
-#              && (
-#                matrix.python-version == env.COVERAGE_PYTHON_VERSION
-#                && matrix.database == env.COVERAGE_DATABASE_VERSION
-#              )
-#            }}
-#        uses: codecov/codecov-action@v5
-#        with:
-##          token: ${{ secrets.CODECOV_TOKEN }}
-#          files: coverage.xml # optional
-##          flags: unittests # optional
-##          name: codecov-umbrella # optional
-##          fail_ci_if_error: true # optional (default = false)
-#          verbose: true # optional (default = false)
-#        env:
-#          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  # Run PyPi Build Test
-  pypi-build-test:
-    needs: [ test-coverage ]
-    name: PyPi Build Test
+  database:
+    needs: [pre-commit]
+    name: AA / CharLink (${{ matrix.database }}, Python ${{ matrix.python }})
     runs-on: ubuntu-latest
-
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        database: ['mysql:8.4', 'mariadb:10.11']
+        python: ['3.12', '3.14']
+        include:
+          - python: '3.12'
+            tox: py312-mysql
+          - python: '3.14'
+            tox: py314-mysql
+    services:
+      database:
+        image: ${{ matrix.database }}
+        env:
+          MYSQL_ROOT_PASSWORD: indyhub_ci_only
+          MYSQL_DATABASE: indyhub_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pindyhub_ci_only --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
     steps:
-      # Checkout the repository
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      # Set up Python
-      - name: Set up Python
+      - uses: actions/checkout@v6
+      - name: Install the packaging interpreter
+        if: matrix.python != '3.12'
         uses: actions/setup-python@v6
         with:
-          python-version-file: 'pyproject.toml' # Read the Python version from the pyproject.toml file
-
-      # Install Tools
-      - name: Install Tools
+          python-version: '3.12'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install database build prerequisites and Redis
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade build
-          python -m pip install --upgrade setuptools wheel
-
-      # Build Package
-      - name: Package Build
+          sudo apt-get update
+          sudo apt-get install -y default-libmysqlclient-dev pkg-config redis-server
+      - run: python -m pip install tox
+      - name: Test migrations and application on the disposable SQL server
         env:
-          STACKMANAGER_VERSION: 9999
-        run: |
-          python -m build
+          INDY_HUB_TEST_DB_HOST: 127.0.0.1
+          INDY_HUB_TEST_DB_PORT: '3306'
+          INDY_HUB_TEST_DB_USER: root
+          INDY_HUB_TEST_DB_PASSWORD: indyhub_ci_only
+        run: tox -v -e ${{ matrix.tox }}
 
-      # Upload Build Artifacts
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v7
+  frontend:
+    needs: [pre-commit]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+
+  prefork:
+    needs: [pre-commit]
+    name: Real prefork limits and routing
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: shogo82148/actions-setup-redis@v1
+        with:
+          redis-version: '7'
+      - run: python -m pip install 'celery[redis]>=5.6,<6'
+      - run: python scripts/test_prefork_time_limits.py
+
+  pypi-build-test:
+    needs: [test-coverage, database, frontend, prefork]
+    name: PyPI build and distribution contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install build
+      - run: python -m build
+      - run: python scripts/check_distribution.py dist
+      - name: Resolve the documented Discord extra
+        run: python -m pip install --dry-run '.[aadiscordbot]'
+      - uses: actions/upload-artifact@v7
         with:
           name: build-${{ github.event_name }}-${{ github.sha }}
           path: dist
-          if-no-files-found: ignore
+          if-no-files-found: error

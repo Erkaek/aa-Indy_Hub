@@ -22,6 +22,7 @@ from indy_hub.tasks.industry import (
     CORP_JOBS_SCOPE_SET,
     MATERIAL_EXCHANGE_SCOPE_SET,
 )
+from indy_hub.tests.fixtures import create_raw_fixture
 from indy_hub.utils.token_status import (
     corporation_scope_status_cache_key,
     token_management_live_cache_key,
@@ -75,19 +76,17 @@ class CorporationScopeStatusTests(TestCase):
 
     def _make_token(self, scopes, *, expired=False):
         # Populate recorded tokens without triggering token-link sync tasks.
-        token = Token.objects.bulk_create(
-            [
-                Token(
-                    user=self.user,
-                    character_id=self.character.character_id,
-                    character_name=self.character.character_name,
-                    character_owner_hash="scope-owner",
-                    token_type="Character",
-                    access_token="access",
-                    refresh_token="refresh",
-                )
-            ]
-        )[0]
+        token = create_raw_fixture(
+            Token(
+                user=self.user,
+                character_id=self.character.character_id,
+                character_name=self.character.character_name,
+                character_owner_hash="scope-owner",
+                token_type="Character",
+                access_token="access",
+                refresh_token="refresh",
+            )
+        )
         Token.scopes.through.objects.bulk_create(
             [
                 Token.scopes.through(

@@ -22,6 +22,7 @@ from esi.models import Scope, Token
 # AA Example App
 from indy_hub.models import AdminUserStatus, IndyHubUserUsage
 from indy_hub.tasks.housekeeping import rebuild_selected_admin_user_statuses
+from indy_hub.tests.fixtures import create_raw_fixture
 from indy_hub.tests.test_smoke import assign_main_character, grant_indy_permissions
 from indy_hub.views.hubs import _build_settings_admin_users_state
 
@@ -333,7 +334,7 @@ class AdminUsersConsoleTests(TestCase):
             access_token="PRIVATE-ACCESS-SECRET",
             refresh_token="PRIVATE-REFRESH-SECRET",
         )
-        Token.objects.bulk_create([token])
+        create_raw_fixture(token)
         scope, _created = Scope.objects.get_or_create(name="esi-skills.read_skills.v1")
         token.scopes.add(scope)
         Token.objects.filter(pk=token.pk).update(

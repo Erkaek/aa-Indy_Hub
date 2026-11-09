@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 # Django
 from django.contrib.auth.models import Permission, User
+from django.db import connection
 from django.test import RequestFactory, TestCase
 
 # Alliance Auth
@@ -52,7 +53,9 @@ class _CursorStub:
         return self._fetchall_result
 
     def fetchmany(self, size=None):
-        return []
+        # Django's iterator uses a backend-specific end sentinel: [] for
+        # SQLite, () for MySQL/MariaDB. A list forever loops on the latter.
+        return connection.features.empty_fetchmany_value
 
     def __iter__(self):
         return iter(self._fetchall_result)

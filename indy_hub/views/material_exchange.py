@@ -74,7 +74,6 @@ logger = get_extension_logger(__name__)
 User = get_user_model()
 
 _PRODUCTION_IDS_CACHE: set[int] | None = None
-_INDUSTRY_MARKET_GROUP_IDS_CACHE: set[int] | None = None
 _BUY_ORDER_RESERVING_STATUSES = (
     MaterialExchangeBuyOrder.Status.DRAFT,
     MaterialExchangeBuyOrder.Status.AWAITING_VALIDATION,
@@ -449,122 +448,6 @@ def _apply_buy_stock_availability(
         item.available_quantity = available_quantity
         available_items.append(item)
     return available_items
-
-
-def _get_industry_market_group_ids() -> set[int]:
-    """Return market group IDs used by known SDE item types (cached)."""
-
-    global _INDUSTRY_MARKET_GROUP_IDS_CACHE
-    if _INDUSTRY_MARKET_GROUP_IDS_CACHE is not None:
-        return _INDUSTRY_MARKET_GROUP_IDS_CACHE
-
-    cache_key = "indy_hub:material_exchange:industry_market_group_ids:v2"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        try:
-            _INDUSTRY_MARKET_GROUP_IDS_CACHE = {int(x) for x in cached}
-            return _INDUSTRY_MARKET_GROUP_IDS_CACHE
-        except Exception:
-            _INDUSTRY_MARKET_GROUP_IDS_CACHE = set()
-            return _INDUSTRY_MARKET_GROUP_IDS_CACHE
-
-    try:
-        # Alliance Auth (External Libs)
-        from eve_sde.models import ItemType
-
-        ids = set(
-            ItemType.objects.exclude(market_group_id_raw__isnull=True)
-            .values_list("market_group_id_raw", flat=True)
-            .distinct()
-        )
-    except Exception as exc:
-        logger.warning("Failed to load market group IDs from SDE item types: %s", exc)
-        ids = set()
-
-    cache.set(cache_key, list(ids), 3600)
-    _INDUSTRY_MARKET_GROUP_IDS_CACHE = ids
-    return ids
-
-
-def _get_market_group_children_map() -> dict[int | None, set[int]]:
-    """Return a mapping of parent_id -> child_ids (cached)."""
-
-    cache_key = "indy_hub:material_exchange:market_group_children_map:v1"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        try:
-            return {int(k) if k != "None" else None: set(v) for k, v in cached.items()}
-        except Exception:
-            pass
-
-    try:
-        table_name = "eve_sde_marketgroup"
-        table_names = set(connection.introspection.table_names())
-        if table_name not in table_names:
-            return {}
-
-        with connection.cursor() as cursor:
-            table_description = connection.introspection.get_table_description(
-                cursor,
-                table_name,
-            )
-        available_columns = {column.name for column in table_description}
-        parent_column = next(
-            (
-                column_name
-                for column_name in (
-                    "parent_group_id",
-                    "parent_market_group_id",
-                    "parent_group_id_raw",
-                    "parent_market_group_id_raw",
-                )
-                if column_name in available_columns
-            ),
-            None,
-        )
-        if parent_column is None or "id" not in available_columns:
-            return {}
-
-        with connection.cursor() as cursor:
-            cursor.execute(f"SELECT id, {parent_column} FROM {table_name}")
-            rows = cursor.fetchall()
-
-        children_map: dict[int | None, set[int]] = {}
-        for group_id, parent_id in rows:
-            normalized_group_id = int(group_id)
-            normalized_parent_id = int(parent_id) if parent_id is not None else None
-            children_map.setdefault(normalized_parent_id, set()).add(
-                normalized_group_id
-            )
-    except Exception as exc:
-        logger.warning("Failed to load market group tree: %s", exc)
-        return {}
-
-    cache.set(
-        cache_key,
-        {"None" if k is None else str(k): list(v) for k, v in children_map.items()},
-        3600,
-    )
-    return children_map
-
-
-def _expand_market_group_ids(group_ids: set[int]) -> set[int]:
-    """Expand market group IDs to include all descendants."""
-
-    if not group_ids:
-        return set()
-
-    children_map = _get_market_group_children_map()
-    expanded = set(group_ids)
-    stack = list(group_ids)
-    while stack:
-        current = stack.pop()
-        for child_id in children_map.get(current, set()):
-            if child_id in expanded:
-                continue
-            expanded.add(child_id)
-            stack.append(child_id)
-    return expanded
 
 
 def _get_allowed_type_ids_for_config(

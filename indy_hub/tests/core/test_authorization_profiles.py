@@ -22,6 +22,7 @@ from esi.views import receive_callback
 
 # AA Example App
 from indy_hub import authorization as auth
+from indy_hub.tests.fixtures import create_raw_fixture
 from indy_hub.views import material_exchange_config as config
 from indy_hub.views import user as user_views
 
@@ -116,19 +117,17 @@ class AuthorizationFlowTests(TestCase):
     def _token(self, scopes, *, user=None, character=None):
         user, character = user or self.member, character or self.character
         # Do not simulate the native linking signal when recording historical grants.
-        token = Token.objects.bulk_create(
-            [
-                Token(
-                    user=user,
-                    character_id=character.character_id,
-                    character_name=character.character_name,
-                    character_owner_hash=f"synthetic-{user.pk}",
-                    token_type="Character",
-                    access_token="synthetic",
-                    refresh_token="synthetic",
-                )
-            ]
-        )[0]
+        token = create_raw_fixture(
+            Token(
+                user=user,
+                character_id=character.character_id,
+                character_name=character.character_name,
+                character_owner_hash=f"synthetic-{user.pk}",
+                token_type="Character",
+                access_token="synthetic",
+                refresh_token="synthetic",
+            )
+        )
         Token.scopes.through.objects.bulk_create(
             [
                 Token.scopes.through(
