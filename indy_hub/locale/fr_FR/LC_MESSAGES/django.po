@@ -1046,9 +1046,9 @@ msgstr ""
 
 #: templates/indy_hub/material_exchange/config.html:382
 #, python-format
-msgid "5%% on Jita Buy = members get 5%% less ISK per unit"
+msgid "-5%% on Jita Buy = members get 5%% less ISK per unit"
 msgstr ""
-"5 %% sur l'achat Jita = les membres reçoivent 5 %% d'ISK en moins par unité"
+"-5 %% sur l'achat Jita = les membres reçoivent 5 %% d'ISK en moins par unité"
 
 #: templates/indy_hub/material_exchange/config.html:396
 msgid "Buy Markup"
