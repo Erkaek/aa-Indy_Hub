@@ -1,7 +1,7 @@
 # Indy Hub for Alliance Auth
 
 Indy Hub is an industry and Material Exchange application for
-[Alliance Auth](https://allianceauth.org/). It helps EVE Online corporations and
+[Alliance Auth](https://allianceauth.readthedocs.io/en/latest/). It helps EVE Online corporations and
 alliances manage blueprints, industry jobs, copy requests, production projects,
 and internal material trading.
 

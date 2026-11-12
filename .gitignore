@@ -58,6 +58,7 @@ runtests.py
 # Local developer notes
 # ======================
 NOTES.local.md
+/reports/
 .github/copilot-instructions.md
 .github/instructions/indy_hub.instructions.md
 docs/manual-prod-validation-checklist.md
