@@ -228,7 +228,11 @@
         return match ? decodeURIComponent(match[1]) : '';
     }
 
-    const EVE_JOB_LAUNCH_WINDOW_SECONDS = 30 * 24 * 60 * 60;
+    window.getCraftJobLaunchWindowSeconds = function () {
+        const seconds = Number(window.BLUEPRINT_DATA?.calculation_parameters?.job_launch_window_seconds);
+        // Retained only for historical payloads without server parameters.
+        return Number.isFinite(seconds) && seconds > 0 ? seconds : 2592000;
+    };
 
     function getProductionTimeMapEntries() {
         const timeMap = window.getCraftProductionTimeMap && typeof window.getCraftProductionTimeMap === 'function'
@@ -250,7 +254,7 @@
         if (!(cycleSeconds > 0)) {
             return null;
         }
-        return Math.max(1, Math.ceil(EVE_JOB_LAUNCH_WINDOW_SECONDS / cycleSeconds));
+        return Math.max(1, Math.ceil(window.getCraftJobLaunchWindowSeconds() / cycleSeconds));
     }
 
     function getCopyRequestLaunchLimit(typeId, productTypeId, timeEfficiency) {

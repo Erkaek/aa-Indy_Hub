@@ -71,6 +71,49 @@ class CraftBlueprintPayloadApiTests(TestCase):
         permission = Permission.objects.get(codename="can_access_indy_hub")
         self.user.user_permissions.add(permission)
 
+    @patch("indy_hub.views.api.set_temporary_project_workspace")
+    @patch(
+        "indy_hub.views.api.build_temporary_project_payload",
+        return_value={"materials_tree": [], "cache_version": 7},
+    )
+    @patch("indy_hub.views.api.get_temporary_project_workspace")
+    @patch("indy_hub.views.api.emit_view_analytics_event")
+    def test_temporary_payload_rejects_incompatible_or_pending_saved_cache(
+        self,
+        _analytics,
+        get_workspace,
+        build_payload,
+        _save_workspace,
+    ):
+        for version, pending, saved_runs in (
+            (5, False, 1),
+            (7, True, 1),
+            (7, False, 4),
+        ):
+            with self.subTest(version=version, pending=pending, runs=saved_runs):
+                get_workspace.return_value = {
+                    "workspace_state": {
+                        "runs": saved_runs,
+                        "pendingWorkspaceRefresh": pending,
+                        "cachedProjectPayload": {
+                            "cache_version": version,
+                            "num_runs": 1,
+                            "materials_tree": [],
+                        },
+                    }
+                }
+                request = self.factory.get(
+                    "/indy_hub/api/temp-production-projects/test-temp/payload/"
+                )
+                request.user = self.user
+                view = temporary_production_project_payload
+                while hasattr(view, "__wrapped__"):
+                    view = view.__wrapped__
+                response = view(request, "test-temp")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(build_payload.call_count, 1)
+                build_payload.reset_mock()
+
     @patch("indy_hub.views.api.build_project_workspace_payload")
     @patch("indy_hub.views.api.get_object_or_404")
     @patch("indy_hub.views.api.emit_view_analytics_event")
@@ -148,7 +191,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
     @patch("indy_hub.views.api.build_craft_market_fee_profiles")
     @patch("indy_hub.views.api.build_temporary_project_payload")
     @patch(
-        "indy_hub.views.api.cached_project_workspace_payload_matches_corp_authorization",
+        "indy_hub.services.production_projects.cached_project_workspace_payload_matches_corp_authorization",
         return_value=False,
     )
     @patch("indy_hub.views.api.get_temporary_project_workspace")
@@ -163,6 +206,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
         mock_set_temporary_project_workspace,
     ) -> None:
         cached_payload = {
+            "cache_version": 7,
             "workspace_state": {"use_corp_blueprints": True},
             "corpBlueprintAuthorizationFingerprint": [2_000_001],
         }
@@ -190,10 +234,15 @@ class CraftBlueprintPayloadApiTests(TestCase):
         response = view(request, "test-temp")
 
         self.assertEqual(response.status_code, 200)
-        mock_cache_matches_authorization.assert_called_once_with(
-            cached_payload,
-            temp_state["workspace_state"],
-            user=self.user,
+        mock_cache_matches_authorization.assert_called_once()
+        self.assertEqual(
+            mock_cache_matches_authorization.call_args.args[0], cached_payload
+        )
+        self.assertTrue(
+            mock_cache_matches_authorization.call_args.args[1]["use_corp_blueprints"]
+        )
+        self.assertEqual(
+            mock_cache_matches_authorization.call_args.kwargs["user"], self.user
         )
         mock_build_temporary_project_payload.assert_called_once()
         saved_state = mock_set_temporary_project_workspace.call_args.args[1]
@@ -205,7 +254,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
     @patch("indy_hub.views.api.build_craft_market_fee_profiles")
     @patch("indy_hub.views.api.build_temporary_project_payload")
     @patch(
-        "indy_hub.views.api.cached_project_workspace_payload_matches_corp_authorization",
+        "indy_hub.services.production_projects.cached_project_workspace_payload_matches_corp_authorization",
         return_value=True,
     )
     @patch("indy_hub.views.api.get_temporary_project_workspace")
@@ -219,6 +268,7 @@ class CraftBlueprintPayloadApiTests(TestCase):
         mock_build_craft_market_fee_profiles,
     ) -> None:
         cached_payload = {
+            "cache_version": 7,
             "workspace_state": {},
             "market_fee_profiles": {"characters": [{"character_id": 1}]},
         }

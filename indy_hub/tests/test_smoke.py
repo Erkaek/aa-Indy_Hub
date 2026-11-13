@@ -63,6 +63,7 @@ from indy_hub.tasks.industry import (
     reset_manual_refresh_cooldown,
 )
 from indy_hub.tasks.user import warm_menu_badge_count_cache
+from indy_hub.tests.fixtures import load_ccp_hull_fixture
 from indy_hub.utils import eve as eve_utils
 from indy_hub.utils import job_notifications as job_notifications_utils
 from indy_hub.utils.eve import get_type_name, reset_forbidden_structure_lookup_cache
@@ -1732,6 +1733,9 @@ class BlueprintCopyFulfillViewTests(TestCase):
             cost_index_percent=Decimal("5.00000"),
         )
 
+        # This profile now requires real qualified Dogma, including its 3% hull
+        # job-cost bonus; a missing SDE must not masquerade as a zero-bonus hull.
+        load_ccp_hull_fixture()
         buyer = User.objects.create_user("requester_cost", password="test12345")
         BlueprintCopyRequest.objects.create(
             type_id=blueprint.type_id,
@@ -1755,18 +1759,21 @@ class BlueprintCopyFulfillViewTests(TestCase):
         )
         self.assertEqual(
             entry["copy_cost"]["per_copy_installation_cost"],
-            Decimal("1900"),
+            # 1,000,000 * 2% * (5% * 97% + 0.5% + 4%).
+            Decimal("1870"),
         )
         self.assertEqual(
             entry["copy_cost"]["total_installation_cost"],
-            Decimal("3800"),
+            Decimal("3740"),
         )
         self.assertContains(response, "Install estimate")
-        self.assertContains(response, "3,800 ISK")
+        self.assertContains(response, "3,740 ISK")
         self.assertContains(response, "Producer character")
         self.assertContains(response, "Capsuleer")
         self.assertContains(response, "Time estimate")
-        self.assertContains(response, "3h 24m")
+        # Four runs at 3,060 seconds with the official 15% hull reduction.
+        self.assertContains(response, "2h 53m")
+        self.assertContains(response, "Structure bonus -15%")
         self.assertContains(response, "Copy structure")
         self.assertContains(response, "Test Raitaru · Jita")
 
@@ -3060,6 +3067,7 @@ class BlueprintCopyRequestPageTests(TestCase):
         self,
         mock_build_copy_estimated_item_values,
     ) -> None:
+        load_ccp_hull_fixture()
         mock_build_copy_estimated_item_values.return_value = {
             605001: {
                 "product_type_id": 705001,

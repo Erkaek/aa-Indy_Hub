@@ -233,7 +233,12 @@
                                     </div>
                                 </td>
                                 <td class="py-3 align-top">
-                                    {% if row.is_profile_incomplete %}
+                                    {% if row.bonus_error %}
+                                        <div class="alert alert-danger mb-0" role="alert">
+                                            <strong>{% trans "Industry bonuses unavailable" %}</strong>
+                                            <div class="small">{{ row.bonus_error }}</div>
+                                        </div>
+                                    {% elif row.is_profile_incomplete %}
                                         <div class="d-grid gap-2">
                                             <span class="badge text-bg-warning-subtle border text-warning-emphasis d-inline-flex align-items-center justify-content-center">
                                                 <i class="fas fa-triangle-exclamation me-1"></i>{% trans "Setup needed" %}
@@ -381,7 +386,12 @@
                                                 {% endif %}
                                             </section>
 
-                                            {% if row.grouped_bonuses %}
+                                            {% if row.bonus_error %}
+                                                <div class="alert alert-danger mb-0" role="alert">
+                                                    <strong>{% trans "Industry bonuses unavailable" %}</strong>
+                                                    <div>{{ row.bonus_error }}</div>
+                                                </div>
+                                            {% elif row.grouped_bonuses %}
                                                 {% for activity_group in row.grouped_bonuses %}
                                                     <section class="structure-surface rounded-3 border p-3">
                                                         <div class="structure-surface-title">

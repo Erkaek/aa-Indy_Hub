@@ -1,5 +1,6 @@
 # Standard Library
 import json
+from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
@@ -25,13 +26,19 @@ from eve_sde.models import EveSDE
 from indy_hub.models import (
     CachedCharacterAsset,
     IndustryJob,
+    IndustryStructure,
+    IndustryStructureRig,
+    IndustrySystemCostIndex,
     ProductionProject,
     ProductionProjectItem,
 )
+from indy_hub.services import industry_rules
+from indy_hub.services.industry_rules import INDUSTRY_RULES_VERSION
 from indy_hub.services.production_projects import (
     LEGACY_SINGLE_BLUEPRINT_PROJECT_NOTE,
     PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY,
     PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY,
+    PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION,
     PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_ID_LIMIT,
     PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY,
     PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
@@ -40,11 +47,15 @@ from indy_hub.services.production_projects import (
     create_project_from_entries,
     create_project_from_single_blueprint,
     get_cached_project_workspace_payload,
+    get_project_structure_planner_signature,
     get_project_workspace_scoped_sde_signature,
+    project_workspace_preserves_recipe,
     strip_project_workspace_cache,
 )
 from indy_hub.services.project_progress import normalize_project_progress
+from indy_hub.tests.fixtures import load_ccp_hull_fixture
 from indy_hub.views.api import (
+    _apply_workspace_state_to_project,
     create_production_project,
     production_project_payload,
     save_production_project_progress,
@@ -1313,6 +1324,479 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertContains(response, "Saved snapshot uses older SDE data")
         self.assertContains(response, "Refresh from current SDE")
         self.assertContains(response, "refresh_sde=1")
+
+    def test_old_industry_cache_rebases_bonuses_and_preserves_frozen_recipe(self):
+        project = self._create_cached_merlin_project()
+        cached = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        cached["cache_version"] = 6
+        cached.pop("industry_rules_version", None)
+        cached["structure_planner"] = {"items": [{"obsolete_me": 99}]}
+        project.workspace_state.update(
+            {
+                "buyTypeIds": [34],
+                "stockAllocations": {"603": 1},
+                "structure": {"assignments": [{"typeId": 603, "structureId": 123}]},
+            }
+        )
+        project.save(update_fields=["workspace_state"])
+        original_state = json.loads(json.dumps(project.workspace_state))
+        self._ensure_project_sde_rows(material_quantity=12)
+
+        with patch(
+            "indy_hub.services.production_projects.build_craft_structure_planner",
+            return_value={"items": [{"current_me": 5.9896}]},
+        ) as planner:
+            payload, changed = get_cached_project_workspace_payload(project)
+
+        planner.assert_called_once()
+        self.assertEqual(
+            planner.call_args.kwargs["selected_structure_assignments"], {603: 123}
+        )
+        self.assertTrue(changed)
+        self.assertEqual(
+            payload["cache_version"], PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION
+        )
+        self.assertEqual(payload["industry_rules_version"], INDUSTRY_RULES_VERSION)
+        for key in ("materials_tree", "recipe_map", "production_time_map"):
+            self.assertEqual(payload[key], cached[key])
+        for key in ("buyTypeIds", "stockAllocations", "structure"):
+            self.assertEqual(payload["workspace_state"][key], original_state[key])
+        self.assertEqual(
+            payload["structure_planner"]["items"], [{"current_me": 5.9896}]
+        )
+        project.refresh_from_db()
+        self.assertEqual(project.workspace_state, original_state)
+
+    def test_current_industry_cache_reuses_even_empty_derived_result(self):
+        project = self._create_cached_merlin_project()
+        cached = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        cached["structure_planner"] = {"items": [], "structures": []}
+        with patch(
+            "indy_hub.services.production_projects.build_craft_structure_planner"
+        ) as planner:
+            payload, changed = get_cached_project_workspace_payload(project)
+        planner.assert_not_called()
+        self.assertFalse(changed)
+        self.assertEqual(payload["structure_planner"], cached["structure_planner"])
+
+    def test_current_parameters_refresh_without_replacing_saved_recipe_or_state(self):
+        project = self._create_cached_merlin_project()
+        cached = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        cached["calculation_parameters"] = {
+            "job_launch_window_seconds": 1,
+            "scc_surcharge_percent": 99,
+        }
+        before = deepcopy(project.workspace_state)
+        with patch(
+            "indy_hub.services.production_projects.build_craft_structure_planner"
+        ) as planner:
+            payload, _changed = get_cached_project_workspace_payload(project)
+        planner.assert_not_called()
+        self.assertEqual(
+            payload["calculation_parameters"],
+            {"job_launch_window_seconds": 2592000, "scc_surcharge_percent": 4.0},
+        )
+        self.assertEqual(payload["materials_tree"], cached["materials_tree"])
+        self.assertEqual(project.workspace_state, before)
+
+    def test_saved_planner_refreshes_after_registry_profile_changes(self):
+        structure = IndustryStructure.objects.create(
+            name="Before registry edit",
+            structure_type_id=35825,
+            structure_type_name="Raitaru",
+            system_security_band="nullsec",
+        )
+        project = self._create_cached_merlin_project()
+        original = deepcopy(
+            project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY][
+                "materials_tree"
+            ]
+        )
+        structure.name = "After registry edit"
+        structure.manufacturing_tax_percent = Decimal("7")
+        structure.save()
+        payload, _changed = get_cached_project_workspace_payload(project)
+        row = next(
+            row
+            for row in payload["structure_planner"]["structures"]
+            if row["structure_id"] == structure.id
+        )
+        self.assertEqual(row["name"], "After registry edit")
+        self.assertEqual(payload["materials_tree"], original)
+
+    def test_registry_fingerprint_covers_rig_and_index_changes_without_signals(self):
+        structure = IndustryStructure.objects.create(
+            name="Registry inputs",
+            structure_type_id=35825,
+            structure_type_name="Raitaru",
+            solar_system_id=30000142,
+        )
+        previous = get_project_structure_planner_signature()
+        IndustryStructure.objects.filter(pk=structure.pk).update(
+            manufacturing_tax_percent=7
+        )
+        current = get_project_structure_planner_signature()
+        self.assertNotEqual(current, previous)
+        previous = current
+        IndustryStructureRig.objects.bulk_create(
+            [
+                IndustryStructureRig(
+                    structure=structure,
+                    slot_index=1,
+                    rig_type_id=37181,
+                )
+            ]
+        )
+        current = get_project_structure_planner_signature()
+        self.assertNotEqual(current, previous)
+        previous = current
+        IndustryStructureRig.objects.filter(structure=structure).delete()
+        current = get_project_structure_planner_signature()
+        self.assertNotEqual(current, previous)
+        previous = current
+        IndustrySystemCostIndex.objects.create(
+            solar_system_id=30000142,
+            solar_system_name="Fixture",
+            activity_id=1,
+            cost_index_percent=Decimal("4.2"),
+        )
+        current = get_project_structure_planner_signature()
+        self.assertNotEqual(current, previous)
+        previous = current
+        IndustrySystemCostIndex.objects.filter(solar_system_id=30000142).update(
+            cost_index_percent=5
+        )
+        self.assertNotEqual(get_project_structure_planner_signature(), previous)
+
+    def test_cache_records_registry_generation_before_planner_reads(self):
+        project = self._create_cached_merlin_project()
+        with patch(
+            "indy_hub.services.production_projects.get_project_structure_planner_signature",
+            side_effect=["before-registry-read", "after-concurrent-registry-edit"],
+        ) as signature:
+            payload = build_project_workspace_payload(
+                project, include_full_structure_options=False
+            )
+        signature.assert_called_once()
+        self.assertEqual(payload["structure_planner_signature"], "before-registry-read")
+
+    def test_pending_recipe_refresh_rejects_saved_calculation_cache(self):
+        project = self._create_cached_merlin_project()
+        project.workspace_state["pendingWorkspaceRefresh"] = True
+        payload, _changed = get_cached_project_workspace_payload(project)
+        self.assertIsNone(payload)
+
+    def test_explicit_blueprint_override_page_bypasses_saved_cache(self):
+        project = self._create_cached_merlin_project()
+        request = self._prepare_request(
+            self.factory.get(
+                reverse("indy_hub:craft_project", args=[project.project_ref]),
+                data={"me_950": "10"},
+            )
+        )
+        with patch(
+            "indy_hub.views.industry.build_project_workspace_payload",
+            wraps=build_project_workspace_payload,
+        ) as builder:
+            response = self._craft_project_view(request, project.project_ref)
+        self.assertEqual(response.status_code, 200)
+        builder.assert_called_once()
+        self.assertEqual(builder.call_args.kwargs["me_te_overrides"], {950: {"me": 10}})
+
+    def test_failed_recipe_rebuild_keeps_workspace_and_items_atomic(self):
+        project = self._create_cached_merlin_project()
+        project.refresh_from_db()
+        before = deepcopy(project.workspace_state)
+        item_quantity = project.items.get().quantity_requested
+        state = strip_project_workspace_cache(before)
+        state.update(
+            {
+                "simulation_name": "Must not persist",
+                "finalOutputQuantities": [{"index": 0, "quantity": 2}],
+            }
+        )
+        with patch(
+            "indy_hub.views.api.build_project_workspace_payload",
+            side_effect=RuntimeError("synthetic calculation failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                _apply_workspace_state_to_project(project, state)
+        project.refresh_from_db()
+        self.assertEqual(project.name, "Merlin Project")
+        self.assertEqual(project.workspace_state, before)
+        self.assertEqual(project.items.get().quantity_requested, item_quantity)
+
+    def test_changed_rules_refresh_warm_empty_bonus_result(self):
+        project = self._create_cached_merlin_project()
+        cached = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        cached["industry_rules_version"] = "obsolete-rules"
+        cached["structure_planner"] = {"items": [], "structures": []}
+        with patch(
+            "indy_hub.services.production_projects.build_craft_structure_planner",
+            return_value={"items": [{"current_me": 1}]},
+        ) as planner:
+            payload, _changed = get_cached_project_workspace_payload(project)
+        planner.assert_called_once()
+        self.assertEqual(payload["structure_planner"]["items"], [{"current_me": 1}])
+        self.assertEqual(payload["industry_rules_version"], INDUSTRY_RULES_VERSION)
+
+    def test_invalid_rules_preserve_project_and_allow_independent_stock_decisions(self):
+        load_ccp_hull_fixture()
+        structure = IndustryStructure.objects.create(
+            name="Qualified Raitaru",
+            structure_type_id=35825,
+            structure_type_name="Raitaru",
+            enable_manufacturing=True,
+        )
+        project = self._create_cached_merlin_project()
+        project.workspace_state["structure"] = {
+            "assignments": [{"typeId": 603, "structureId": structure.pk}]
+        }
+        project.save(update_fields=["workspace_state"])
+        before = deepcopy(project.workspace_state)
+        with (
+            patch.object(industry_rules, "_DATA", {"schema_version": 999}),
+            patch.object(industry_rules, "_VALIDATED", False),
+        ):
+            payload, _changed = get_cached_project_workspace_payload(project)
+            self.assertEqual(
+                payload["materials_tree"],
+                before[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]["materials_tree"],
+            )
+            self.assertTrue(payload["structure_planner"]["invalid_structures"])
+            self.assertEqual(project.workspace_state, before)
+            state = strip_project_workspace_cache(before)
+            state.update(
+                {
+                    "simulation_name": project.name,
+                    "buyTypeIds": [603],
+                    "stockAllocations": {"603": 1},
+                }
+            )
+            _apply_workspace_state_to_project(project, state)
+        project.refresh_from_db()
+        self.assertEqual(project.workspace_state["buyTypeIds"], [603])
+        self.assertEqual(project.workspace_state["stockAllocations"], {"603": 1})
+        self.assertEqual(project.workspace_state["structure"], before["structure"])
+        self.assertEqual(
+            project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY][
+                "materials_tree"
+            ],
+            before[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]["materials_tree"],
+        )
+        saved_state = deepcopy(project.workspace_state)
+        repaired, _changed = get_cached_project_workspace_payload(project)
+        self.assertEqual(repaired["structure_planner"]["invalid_structures"], [])
+        self.assertEqual(project.workspace_state, saved_state)
+
+    def test_stock_and_decision_save_preserves_snapshot_after_sde_change(self):
+        project = self._create_cached_merlin_project()
+        project.refresh_from_db()
+        original = deepcopy(
+            project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        )
+        self._ensure_project_sde_rows(material_quantity=12)
+        state = strip_project_workspace_cache(project.workspace_state)
+        state.update(
+            {
+                "simulation_name": project.name,
+                "buyTypeIds": [34],
+                "stockAllocations": {"603": 1},
+            }
+        )
+        _apply_workspace_state_to_project(project, state)
+        project.refresh_from_db()
+        saved = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        self.assertEqual(saved["materials_tree"], original["materials_tree"])
+        self.assertEqual(saved["recipe_map"], original["recipe_map"])
+        self.assertEqual(project.workspace_state["stockAllocations"], {"603": 1})
+        self.assertEqual(project.workspace_state["buyTypeIds"], [34])
+        _payload, changed = get_cached_project_workspace_payload(project)
+        self.assertTrue(changed)
+
+    def test_legacy_useless_recipe_choice_survives_non_recipe_save(self):
+        project = self._create_cached_merlin_project()
+        payload = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        payload["materials_tree"][0]["sub_materials"][0][
+            "project_inclusion_mode"
+        ] = "useless"
+        project.save(update_fields=["workspace_state"])
+        state = strip_project_workspace_cache(project.workspace_state)
+        state.update({"simulation_name": project.name, "buyTypeIds": [603]})
+        _apply_workspace_state_to_project(project, state)
+        project.refresh_from_db()
+        saved = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        self.assertEqual(
+            saved["materials_tree"][0]["sub_materials"][0]["project_inclusion_mode"],
+            "useless",
+        )
+
+    def test_explicit_sde_refresh_can_replace_snapshot_on_save(self):
+        project = self._create_cached_merlin_project()
+        original = deepcopy(
+            project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        )
+        self._ensure_project_sde_rows(material_quantity=12)
+        state = strip_project_workspace_cache(project.workspace_state)
+        state["simulation_name"] = project.name
+        _apply_workspace_state_to_project(project, state, refresh_recipe=True)
+        project.refresh_from_db()
+        saved = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        self.assertNotEqual(saved["materials_tree"], original["materials_tree"])
+        _payload, changed = get_cached_project_workspace_payload(project)
+        self.assertFalse(changed)
+
+    def test_browser_default_normalization_does_not_replace_frozen_recipe(self):
+        project = self._create_cached_merlin_project()
+        original = deepcopy(
+            project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        )
+        self._ensure_project_sde_rows(material_quantity=12)
+        state = strip_project_workspace_cache(project.workspace_state)
+        state.update(
+            {
+                "simulation_name": project.name,
+                "meTeConfig": {
+                    "mainME": 0,
+                    "mainTE": 0,
+                    "blueprintConfigs": {"950": {"me": 0, "te": 0}},
+                },
+                "finalOutputQuantities": [{"index": 0, "quantity": 1}],
+                "stockAllocations": {"603": 1},
+            }
+        )
+        _apply_workspace_state_to_project(project, state)
+        project.refresh_from_db()
+        payload, changed = get_cached_project_workspace_payload(project)
+        self.assertIsNotNone(payload)
+        self.assertTrue(changed)
+        self.assertEqual(payload["materials_tree"], original["materials_tree"])
+
+    def test_changed_blueprint_efficiency_rebuilds_recipe(self):
+        project = self._create_cached_merlin_project()
+        self._ensure_project_sde_rows(material_quantity=12)
+        state = strip_project_workspace_cache(project.workspace_state)
+        state.update(
+            {
+                "simulation_name": project.name,
+                "meTeConfig": {"blueprintConfigs": {"950": {"me": 10, "te": 0}}},
+            }
+        )
+        _apply_workspace_state_to_project(project, state)
+        project.refresh_from_db()
+        payload, changed = get_cached_project_workspace_payload(project)
+        self.assertIsNotNone(payload)
+        self.assertFalse(changed)
+        child = payload["materials_tree"][0]["sub_materials"][0]
+        self.assertEqual(child["base_quantity_per_run"], 12)
+        self.assertEqual(child["blueprint_material_efficiency"], 10)
+
+    def test_partial_efficiency_override_removal_is_a_recipe_edit(self):
+        cached = {
+            "page": {
+                "blueprint_configs": [
+                    {"type_id": 950, "material_efficiency": 10, "time_efficiency": 20},
+                    {"type_id": 951, "material_efficiency": 10, "time_efficiency": 20},
+                ]
+            }
+        }
+        previous = {
+            "meTeConfig": {
+                "blueprintConfigs": {
+                    "950": {"me": 10, "te": 20},
+                    "951": {"me": 10, "te": 20},
+                }
+            }
+        }
+        for next_configs in (
+            {"950": {"me": 10, "te": 20}},
+            {"950": {"me": 10}, "951": {"me": 10, "te": 20}},
+        ):
+            with self.subTest(configs=next_configs):
+                self.assertFalse(
+                    project_workspace_preserves_recipe(
+                        cached,
+                        previous,
+                        {"meTeConfig": {"blueprintConfigs": next_configs}},
+                    )
+                )
+
+    def test_explicit_output_defaults_normalize_runs_without_invalidating_snapshot(
+        self,
+    ):
+        project = self._create_cached_merlin_project()
+        project.workspace_state["runs"] = 4
+        original = build_project_workspace_payload(
+            project, include_full_structure_options=False
+        )
+        project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = original
+        project.save(update_fields=["workspace_state"])
+        self._ensure_project_sde_rows(material_quantity=12)
+        state = strip_project_workspace_cache(project.workspace_state)
+        state.update(
+            {
+                "simulation_name": project.name,
+                "finalOutputQuantities": [{"index": 0, "quantity": 4}],
+            }
+        )
+        _apply_workspace_state_to_project(project, state)
+        project.refresh_from_db()
+        payload, changed = get_cached_project_workspace_payload(project)
+        self.assertIsNotNone(payload)
+        self.assertTrue(changed)
+        self.assertEqual(payload["num_runs"], 1)
+        self.assertEqual(payload["materials_tree"], original["materials_tree"])
+        self.assertEqual(payload["final_outputs"][0]["quantity"], 4)
+
+    def test_structure_options_api_preserves_frozen_recipe(self):
+        project = self._create_cached_merlin_project()
+        original = deepcopy(
+            project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        )
+        self._ensure_project_sde_rows(material_quantity=12)
+        request = self._prepare_request(
+            self.factory.get(
+                reverse(
+                    "indy_hub:production_project_payload", args=[project.project_ref]
+                ),
+                data={"include_full_structure_options": "1"},
+            )
+        )
+        with patch(
+            "indy_hub.views.api.build_project_workspace_payload"
+        ) as recipe_builder:
+            response = self._production_project_payload_view(
+                request, project.project_ref
+            )
+        recipe_builder.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.content)
+        self.assertEqual(payload["materials_tree"], original["materials_tree"])
+        self.assertEqual(
+            payload["recipe_map"], json.loads(json.dumps(original["recipe_map"]))
+        )
+
+    def test_installed_sde_generation_refreshes_only_derived_bonuses(self):
+        project = self._create_cached_merlin_project()
+        original = deepcopy(
+            project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        )
+        with (
+            patch(
+                "indy_hub.services.production_projects.get_industry_calculation_cache_token",
+                return_value="new-installed-sde-generation",
+            ),
+            patch(
+                "indy_hub.services.production_projects.build_craft_structure_planner",
+                return_value={"items": [{"me": 2}]},
+            ) as planner,
+        ):
+            payload, _changed = get_cached_project_workspace_payload(project)
+        planner.assert_called_once()
+        self.assertEqual(payload["materials_tree"], original["materials_tree"])
+        self.assertEqual(
+            payload["industry_calculation_version"], "new-installed-sde-generation"
+        )
 
     def test_strip_project_workspace_cache_removes_pending_refresh_flags(self):
         self.assertEqual(

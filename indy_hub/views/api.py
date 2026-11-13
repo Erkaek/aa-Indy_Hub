@@ -13,7 +13,7 @@ from math import ceil, isfinite
 
 # Django
 from django.contrib.auth.decorators import login_required
-from django.db import connection
+from django.db import connection, transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
@@ -41,6 +41,7 @@ from ..services.craft_structures import (
     compute_solar_system_jump_distances,
 )
 from ..services.craft_times import build_craft_time_map
+from ..services.industry_constants import get_craft_calculation_parameters
 from ..services.industry_skills import build_craft_character_advisor
 from ..services.industry_structures import resolve_solar_system_reference
 from ..services.market_fees import (
@@ -56,16 +57,19 @@ from ..services.production_projects import (
     build_project_workspace_payload,
     build_temporary_project_payload,
     build_temporary_project_workspace_state,
-    cached_project_workspace_payload_matches_corp_authorization,
+    cached_project_workspace_payload_matches_state,
     create_project_from_entries,
     create_temporary_project_workspace,
     delete_temporary_project_workspace,
+    get_cached_project_workspace_payload,
     get_project_workspace_scoped_sde_signature,
     get_project_workspace_sde_signature,
     get_temporary_project_workspace,
     normalize_production_project_ref,
     parse_project_final_output_quantity_overrides,
     parse_project_me_te_overrides,
+    project_workspace_preserves_recipe,
+    refresh_project_payload_industry_rules,
     set_temporary_project_workspace,
     strip_project_workspace_cache,
 )
@@ -239,9 +243,19 @@ def _sanitize_production_workspace_state(
     }
 
 
+@transaction.atomic
 def _apply_workspace_state_to_project(
-    project, workspace_state: dict[str, object]
+    project, workspace_state: dict[str, object], *, refresh_recipe: bool = False
 ) -> None:
+    previous_state = dict(project.workspace_state or {})
+    previous_workspace = strip_project_workspace_cache(previous_state)
+    saved_payload = None
+    if not refresh_recipe:
+        saved_payload, _sde_has_changed = get_cached_project_workspace_payload(project)
+        if saved_payload is not None and not project_workspace_preserves_recipe(
+            saved_payload, previous_workspace, workspace_state
+        ):
+            saved_payload = None
     persist_craft_market_fee_preference(
         project.user,
         workspace_state.get("marketFees"),
@@ -285,20 +299,39 @@ def _apply_workspace_state_to_project(
         update_fields.append("name")
     project.save(update_fields=update_fields)
 
-    server_cached_payload = build_project_workspace_payload(
-        project,
-        skill_cache_ttl=SKILL_CACHE_TTL,
-        include_full_structure_options=False,
-    )
+    if saved_payload is not None:
+        # Stock, prices, decisions and structure edits do not replace recipes
+        # with newer SDE data. Refresh only derived bonuses for the new choices.
+        server_cached_payload = refresh_project_payload_industry_rules(
+            saved_payload, workspace_state, force=True
+        )
+        server_cached_payload["workspace_state"] = strip_project_workspace_cache(
+            workspace_state
+        )
+        server_cached_payload["num_runs"] = int(workspace_state.get("runs") or 1)
+    else:
+        server_cached_payload = build_project_workspace_payload(
+            project,
+            skill_cache_ttl=SKILL_CACHE_TTL,
+            include_full_structure_options=False,
+        )
     workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY] = _to_serializable(
         server_cached_payload
     )
-    workspace_state[PROJECT_WORKSPACE_SDE_SIGNATURE_KEY] = (
-        get_project_workspace_sde_signature()
-    )
-    workspace_state[PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY] = (
-        get_project_workspace_scoped_sde_signature(server_cached_payload)
-    )
+    if saved_payload is not None:
+        for key in (
+            PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
+            PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY,
+        ):
+            if key in previous_state:
+                workspace_state[key] = previous_state[key]
+    else:
+        workspace_state[PROJECT_WORKSPACE_SDE_SIGNATURE_KEY] = (
+            get_project_workspace_sde_signature()
+        )
+        workspace_state[PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY] = (
+            get_project_workspace_scoped_sde_signature(server_cached_payload)
+        )
     project.workspace_state = workspace_state
     project.save(update_fields=["workspace_state", "updated_at"])
 
@@ -448,7 +481,6 @@ def temporary_production_project_payload(request, temp_project_ref: str):
         runs_override is None
         and not me_te_overrides
         and not final_output_quantity_overrides
-        and not include_full_structure_options
     )
 
     payload = None
@@ -459,12 +491,17 @@ def temporary_production_project_payload(request, temp_project_ref: str):
         )
         if isinstance(
             cached_payload, dict
-        ) and cached_project_workspace_payload_matches_corp_authorization(
+        ) and cached_project_workspace_payload_matches_state(
             cached_payload,
             temp_state.get("workspace_state"),
             user=request.user,
         ):
-            payload = dict(cached_payload)
+            payload = refresh_project_payload_industry_rules(
+                cached_payload,
+                temp_state.get("workspace_state"),
+                force=include_full_structure_options,
+                include_full_structure_options=include_full_structure_options,
+            )
             payload_loaded_from_cache = True
 
     if payload is None:
@@ -695,16 +732,38 @@ def production_project_payload(request, project_ref: str):
         request.GET.get("include_full_structure_options", "")
     ).strip().lower() in {"1", "true", "yes"}
 
-    payload = build_project_workspace_payload(
-        project,
-        skill_cache_ttl=SKILL_CACHE_TTL,
-        me_te_overrides=parse_project_me_te_overrides(request.GET),
-        final_output_quantity_overrides=parse_project_final_output_quantity_overrides(
-            request.GET
-        ),
-        runs_override=runs_override,
-        include_full_structure_options=include_full_structure_options,
-    )
+    me_te_overrides = parse_project_me_te_overrides(request.GET)
+    final_output_overrides = parse_project_final_output_quantity_overrides(request.GET)
+    refresh_recipe = str(request.GET.get("refresh_sde") or "").lower() in {
+        "1",
+        "true",
+        "yes",
+    }
+    payload = None
+    if (
+        runs_override is None
+        and not me_te_overrides
+        and not final_output_overrides
+        and not refresh_recipe
+        and getattr(project, "workspace_state", None)
+    ):
+        payload, _sde_has_changed = get_cached_project_workspace_payload(project)
+        if payload is not None:
+            payload = refresh_project_payload_industry_rules(
+                payload,
+                project.workspace_state,
+                force=include_full_structure_options,
+                include_full_structure_options=include_full_structure_options,
+            )
+    if payload is None:
+        payload = build_project_workspace_payload(
+            project,
+            skill_cache_ttl=SKILL_CACHE_TTL,
+            me_te_overrides=me_te_overrides,
+            final_output_quantity_overrides=final_output_overrides,
+            runs_override=runs_override,
+            include_full_structure_options=include_full_structure_options,
+        )
     return JsonResponse(_to_serializable(payload))
 
 
@@ -735,7 +794,9 @@ def save_production_project_workspace(request, project_ref: str):
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON data"}, status=400)
     workspace_state = _sanitize_production_workspace_state(project=project, data=data)
-    _apply_workspace_state_to_project(project, workspace_state)
+    _apply_workspace_state_to_project(
+        project, workspace_state, refresh_recipe=data.get("refresh_sde") is True
+    )
 
     return JsonResponse(
         {
@@ -1346,6 +1407,7 @@ def craft_bp_payload(request, type_id: int):
 
     payload = {
         "type_id": type_id,
+        "calculation_parameters": get_craft_calculation_parameters(),
         "bp_type_id": type_id,
         "num_runs": num_runs,
         "me": me,

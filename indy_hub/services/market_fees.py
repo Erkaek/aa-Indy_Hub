@@ -76,7 +76,11 @@ def build_craft_market_fee_profiles(user) -> dict[str, object]:
 
     user_id = getattr(user, "pk", None)
     if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
-        return {"characters": [], "default_character_id": None}
+        return {
+            "characters": [],
+            "default_character_id": None,
+            "default_sales_tax_percent": float(SALES_TAX_BASE_PERCENT),
+        }
 
     ownerships = list(
         CharacterOwnership.objects.filter(user_id=user_id)
@@ -157,6 +161,7 @@ def build_craft_market_fee_profiles(user) -> dict[str, object]:
     return {
         "characters": characters,
         "default_character_id": default_character_id,
+        "default_sales_tax_percent": float(SALES_TAX_BASE_PERCENT),
     }
 
 

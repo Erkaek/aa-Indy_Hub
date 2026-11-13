@@ -220,13 +220,14 @@ from ..services.production_projects import (
     build_project_workspace_payload,
     build_temporary_project_payload,
     build_temporary_project_workspace_state,
-    cached_project_workspace_payload_matches_corp_authorization,
+    cached_project_workspace_payload_matches_state,
     create_temporary_project_workspace,
     get_cached_project_workspace_payload,
     get_temporary_project_workspace,
     normalize_production_project_ref,
     parse_project_final_output_quantity_overrides,
     parse_project_me_te_overrides,
+    refresh_project_payload_industry_rules,
     set_temporary_project_workspace,
     strip_project_workspace_cache,
 )
@@ -2383,17 +2384,22 @@ def craft_project(request, project_ref):
             "structure_id", flat=True
         )
     )
-    if runs_override is None and not refresh_from_current_sde:
+    me_te_overrides = parse_project_me_te_overrides(request.GET)
+    final_output_overrides = parse_project_final_output_quantity_overrides(request.GET)
+    if (
+        runs_override is None
+        and not refresh_from_current_sde
+        and not me_te_overrides
+        and not final_output_overrides
+    ):
         payload, sde_has_changed = get_cached_project_workspace_payload(project)
         payload_loaded_from_cache = payload is not None
     if payload is None:
         payload = build_project_workspace_payload(
             project,
             skill_cache_ttl=SKILL_CACHE_TTL,
-            me_te_overrides=parse_project_me_te_overrides(request.GET),
-            final_output_quantity_overrides=parse_project_final_output_quantity_overrides(
-                request.GET
-            ),
+            me_te_overrides=me_te_overrides,
+            final_output_quantity_overrides=final_output_overrides,
             runs_override=runs_override,
             include_full_structure_options=False,
             favorite_structure_ids=favorite_ids,
@@ -2597,12 +2603,14 @@ def craft_temp_project(request, temp_project_ref):
         )
         if isinstance(
             cached_payload, dict
-        ) and cached_project_workspace_payload_matches_corp_authorization(
+        ) and cached_project_workspace_payload_matches_state(
             cached_payload,
             temp_state.get("workspace_state"),
             user=request.user,
         ):
-            payload = dict(cached_payload)
+            payload = refresh_project_payload_industry_rules(
+                cached_payload, temp_state.get("workspace_state")
+            )
             payload_loaded_from_cache = True
 
     if payload is None:
@@ -6255,10 +6263,18 @@ def _get_industry_structure_rows_for_filters(
             )
         )
         grouped_bonuses = {}
+        bonus_error = ""
+        try:
+            structure_bonuses = structure.get_resolved_bonuses()
+        except ValidationError as exc:
+            # Keep the saved profile visible for repair, while never presenting
+            # an unresolved rig as a complete zero/partial-bonus configuration.
+            structure_bonuses = []
+            bonus_error = " ".join(exc.messages)
         resolved_bonuses = sorted(
             [
                 bonus
-                for bonus in structure.get_resolved_bonuses()
+                for bonus in structure_bonuses
                 if bonus.activity_id in enabled_activity_ids
             ],
             key=lambda bonus: (bonus.activity_id, bonus.source, bonus.label),
@@ -6358,6 +6374,7 @@ def _get_industry_structure_rows_for_filters(
                 "display_name": structure.display_name,
                 "rigs": list(structure.rigs.all().order_by("slot_index")),
                 "grouped_bonuses": normalized_grouped_bonuses,
+                "bonus_error": bonus_error,
                 "missing_profile_sections": structure.get_missing_profile_sections(),
                 "is_profile_incomplete": structure.is_profile_incomplete(),
             }
@@ -7553,12 +7570,15 @@ def industry_structure_bonus_preview(request):
         except (TypeError, ValueError):
             continue
 
-    previews = build_structure_activity_previews(
-        structure_type_id=resolved_structure_type_id,
-        solar_system_name=solar_system_name,
-        rig_type_ids=rig_type_ids,
-        enabled_activity_flags=enabled_activity_flags,
-    )
+    try:
+        previews = build_structure_activity_previews(
+            structure_type_id=resolved_structure_type_id,
+            solar_system_name=solar_system_name,
+            rig_type_ids=rig_type_ids,
+            enabled_activity_flags=enabled_activity_flags,
+        )
+    except ValidationError as exc:
+        return JsonResponse({"error": " ".join(exc.messages), "rows": []}, status=400)
 
     def _metric_entries(summary):
         metrics = [
@@ -7643,11 +7663,16 @@ def industry_structure_rig_advisor(request):
     except (TypeError, ValueError):
         resolved_structure_type_id = None
 
-    rows = build_structure_rig_advisor_rows(
-        structure_type_id=resolved_structure_type_id,
-        solar_system_name=solar_system_name,
-        enabled_activity_flags=enabled_activity_flags,
-    )
+    try:
+        rows = build_structure_rig_advisor_rows(
+            structure_type_id=resolved_structure_type_id,
+            solar_system_name=solar_system_name,
+            enabled_activity_flags=enabled_activity_flags,
+        )
+    except ValidationError as exc:
+        return JsonResponse(
+            {"error": " ".join(exc.messages), "activities": []}, status=400
+        )
 
     def _metric_entries(row):
         metrics = [

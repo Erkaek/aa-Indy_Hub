@@ -5,6 +5,9 @@ from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
+# Django
+from django.db import connection
+
 # AA Example App
 from indy_hub.models import generate_production_project_ref
 from indy_hub.services.production_projects import (
@@ -211,6 +214,16 @@ class _WorkspacePayloadCursorStub:
 
     def fetchall(self):
         return self._result
+
+    def fetchmany(self, size=None):
+        if not self._result:
+            return connection.features.empty_fetchmany_value
+        size = len(self._result) if size is None else size
+        rows, self._result = self._result[:size], self._result[size:]
+        return rows
+
+    def close(self):
+        pass
 
 
 class ProductionProjectImportTests(TestCase):

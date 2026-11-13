@@ -1,0 +1,220 @@
+{"_key": 35825, "copying": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "invention": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "manufacturing": {"cost": [{"dogmaAttributeID": 2601}], "material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2602}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}}
+{"_key": 35826, "copying": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "invention": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "manufacturing": {"cost": [{"dogmaAttributeID": 2601}], "material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2602}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}}
+{"_key": 35827, "copying": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "invention": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "manufacturing": {"cost": [{"dogmaAttributeID": 2601}], "material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2602}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}}
+{"_key": 35836, "reaction": {"time": [{"dogmaAttributeID": 2721}]}}
+{"_key": 37146, "manufacturing": {"material": [{"dogmaAttributeID": 2546, "filterID": 7}]}}
+{"_key": 37147, "manufacturing": {"material": [{"dogmaAttributeID": 2546, "filterID": 7}]}}
+{"_key": 37148, "manufacturing": {"time": [{"dogmaAttributeID": 2543, "filterID": 1}]}}
+{"_key": 37149, "manufacturing": {"time": [{"dogmaAttributeID": 2543, "filterID": 1}]}}
+{"_key": 37150, "manufacturing": {"time": [{"dogmaAttributeID": 2541, "filterID": 4}]}}
+{"_key": 37151, "manufacturing": {"time": [{"dogmaAttributeID": 2541, "filterID": 4}]}}
+{"_key": 37152, "manufacturing": {"material": [{"dogmaAttributeID": 2548, "filterID": 9}]}}
+{"_key": 37153, "manufacturing": {"time": [{"dogmaAttributeID": 2547, "filterID": 7}]}}
+{"_key": 37154, "manufacturing": {"material": [{"dogmaAttributeID": 2544, "filterID": 5}]}}
+{"_key": 37155, "manufacturing": {"material": [{"dogmaAttributeID": 2544, "filterID": 5}]}}
+{"_key": 37156, "manufacturing": {"material": [{"dogmaAttributeID": 2542, "filterID": 1}]}}
+{"_key": 37157, "manufacturing": {"material": [{"dogmaAttributeID": 2542, "filterID": 1}]}}
+{"_key": 37158, "manufacturing": {"material": [{"dogmaAttributeID": 2540, "filterID": 4}]}}
+{"_key": 37159, "manufacturing": {"material": [{"dogmaAttributeID": 2540, "filterID": 4}]}}
+{"_key": 37160, "manufacturing": {"time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 37161, "manufacturing": {"time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 37162, "manufacturing": {"time": [{"dogmaAttributeID": 2545, "filterID": 5}]}}
+{"_key": 37163, "manufacturing": {"time": [{"dogmaAttributeID": 2545, "filterID": 5}]}}
+{"_key": 37164, "manufacturing": {"material": [{"dogmaAttributeID": 2540, "filterID": 4}], "time": [{"dogmaAttributeID": 2541, "filterID": 4}]}}
+{"_key": 37165, "manufacturing": {"material": [{"dogmaAttributeID": 2540, "filterID": 4}], "time": [{"dogmaAttributeID": 2541, "filterID": 4}]}}
+{"_key": 37166, "manufacturing": {"material": [{"dogmaAttributeID": 2548, "filterID": 9}], "time": [{"dogmaAttributeID": 2549, "filterID": 9}]}}
+{"_key": 37167, "manufacturing": {"material": [{"dogmaAttributeID": 2548, "filterID": 9}], "time": [{"dogmaAttributeID": 2549, "filterID": 9}]}}
+{"_key": 37168, "manufacturing": {"material": [{"dogmaAttributeID": 2555, "filterID": 10}], "time": [{"dogmaAttributeID": 2556, "filterID": 10}]}}
+{"_key": 37169, "manufacturing": {"material": [{"dogmaAttributeID": 2555, "filterID": 10}], "time": [{"dogmaAttributeID": 2556, "filterID": 10}]}}
+{"_key": 37170, "manufacturing": {"material": [{"dogmaAttributeID": 2538, "filterID": 2}], "time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 37171, "manufacturing": {"material": [{"dogmaAttributeID": 2538, "filterID": 2}], "time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 37172, "manufacturing": {"material": [{"dogmaAttributeID": 2575, "filterID": 11}], "time": [{"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 37173, "manufacturing": {"material": [{"dogmaAttributeID": 2575, "filterID": 11}], "time": [{"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 37174, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2658, "filterID": 15}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}}
+{"_key": 37175, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2658, "filterID": 15}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}}
+{"_key": 37178, "manufacturing": {"material": [{"dogmaAttributeID": 2538, "filterID": 2}, {"dogmaAttributeID": 2540, "filterID": 4}, {"dogmaAttributeID": 2542, "filterID": 1}], "time": [{"dogmaAttributeID": 2539, "filterID": 2}, {"dogmaAttributeID": 2541, "filterID": 4}, {"dogmaAttributeID": 2543, "filterID": 1}]}}
+{"_key": 37179, "manufacturing": {"material": [{"dogmaAttributeID": 2538, "filterID": 2}, {"dogmaAttributeID": 2540, "filterID": 4}, {"dogmaAttributeID": 2542, "filterID": 1}], "time": [{"dogmaAttributeID": 2539, "filterID": 2}, {"dogmaAttributeID": 2541, "filterID": 4}, {"dogmaAttributeID": 2543, "filterID": 1}]}}
+{"_key": 37180, "manufacturing": {"material": [{"dogmaAttributeID": 2592, "filterID": 3}], "time": [{"dogmaAttributeID": 2591, "filterID": 3}]}}
+{"_key": 37181, "manufacturing": {"material": [{"dogmaAttributeID": 2592, "filterID": 3}], "time": [{"dogmaAttributeID": 2591, "filterID": 3}]}}
+{"_key": 37182, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}}
+{"_key": 37183, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}}
+{"_key": 43704, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2559, "filterID": 13}, {"dogmaAttributeID": 2561, "filterID": 12}, {"dogmaAttributeID": 2658, "filterID": 15}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2560, "filterID": 13}, {"dogmaAttributeID": 2562, "filterID": 12}, {"dogmaAttributeID": 2659, "filterID": 15}]}}
+{"_key": 43705, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2559, "filterID": 13}, {"dogmaAttributeID": 2561, "filterID": 12}, {"dogmaAttributeID": 2658, "filterID": 15}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2560, "filterID": 13}, {"dogmaAttributeID": 2562, "filterID": 12}, {"dogmaAttributeID": 2659, "filterID": 15}]}}
+{"_key": 43707, "manufacturing": {"material": [{"dogmaAttributeID": 2550, "filterID": 6}], "time": [{"dogmaAttributeID": 2551, "filterID": 6}]}}
+{"_key": 43708, "manufacturing": {"material": [{"dogmaAttributeID": 2550, "filterID": 6}], "time": [{"dogmaAttributeID": 2551, "filterID": 6}]}}
+{"_key": 43709, "manufacturing": {"material": [{"dogmaAttributeID": 2552, "filterID": 8}], "time": [{"dogmaAttributeID": 2553, "filterID": 8}]}}
+{"_key": 43711, "manufacturing": {"material": [{"dogmaAttributeID": 2552, "filterID": 8}], "time": [{"dogmaAttributeID": 2553, "filterID": 8}]}}
+{"_key": 43712, "manufacturing": {"material": [{"dogmaAttributeID": 2542, "filterID": 1}], "time": [{"dogmaAttributeID": 2543, "filterID": 1}]}}
+{"_key": 43713, "manufacturing": {"material": [{"dogmaAttributeID": 2542, "filterID": 1}], "time": [{"dogmaAttributeID": 2543, "filterID": 1}]}}
+{"_key": 43714, "manufacturing": {"material": [{"dogmaAttributeID": 2544, "filterID": 5}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}]}}
+{"_key": 43715, "manufacturing": {"material": [{"dogmaAttributeID": 2544, "filterID": 5}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}]}}
+{"_key": 43716, "manufacturing": {"material": [{"dogmaAttributeID": 2546, "filterID": 7}], "time": [{"dogmaAttributeID": 2547, "filterID": 7}]}}
+{"_key": 43717, "manufacturing": {"material": [{"dogmaAttributeID": 2546, "filterID": 7}], "time": [{"dogmaAttributeID": 2547, "filterID": 7}]}}
+{"_key": 43718, "manufacturing": {"material": [{"dogmaAttributeID": 2559, "filterID": 13}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 43719, "manufacturing": {"material": [{"dogmaAttributeID": 2559, "filterID": 13}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 43720, "manufacturing": {"material": [{"dogmaAttributeID": 2561, "filterID": 12}], "time": [{"dogmaAttributeID": 2562, "filterID": 12}]}}
+{"_key": 43721, "manufacturing": {"material": [{"dogmaAttributeID": 2561, "filterID": 12}], "time": [{"dogmaAttributeID": 2562, "filterID": 12}]}}
+{"_key": 43722, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}}
+{"_key": 43723, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}}
+{"_key": 43724, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}}
+{"_key": 43725, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}}
+{"_key": 43726, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 43727, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 43729, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}}
+{"_key": 43730, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}}
+{"_key": 43732, "manufacturing": {"material": [{"dogmaAttributeID": 2548, "filterID": 9}]}}
+{"_key": 43733, "manufacturing": {"time": [{"dogmaAttributeID": 2549, "filterID": 9}]}}
+{"_key": 43734, "manufacturing": {"time": [{"dogmaAttributeID": 2549, "filterID": 9}]}}
+{"_key": 43854, "manufacturing": {"material": [{"dogmaAttributeID": 2550, "filterID": 6}]}}
+{"_key": 43855, "manufacturing": {"material": [{"dogmaAttributeID": 2550, "filterID": 6}]}}
+{"_key": 43856, "manufacturing": {"time": [{"dogmaAttributeID": 2551, "filterID": 6}]}}
+{"_key": 43857, "manufacturing": {"time": [{"dogmaAttributeID": 2551, "filterID": 6}]}}
+{"_key": 43858, "manufacturing": {"material": [{"dogmaAttributeID": 2552, "filterID": 8}]}}
+{"_key": 43859, "manufacturing": {"material": [{"dogmaAttributeID": 2552, "filterID": 8}]}}
+{"_key": 43860, "manufacturing": {"time": [{"dogmaAttributeID": 2553, "filterID": 8}]}}
+{"_key": 43861, "manufacturing": {"time": [{"dogmaAttributeID": 2553, "filterID": 8}]}}
+{"_key": 43862, "manufacturing": {"material": [{"dogmaAttributeID": 2555, "filterID": 10}]}}
+{"_key": 43863, "manufacturing": {"material": [{"dogmaAttributeID": 2555, "filterID": 10}]}}
+{"_key": 43864, "manufacturing": {"time": [{"dogmaAttributeID": 2556, "filterID": 10}]}}
+{"_key": 43865, "manufacturing": {"time": [{"dogmaAttributeID": 2556, "filterID": 10}]}}
+{"_key": 43866, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2658, "filterID": 15}]}}
+{"_key": 43867, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2658, "filterID": 15}]}}
+{"_key": 43868, "manufacturing": {"time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}}
+{"_key": 43869, "manufacturing": {"time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}}
+{"_key": 43870, "manufacturing": {"material": [{"dogmaAttributeID": 2559, "filterID": 13}]}}
+{"_key": 43871, "manufacturing": {"material": [{"dogmaAttributeID": 2559, "filterID": 13}]}}
+{"_key": 43872, "manufacturing": {"time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 43873, "manufacturing": {"time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 43874, "manufacturing": {"material": [{"dogmaAttributeID": 2561, "filterID": 12}]}}
+{"_key": 43875, "manufacturing": {"material": [{"dogmaAttributeID": 2561, "filterID": 12}]}}
+{"_key": 43876, "manufacturing": {"time": [{"dogmaAttributeID": 2562, "filterID": 12}]}}
+{"_key": 43877, "manufacturing": {"time": [{"dogmaAttributeID": 2562, "filterID": 12}]}}
+{"_key": 43878, "invention": {"cost": [{"dogmaAttributeID": 2563}]}}
+{"_key": 43879, "invention": {"cost": [{"dogmaAttributeID": 2563}]}}
+{"_key": 43880, "invention": {"time": [{"dogmaAttributeID": 2564}]}}
+{"_key": 43881, "invention": {"time": [{"dogmaAttributeID": 2564}]}}
+{"_key": 43882, "researchMaterial": {"time": [{"dogmaAttributeID": 2566}]}}
+{"_key": 43883, "researchMaterial": {"time": [{"dogmaAttributeID": 2566}]}}
+{"_key": 43884, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}}
+{"_key": 43885, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}}
+{"_key": 43886, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 43887, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 43888, "researchTime": {"time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 43889, "researchTime": {"time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 43890, "copying": {"cost": [{"dogmaAttributeID": 2569}]}}
+{"_key": 43891, "copying": {"cost": [{"dogmaAttributeID": 2569}]}}
+{"_key": 43892, "copying": {"time": [{"dogmaAttributeID": 2570}]}}
+{"_key": 43893, "copying": {"time": [{"dogmaAttributeID": 2570}]}}
+{"_key": 43919, "manufacturing": {"time": [{"dogmaAttributeID": 2547, "filterID": 7}]}}
+{"_key": 43920, "manufacturing": {"material": [{"dogmaAttributeID": 2538, "filterID": 2}]}}
+{"_key": 43921, "manufacturing": {"material": [{"dogmaAttributeID": 2538, "filterID": 2}]}}
+{"_key": 45544, "manufacturing": {"material": [{"dogmaAttributeID": 2559, "filterID": 13}]}}
+{"_key": 45546, "manufacturing": {"material": [{"dogmaAttributeID": 2559, "filterID": 13}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 45548, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2559, "filterID": 13}, {"dogmaAttributeID": 2561, "filterID": 12}, {"dogmaAttributeID": 2658, "filterID": 15}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2560, "filterID": 13}, {"dogmaAttributeID": 2562, "filterID": 12}, {"dogmaAttributeID": 2659, "filterID": 15}]}}
+{"_key": 45640, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2658, "filterID": 15}]}}
+{"_key": 45641, "manufacturing": {"material": [{"dogmaAttributeID": 2557, "filterID": 14}, {"dogmaAttributeID": 2658, "filterID": 15}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}}
+{"_key": 46484, "reaction": {"time": [{"dogmaAttributeID": 2717, "filterID": 18}]}}
+{"_key": 46485, "reaction": {"time": [{"dogmaAttributeID": 2717, "filterID": 18}]}}
+{"_key": 46486, "reaction": {"material": [{"dogmaAttributeID": 2718, "filterID": 18}]}}
+{"_key": 46487, "reaction": {"material": [{"dogmaAttributeID": 2718, "filterID": 18}]}}
+{"_key": 46488, "reaction": {"time": [{"dogmaAttributeID": 2715, "filterID": 16}]}}
+{"_key": 46489, "reaction": {"time": [{"dogmaAttributeID": 2715, "filterID": 16}]}}
+{"_key": 46490, "reaction": {"material": [{"dogmaAttributeID": 2716, "filterID": 16}]}}
+{"_key": 46491, "reaction": {"material": [{"dogmaAttributeID": 2716, "filterID": 16}]}}
+{"_key": 46492, "reaction": {"time": [{"dogmaAttributeID": 2719, "filterID": 17}]}}
+{"_key": 46493, "reaction": {"time": [{"dogmaAttributeID": 2719, "filterID": 17}]}}
+{"_key": 46494, "reaction": {"material": [{"dogmaAttributeID": 2720, "filterID": 17}]}}
+{"_key": 46495, "reaction": {"material": [{"dogmaAttributeID": 2720, "filterID": 17}]}}
+{"_key": 46496, "reaction": {"material": [{"dogmaAttributeID": 2716, "filterID": 16}, {"dogmaAttributeID": 2718, "filterID": 18}, {"dogmaAttributeID": 2720, "filterID": 17}], "time": [{"dogmaAttributeID": 2715, "filterID": 16}, {"dogmaAttributeID": 2717, "filterID": 18}, {"dogmaAttributeID": 2719, "filterID": 17}]}}
+{"_key": 46497, "reaction": {"material": [{"dogmaAttributeID": 2716, "filterID": 16}, {"dogmaAttributeID": 2718, "filterID": 18}, {"dogmaAttributeID": 2720, "filterID": 17}], "time": [{"dogmaAttributeID": 2715, "filterID": 16}, {"dogmaAttributeID": 2717, "filterID": 18}, {"dogmaAttributeID": 2719, "filterID": 17}]}}
+{"_key": 47512, "copying": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "invention": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "manufacturing": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}}
+{"_key": 47513, "manufacturing": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}}
+{"_key": 47514, "copying": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "invention": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2601}], "time": [{"dogmaAttributeID": 2602}]}}
+{"_key": 47883, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 47981, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 47982, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 47984, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 47985, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}]}}
+{"_key": 47986, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 47987, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 47990, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 47991, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 47992, "manufacturing": {"time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 47993, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 47997, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 47998, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 47999, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48001, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48002, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48003, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48007, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48008, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 48009, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48010, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48011, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 48012, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48013, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48014, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48015, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48016, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48017, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48018, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48019, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48020, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48022, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 48023, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 48024, "manufacturing": {"time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 48025, "manufacturing": {"time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 48026, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48027, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48028, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48029, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48030, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48031, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48032, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48033, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48034, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48035, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48036, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48037, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48038, "manufacturing": {"time": [{"dogmaAttributeID": 2539, "filterID": 2}]}}
+{"_key": 48039, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48040, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48041, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48042, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}]}}
+{"_key": 48043, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48044, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48045, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48046, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48047, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48048, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48049, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48050, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48051, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}}
+{"_key": 48052, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48053, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}]}}
+{"_key": 48054, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 48055, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48056, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48057, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48058, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48059, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48060, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48061, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48062, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48063, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48064, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48065, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48066, "manufacturing": {"time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 48067, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2560, "filterID": 13}]}}
+{"_key": 48068, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2558, "filterID": 14}, {"dogmaAttributeID": 2659, "filterID": 15}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48069, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48070, "manufacturing": {"material": [{"dogmaAttributeID": 2600}], "time": [{"dogmaAttributeID": 2545, "filterID": 5}, {"dogmaAttributeID": 2547, "filterID": 7}, {"dogmaAttributeID": 2549, "filterID": 9}, {"dogmaAttributeID": 2551, "filterID": 6}, {"dogmaAttributeID": 2553, "filterID": 8}, {"dogmaAttributeID": 2556, "filterID": 10}, {"dogmaAttributeID": 2576, "filterID": 11}]}}
+{"_key": 48071, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48072, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48073, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48074, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}], "time": [{"dogmaAttributeID": 2564}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48075, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48076, "copying": {"cost": [{"dogmaAttributeID": 2569}], "time": [{"dogmaAttributeID": 2570}]}, "invention": {"cost": [{"dogmaAttributeID": 2563}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}
+{"_key": 48077, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}], "time": [{"dogmaAttributeID": 2568}]}}
+{"_key": 48078, "copying": {"cost": [{"dogmaAttributeID": 2569}]}, "manufacturing": {"material": [{"dogmaAttributeID": 2600}]}, "researchMaterial": {"cost": [{"dogmaAttributeID": 2565}], "time": [{"dogmaAttributeID": 2566}]}, "researchTime": {"cost": [{"dogmaAttributeID": 2567}]}}

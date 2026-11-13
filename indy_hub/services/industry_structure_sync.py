@@ -23,6 +23,10 @@ from indy_hub.services.esi_client import (
     get_retry_after_seconds,
     shared_client,
 )
+from indy_hub.services.industry_constants import (
+    DEFAULT_DISABLED_ACTIVITY_FLAGS,
+    INDUSTRY_SERVICE_ACTIVITY_FLAGS,
+)
 from indy_hub.services.industry_structures import (
     is_supported_industry_structure_type,
     resolve_item_type_reference,
@@ -37,29 +41,8 @@ logger = get_extension_logger(__name__)
 STRUCTURE_SYNC_NAME_MAX_LENGTH = 255
 ONLINE_STRUCTURE_SERVICE_STATE = "online"
 
-ONLINE_INDUSTRY_SERVICE_ACTIVITY_FLAGS = {
-    "material efficiency research": "enable_research",
-    "blueprint copying": "enable_research",
-    "time efficiency research": "enable_research",
-    "composite reactions": "enable_composite_reactions",
-    "biochemical reactions": "enable_biochemical_reactions",
-    "hybrid reactions": "enable_hybrid_reactions",
-    "invention": "enable_invention",
-    "manufacturing (standard)": "enable_manufacturing",
-    "manufacturing (capitals)": "enable_manufacturing_capitals",
-    "manufacturing (super capitals)": "enable_manufacturing_super_capitals",
-}
-
-DEFAULT_DISABLED_ACTIVITY_FLAGS = {
-    "enable_manufacturing": False,
-    "enable_manufacturing_capitals": False,
-    "enable_manufacturing_super_capitals": False,
-    "enable_research": False,
-    "enable_invention": False,
-    "enable_biochemical_reactions": False,
-    "enable_hybrid_reactions": False,
-    "enable_composite_reactions": False,
-}
+# Compatibility name; online-state handling remains specific to this module.
+ONLINE_INDUSTRY_SERVICE_ACTIVITY_FLAGS = INDUSTRY_SERVICE_ACTIVITY_FLAGS
 
 SYNC_ERROR_SAMPLE_LIMIT = 5
 REQUIRED_STRUCTURE_SYNC_ROLES = {"DIRECTOR", "STATION_MANAGER"}

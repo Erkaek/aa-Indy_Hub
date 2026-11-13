@@ -902,6 +902,11 @@ function initializeDelegatedFinancialPriceInputs() {
 
 function refreshTabsAfterStateChange(options = {}) {
     const tasks = [];
+    updateSelectedStructureCalculationWarning();
+
+    if (isPlanPaneHydrated()) {
+        refreshPlanTreeAfterStructureAssignment();
+    }
 
     if (typeof updateMaterialsTabFromState === 'function') {
         tasks.push(Promise.resolve(updateMaterialsTabFromState()));
@@ -1280,97 +1285,6 @@ function updateTreeModeBadges() {
     });
 }
 
-function readCraftNodeValue(source, primaryKey, secondaryKey) {
-    if (!source || typeof source !== 'object') {
-        return undefined;
-    }
-    if (Object.prototype.hasOwnProperty.call(source, primaryKey)) {
-        return source[primaryKey];
-    }
-    if (secondaryKey && Object.prototype.hasOwnProperty.call(source, secondaryKey)) {
-        return source[secondaryKey];
-    }
-    return undefined;
-}
-
-function computeStructureAdjustedNodeQuantity(node, fallbackQuantity, materialBonusPercent) {
-    const quantity = Math.max(0, Math.ceil(Number(fallbackQuantity) || 0)) || 0;
-    const hasBaseQuantity = Number(readCraftNodeValue(node, 'base_quantity_per_run', 'baseQuantityPerRun')) > 0;
-    const hasJobRuns = Number(readCraftNodeValue(node, 'job_runs', 'jobRuns')) > 0;
-    const materialBonusApplicable = readCraftNodeValue(node, 'material_bonus_applicable', 'materialBonusApplicable');
-    const hasExplicitMaterialFlag = materialBonusApplicable === true || materialBonusApplicable === false;
-
-    // Only adjust true job-material rows. Final outputs in EFT synthetic fit groups
-    // are also children in the tree, but must keep their exact requested quantity.
-    if (!hasExplicitMaterialFlag && !(hasBaseQuantity && hasJobRuns)) {
-        return quantity;
-    }
-
-    if (!(materialBonusPercent > 0) || materialBonusApplicable === false) {
-        return quantity;
-    }
-
-    const baseQuantity = Number(readCraftNodeValue(node, 'base_quantity_per_run', 'baseQuantityPerRun')) || 0;
-    const jobRuns = Number(readCraftNodeValue(node, 'job_runs', 'jobRuns')) || 0;
-    if (baseQuantity > 0 && jobRuns > 0) {
-        const blueprintME = Math.max(
-            0,
-            Math.min(
-                100,
-                Number(readCraftNodeValue(node, 'blueprint_material_efficiency', 'blueprintMaterialEfficiency')) || 0
-            )
-        );
-        const blueprintMultiplier = 1 - (blueprintME / 100);
-        const structureMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
-        const adjustedQuantity = Math.ceil(
-            baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier
-        );
-        // EVE requires at least one unit of every listed material per run.
-        return Math.max(jobRuns, adjustedQuantity) || 0;
-    }
-
-    const fallbackMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
-    return Math.max(0, Math.ceil(quantity * fallbackMultiplier)) || 0;
-}
-
-function getStructureMaterialBonusPercentForType(typeId) {
-    if (!window.SimulationAPI || typeof window.SimulationAPI.getStructureOption !== 'function') {
-        return 0;
-    }
-    const option = window.SimulationAPI.getStructureOption(typeId);
-    if (!option) {
-        return 0;
-    }
-    const bonus = Number(
-        option.material_bonus_percent
-        ?? option.materialBonusPercent
-        ?? option.rig_material_bonus_percent
-        ?? option.rigMaterialBonusPercent
-        ?? 0
-    );
-    return Number.isFinite(bonus) && bonus > 0 ? bonus : 0;
-}
-
-function adjustCraftTreeChildrenForStructure(children, parentTypeId) {
-    if (!Array.isArray(children) || children.length === 0) {
-        return [];
-    }
-    const materialBonusPercent = getStructureMaterialBonusPercentForType(parentTypeId);
-    if (!(materialBonusPercent > 0)) {
-        return children;
-    }
-    return children.map((child) => {
-        const quantity = Math.max(0, Math.ceil(Number(child?.quantity ?? child?.qty ?? 0))) || 0;
-        return Object.assign({}, child, {
-            quantity: computeStructureAdjustedNodeQuantity(
-                child,
-                quantity,
-                materialBonusPercent
-            ),
-        });
-    });
-}
-
 function isProjectWorkspacePayload() {
     const payload = window.BLUEPRINT_DATA || {};
     const numericProjectId = Number(payload.project_id || payload.projectId || 0) || 0;
@@ -1553,10 +1467,7 @@ function buildMaterialsTreeMarkup(nodes, level = 0) {
         const typeId = Number(node?.type_id || node?.typeId || 0) || 0;
         const typeName = String(node?.type_name || node?.typeName || typeId || '');
         const quantity = Math.max(0, Math.ceil(Number(node?.quantity ?? node?.qty ?? 0))) || 0;
-        const children = adjustCraftTreeChildrenForStructure(
-            readMaterialsTreeChildren(node),
-            typeId
-        );
+        const children = readMaterialsTreeChildren(node);
         const hasChildren = children.length > 0;
         const isEditableFinalOutput = level === 0 && isProjectWorkspacePayload();
         const fallbackSwitchState = String(node?.project_inclusion_mode || node?.projectInclusionMode || 'prod').trim() || 'prod';
@@ -1626,15 +1537,9 @@ function renderPlanTreeFromPayload() {
         return false;
     }
 
-    const rawTree = Array.isArray(window.BLUEPRINT_DATA?.materials_tree) ? window.BLUEPRINT_DATA.materials_tree : [];
-    const rootProductTypeId = Number(window.BLUEPRINT_DATA?.product_type_id || window.BLUEPRINT_DATA?.productTypeId || 0) || 0;
-    const treeAlreadyIncludesRoot = Boolean(
-        rootProductTypeId
-        && rawTree.some((node) => (Number(node?.type_id || node?.typeId || 0) || 0) === rootProductTypeId)
-    );
-    const tree = rootProductTypeId && rawTree.length > 0 && !treeAlreadyIncludesRoot
-        ? adjustCraftTreeChildrenForStructure(rawTree, rootProductTypeId)
-        : rawTree;
+    const tree = typeof window.SimulationAPI?.getCalculatedTree === 'function'
+        ? window.SimulationAPI.getCalculatedTree()
+        : (Array.isArray(window.BLUEPRINT_DATA?.materials_tree) ? window.BLUEPRINT_DATA.materials_tree : []);
     if (tree.length === 0) {
         treeTab.innerHTML = `<div class="alert alert-info mb-0">${escapeHtml(__('No sub-productions detected for this blueprint.'))}</div>`;
     } else {
@@ -3943,6 +3848,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     const startupPhases = [
         () => {
+            updateSelectedStructureCalculationWarning();
             // Capture the initial dashboard Materials ordering before any UI updates replace the markup.
             try {
                 getDashboardMaterialsOrdering();
@@ -4334,7 +4240,6 @@ async function computeCraftDecisionAnalysis(options = {}) {
     const toleranceISK = Number.isFinite(Number(options.toleranceISK))
         ? Math.max(0, Number(options.toleranceISK))
         : getDecisionBuyToleranceValue();
-    const productTypeId = Number(CRAFT_BP.productTypeId) || 0;
     const occurrencesByType = new Map();
     const nameByType = new Map();
     const depthByType = new Map();
@@ -4354,49 +4259,11 @@ async function computeCraftDecisionAnalysis(options = {}) {
         return Number.isFinite(producedPerCycle) ? Math.max(0, Math.ceil(producedPerCycle)) : 0;
     }
 
-    function cloneDecisionNodeWithQuantity(node, quantity) {
-        return Object.assign({}, node, { quantity: Math.max(0, Math.ceil(Number(quantity) || 0)) });
-    }
-
-    function getDecisionStructureMaterialBonusPercent(typeId) {
-        return getStructureMaterialBonusPercentForType(typeId);
-    }
-
-    function adjustDecisionChildrenForStructure(children, parentTypeId) {
-        if (!Array.isArray(children) || children.length === 0) {
-            return [];
-        }
-        const materialBonusPercent = getDecisionStructureMaterialBonusPercent(parentTypeId);
-        if (!(materialBonusPercent > 0)) {
-            return children;
-        }
-        return children.map((child) => {
-            const quantity = readQty(child);
-            return cloneDecisionNodeWithQuantity(
-                child,
-                computeStructureAdjustedNodeQuantity(
-                    child,
-                    quantity,
-                    materialBonusPercent
-                )
-            );
-        });
-    }
-
     function readDecisionChildren(node) {
-        return adjustDecisionChildrenForStructure(
-            readMaterialsTreeChildren(node),
-            readTypeId(node)
-        );
+        return readMaterialsTreeChildren(node);
     }
 
-    const treeAlreadyIncludesProductRoot = Boolean(
-        productTypeId > 0
-        && tree.some((node) => readTypeId(node) === productTypeId)
-    );
-    const analysisTree = productTypeId > 0 && !treeAlreadyIncludesProductRoot
-        ? adjustDecisionChildrenForStructure(tree, productTypeId)
-        : tree;
+    const analysisTree = tree;
 
     (function collectOccurrences(nodes, ancestorIds = []) {
         (Array.isArray(nodes) ? nodes : []).forEach((node) => {
@@ -4404,11 +4271,11 @@ async function computeCraftDecisionAnalysis(options = {}) {
             const children = readDecisionChildren(node);
             const typeName = String(node?.type_name || node?.typeName || '');
 
-            if (typeId && typeName && !nameByType.has(typeId)) {
+            if (typeId && typeName && !node.is_synthetic_final_output && !nameByType.has(typeId)) {
                 nameByType.set(typeId, typeName);
             }
 
-            if (typeId && children.length > 0) {
+            if (typeId && children.length > 0 && !node.is_synthetic_final_output) {
                 if (!occurrencesByType.has(typeId)) {
                     occurrencesByType.set(typeId, []);
                 }
@@ -4423,7 +4290,7 @@ async function computeCraftDecisionAnalysis(options = {}) {
             }
 
             if (children.length > 0) {
-                const nextAncestorIds = typeId ? ancestorIds.concat(typeId) : ancestorIds;
+                const nextAncestorIds = typeId && !node.is_synthetic_final_output ? ancestorIds.concat(typeId) : ancestorIds;
                 collectOccurrences(children, nextAncestorIds);
             }
         });
@@ -4451,20 +4318,7 @@ async function computeCraftDecisionAnalysis(options = {}) {
         }
 
         const producedPerCycle = readProducedPerCycle(best);
-        const needed = readQty(best);
-        const cycles = Math.max(1, Math.ceil(needed / producedPerCycle));
-        const inputsPerCycle = new Map();
-
-        readDecisionChildren(best).forEach((child) => {
-            const childTypeId = readTypeId(child);
-            const childQty = readQty(child);
-            if (!(childTypeId > 0) || !(childQty > 0)) {
-                return;
-            }
-            inputsPerCycle.set(childTypeId, childQty / cycles);
-        });
-
-        recipes.set(typeId, { producedPerCycle, inputsPerCycle });
+        recipes.set(typeId, { producedPerCycle, node: best });
     });
 
     const craftables = new Set(recipes.keys());
@@ -4525,225 +4379,85 @@ async function computeCraftDecisionAnalysis(options = {}) {
         return prodTotal < buyTotal ? 'prod' : 'buy';
     }
 
-    function addDemandQuantity(map, typeId, quantity) {
-        const numericTypeId = Number(typeId) || 0;
-        const normalizedQty = Number.isFinite(Number(quantity)) ? Math.max(0, Math.ceil(Number(quantity))) : 0;
-        if (!(numericTypeId > 0) || !(normalizedQty > 0)) {
-            return;
-        }
-        map.set(numericTypeId, (map.get(numericTypeId) || 0) + normalizedQty);
-    }
-
-    function getRemainingProdStockAllocationMap() {
-        const raw = typeof getCraftProdStockAllocationsForCurrentPlan === 'function'
-            ? getCraftProdStockAllocationsForCurrentPlan()
-            : {};
-        const allocations = new Map();
-
-        Object.entries(raw || {}).forEach(([typeId, quantity]) => {
-            const numericTypeId = Number(typeId) || 0;
-            const normalizedQty = Number.isFinite(Number(quantity)) ? Math.max(0, Math.ceil(Number(quantity))) : 0;
-            if (numericTypeId > 0 && normalizedQty > 0) {
-                allocations.set(numericTypeId, normalizedQty);
-            }
-        });
-
-        return allocations;
-    }
-
-    function consumeProdStockAllocation(allocations, typeId, quantity) {
-        const numericTypeId = Number(typeId) || 0;
-        const normalizedQty = Number.isFinite(Number(quantity)) ? Math.max(0, Math.ceil(Number(quantity))) : 0;
-        if (!(numericTypeId > 0) || !(normalizedQty > 0) || !(allocations instanceof Map)) {
-            return normalizedQty;
-        }
-
-        const remainingQty = allocations.get(numericTypeId) || 0;
-        if (!(remainingQty > 0)) {
-            return normalizedQty;
-        }
-
-        const coveredQty = Math.min(normalizedQty, remainingQty);
-        const nextQty = Math.max(0, remainingQty - coveredQty);
-        if (nextQty > 0) {
-            allocations.set(numericTypeId, nextQty);
-        } else {
-            allocations.delete(numericTypeId);
-        }
-
-        return Math.max(0, normalizedQty - coveredQty);
-    }
-
-    function scaleDecisionChildren(children, ratio) {
-        const normalizedRatio = Number(ratio);
-        if (!Array.isArray(children) || children.length === 0) {
-            return [];
-        }
-        if (!(normalizedRatio >= 0) || normalizedRatio === 1) {
-            return children;
-        }
-
-        return children
-            .map((child) => cloneDecisionNodeWithQuantity(child, readQty(child) * normalizedRatio))
-            .filter((child) => readQty(child) > 0);
-    }
-
     function computeDemand(currentModes) {
-        const demand = new Map();
-        const remainingProdStockAllocations = getRemainingProdStockAllocationMap();
-
-        (function walk(nodes, blockedByBuyAncestor = false) {
-            (Array.isArray(nodes) ? nodes : []).forEach((node) => {
-                const typeId = readTypeId(node);
-                if (!(typeId > 0) || blockedByBuyAncestor) {
-                    return;
-                }
-
-                const quantity = readQty(node);
-                if (!(quantity > 0)) {
-                    return;
-                }
-
-                const children = readDecisionChildren(node);
-                if (children.length === 0) {
-                    return;
-                }
-
-                const state = currentModes.get(typeId) || 'prod';
-                if (state === 'useless') {
-                    return;
-                }
-
-                if (state === 'buy') {
-                    addDemandQuantity(demand, typeId, quantity);
-                    return;
-                }
-
-                const effectiveQuantity = consumeProdStockAllocation(remainingProdStockAllocations, typeId, quantity);
-                if (!(effectiveQuantity > 0)) {
-                    return;
-                }
-
-                addDemandQuantity(demand, typeId, effectiveQuantity);
-                const scaledChildren = quantity > 0 ? scaleDecisionChildren(children, effectiveQuantity / quantity) : children;
-                walk(scaledChildren, false);
-            });
-        })(analysisTree, false);
-
-        return demand;
+        const result = window.SimulationAPI.computeDemand({ decisions: currentModes });
+        return new Map([...result.prodCraftables, ...result.buyCraftables]);
     }
 
     function createScenarioEvaluator(currentModes) {
         const scenarioCache = new Map();
-
-        function buildScenarioKey(typeId, needed, forcedMode) {
-            return `${typeId}:${needed}:${forcedMode || 'auto'}`;
-        }
-
-        function evaluateType(typeId, needed, forcedMode = null) {
-            const normalizedTypeId = Number(typeId) || 0;
-            const normalizedNeeded = Number.isFinite(Number(needed)) ? Math.max(0, Math.ceil(Number(needed))) : 0;
-            const scenarioKey = buildScenarioKey(normalizedTypeId, normalizedNeeded, forcedMode);
-            if (scenarioCache.has(scenarioKey)) {
-                return scenarioCache.get(scenarioKey);
-            }
-
-            const buyUnitRaw = getCraftDecisionBuyUnitPrice(normalizedTypeId);
-            const buyUnit = getCraftDecisionBuyUnitPriceOrInf(normalizedTypeId);
-            const buyTotal = normalizedNeeded > 0 && Number.isFinite(buyUnit)
-                ? buyUnit * normalizedNeeded
-                : Number.POSITIVE_INFINITY;
-            const recipe = recipes.get(normalizedTypeId);
-            const sellUnit = getCraftDecisionSellUnitPrice(normalizedTypeId);
-
-            let result;
-            if (!(normalizedNeeded > 0)) {
-                result = {
-                    typeId: normalizedTypeId,
-                    needed: normalizedNeeded,
-                    buyUnit: buyUnitRaw,
-                    buyTotal: 0,
-                    prodTotal: 0,
-                    prodUnit: 0,
-                    chosenMode: forcedMode || (currentModes.get(normalizedTypeId) || 'prod'),
-                    chosenTotal: 0,
-                    cycles: 0,
-                    produced: 0,
-                    surplus: 0,
-                    surplusCredit: 0,
-                };
-                scenarioCache.set(scenarioKey, result);
-                return result;
-            }
-
-            if (!recipe || !recipe.producedPerCycle) {
-                const fallbackMode = Number.isFinite(buyTotal) ? 'buy' : (currentModes.get(normalizedTypeId) || 'prod');
-                const chosenMode = forcedMode || fallbackMode;
-                const chosenTotal = chosenMode === 'buy' ? buyTotal : Number.POSITIVE_INFINITY;
-                result = {
-                    typeId: normalizedTypeId,
-                    needed: normalizedNeeded,
-                    buyUnit: buyUnitRaw,
-                    buyTotal: Number.isFinite(buyTotal) ? buyTotal : null,
-                    prodTotal: null,
-                    prodUnit: null,
-                    chosenMode,
-                    chosenTotal,
-                    cycles: null,
-                    produced: null,
-                    surplus: null,
-                    surplusCredit: null,
-                };
-                scenarioCache.set(scenarioKey, result);
-                return result;
-            }
-
-            const cycles = Math.max(1, Math.ceil(normalizedNeeded / recipe.producedPerCycle));
-            const produced = cycles * recipe.producedPerCycle;
-            const surplus = Math.max(0, produced - normalizedNeeded);
-            let inputsCost = 0;
-
-            recipe.inputsPerCycle.forEach((perCycleQty, childId) => {
-                const childQtyTotal = Math.max(0, Math.ceil((perCycleQty * cycles) - 1e-9));
-                if (!(childQtyTotal > 0)) {
-                    return;
+        return function evaluateType(typeId, needed, forcedMode = null) {
+            const quantity = Math.max(0, Math.ceil(Number(needed) || 0));
+            const key = `${typeId}:${quantity}:${forcedMode || 'auto'}`;
+            if (scenarioCache.has(key)) return scenarioCache.get(key);
+            const buyUnit = getCraftDecisionBuyUnitPriceOrInf(typeId);
+            const buyTotal = quantity > 0 ? buyUnit * quantity : 0;
+            const recipe = recipes.get(typeId);
+            const modes = new Map(currentModes);
+            modes.set(typeId, 'prod');
+            let prodTotal = recipe ? 0 : Number.POSITIVE_INFINITY;
+            let cycles = 0;
+            if (recipe && quantity > 0) {
+                // Use the same complete job calculation as purchases and cycles,
+                // including shared descendants, stock and integer batch rounding.
+                // The displayed requirement already consumed this type's stock.
+                const calculate = (rootId, required, skipRootStock = false) => window.SimulationAPI.computeDemand({
+                    decisions: modes,
+                    roots: [{ typeId: rootId, quantity: required }],
+                    skipStockForTypes: skipRootStock ? [rootId] : [],
+                });
+                const purchaseCost = (demand) => [...demand.leafNeeds, ...demand.buyCraftables].reduce(
+                    (total, [childId, childQuantity]) => total + childQuantity * getCraftDecisionBuyUnitPriceOrInf(childId), 0);
+                // Discover potential subproductions even below a currently bought
+                // parent. Otherwise an all-Buy plan can hide a profitable chain.
+                const dependencyOrder = [];
+                const seen = new Set([typeId]);
+                function collectDependencies(parentId) {
+                    readDecisionChildren(recipes.get(parentId)?.node).forEach((child) => {
+                        const childId = readTypeId(child);
+                        if (!recipes.has(childId) || seen.has(childId)) return;
+                        seen.add(childId);
+                        collectDependencies(childId);
+                        dependencyOrder.push(childId);
+                    });
                 }
-                const childScenario = evaluateType(childId, childQtyTotal, null);
-                const childTotal = Number.isFinite(childScenario.chosenTotal)
-                    ? childScenario.chosenTotal
-                    : (getCraftDecisionBuyUnitPriceOrInf(childId) * childQtyTotal);
-                inputsCost += childTotal;
-            });
-
-            const prodTotal = inputsCost;
-            const prodUnit = normalizedNeeded > 0 ? (prodTotal / normalizedNeeded) : Number.POSITIVE_INFINITY;
-            const autoMode = chooseMode({
-                buyTotal,
-                prodTotal,
-                currentMode: currentModes.get(normalizedTypeId) || 'prod',
-            });
-            const chosenMode = forcedMode || autoMode;
-            const chosenTotal = chosenMode === 'buy' ? buyTotal : prodTotal;
-
-            result = {
-                typeId: normalizedTypeId,
-                needed: normalizedNeeded,
-                buyUnit: buyUnitRaw,
+                collectDependencies(typeId);
+                dependencyOrder.forEach((childId) => {
+                    if (currentModes.get(childId) !== 'useless') modes.set(childId, 'prod');
+                });
+                dependencyOrder.forEach((childId) => {
+                    if (currentModes.get(childId) === 'useless') return;
+                    const candidateQuantity = calculate(typeId, quantity, true).requirements.get(childId) || 0;
+                    if (!(candidateQuantity > 0)) return;
+                    const candidateProdCost = purchaseCost(calculate(childId, candidateQuantity));
+                    const candidateBuyCost = candidateQuantity * getCraftDecisionBuyUnitPriceOrInf(childId);
+                    modes.set(childId, chooseMode({ buyTotal: candidateBuyCost, prodTotal: candidateProdCost, currentMode: currentModes.get(childId) || 'prod' }));
+                });
+                const demand = calculate(typeId, quantity, true);
+                cycles = demand.productionRuns.get(typeId) || 0;
+                prodTotal = purchaseCost(demand);
+            }
+            const chosenMode = forcedMode || chooseMode({ buyTotal, prodTotal, currentMode: currentModes.get(typeId) || 'prod' });
+            const produced = cycles * (recipe?.producedPerCycle || 0);
+            const surplus = Math.max(0, produced - quantity);
+            const sellUnit = getCraftDecisionSellUnitPrice(typeId);
+            const result = {
+                typeId,
+                needed: quantity,
+                buyUnit: getCraftDecisionBuyUnitPrice(typeId),
                 buyTotal: Number.isFinite(buyTotal) ? buyTotal : null,
                 prodTotal: Number.isFinite(prodTotal) ? prodTotal : null,
-                prodUnit: Number.isFinite(prodUnit) ? prodUnit : null,
+                prodUnit: quantity > 0 && Number.isFinite(prodTotal) ? prodTotal / quantity : null,
                 chosenMode,
-                chosenTotal,
+                chosenTotal: chosenMode === 'buy' ? buyTotal : prodTotal,
                 cycles,
                 produced,
                 surplus,
-                surplusCredit: Number.isFinite(sellUnit) && sellUnit > 0 ? (sellUnit * surplus) : 0,
+                surplusCredit: Number.isFinite(sellUnit) && sellUnit > 0 ? sellUnit * surplus : 0,
             };
-            scenarioCache.set(scenarioKey, result);
+            scenarioCache.set(key, result);
             return result;
-        }
-
-        return evaluateType;
+        };
     }
 
     function computeBestUnitCosts(demand, currentModes) {
@@ -4838,7 +4552,19 @@ async function computeCraftDecisionAnalysis(options = {}) {
         }
     }
 
-    const recommendedDecisions = decisions;
+    // Per-item comparisons cannot account for every saving from shared batches
+    // and stock. Keep the current plan if their combined recommendation costs
+    // more when the complete plan is calculated together.
+    const planPurchaseCost = (modes) => {
+        const demand = window.SimulationAPI.computeDemand({ decisions: modes });
+        return [...demand.leafNeeds, ...demand.buyCraftables].reduce(
+            (total, [typeId, quantity]) => total + quantity * getCraftDecisionBuyUnitPriceOrInf(typeId), 0);
+    };
+    let recommendedDecisions = decisions;
+    if (planPurchaseCost(decisions) > planPurchaseCost(currentDecisions)) {
+        recommendedDecisions = new Map(currentDecisions);
+        lastChangeCount = 0;
+    }
     const displayDemand = computeDemand(currentDecisions);
     const { breakdown } = computeCostsBreakdown(displayDemand, recommendedDecisions);
     const rows = Array.from(displayDemand.keys())
@@ -6011,8 +5737,6 @@ function formatDurationCompact(totalSeconds) {
     return parts.join(' ');
 }
 
-const EVE_JOB_LAUNCH_WINDOW_SECONDS = 30 * 24 * 60 * 60;
-
 function getEveJobLaunchMetrics(effectiveCycleSeconds, cycles) {
     const cycleSeconds = Math.max(0, Math.ceil(Number(effectiveCycleSeconds) || 0));
     const cycleCount = Math.max(0, Math.ceil(Number(cycles) || 0));
@@ -6026,7 +5750,7 @@ function getEveJobLaunchMetrics(effectiveCycleSeconds, cycles) {
         };
     }
 
-    const maxRunsPerJob = Math.max(1, Math.ceil(EVE_JOB_LAUNCH_WINDOW_SECONDS / cycleSeconds));
+    const maxRunsPerJob = Math.max(1, Math.ceil(window.getCraftJobLaunchWindowSeconds() / cycleSeconds));
     const jobsRequired = Math.max(1, Math.ceil(cycleCount / maxRunsPerJob));
     const lastRunStartSeconds = Math.max(0, (cycleCount - 1) * cycleSeconds);
 
@@ -6678,7 +6402,8 @@ function computeStructureInstallationSummary() {
         const baseJobCost = Math.ceil(estimatedItemValue * (systemCostIndexPercent / 100));
         const adjustedJobCost = Math.ceil(baseJobCost * Math.max(0, 1 - (jobCostBonusPercent / 100)));
         const facilityTax = Math.ceil(estimatedItemValue * (taxPercent / 100));
-        const sccSurcharge = Math.ceil(estimatedItemValue * 0.04);
+        const sccPercent = Number(window.BLUEPRINT_DATA?.calculation_parameters?.scc_surcharge_percent ?? 4);
+        const sccSurcharge = Math.ceil(estimatedItemValue * sccPercent / 100);
         const installationPerCycle = adjustedJobCost + facilityTax + sccSurcharge;
         const totalInstallation = installationPerCycle * cycles;
 
@@ -7106,7 +6831,47 @@ function renderStructureCategoryAssignments(items) {
     });
 }
 
+function buildStructureCalculationWarning(plannerData) {
+    const invalid = Array.isArray(plannerData?.invalid_structures) ? plannerData.invalid_structures : [];
+    const invalidItems = Array.isArray(plannerData?.invalid_items) ? plannerData.invalid_items : [];
+    if (invalid.length === 0 && invalidItems.length === 0) return '';
+    const entries = invalid.map((entry) => `<li>${escapeHtml(entry.name || String(entry.structure_id))}: ${escapeHtml(entry.error || '')}</li>`)
+        .concat(invalidItems.map((entry) => `<li>${escapeHtml(entry.type_name || String(entry.type_id))}: ${escapeHtml(entry.error || '')}</li>`)).join('');
+    return `<div class="alert alert-warning" role="alert" data-industry-calculation-warning="true">${escapeHtml(__('Some industry calculations are unavailable. Review the errors below before relying on this plan.'))}<ul class="mb-0">${entries}</ul></div>`;
+}
+
+function isStructureCalculationErrorSelected(entry, assignments) {
+    const structureId = Number(entry.structure_id);
+    if (entry.selection_only) {
+        return (entry.selected_type_ids || []).some((typeId) => Number(assignments.get(Number(typeId))) === structureId);
+    }
+    return Array.from(assignments.values()).some((selectedId) => Number(selectedId) === structureId);
+}
+
+function updateSelectedStructureCalculationWarning() {
+    const anchor = document.getElementById('craftMainTabs');
+    if (!anchor) return;
+    const api = window.SimulationAPI;
+    const planner = api?.getStructurePlanner?.() || {};
+    const assignments = mapLikeToMap(api?.getState?.().structureAssignments);
+    const invalid = (Array.isArray(planner.invalid_structures) ? planner.invalid_structures : [])
+        .filter((entry) => isStructureCalculationErrorSelected(entry, assignments));
+    let notice = document.getElementById('craftSelectedStructureCalculationWarning');
+    const invalidItems = Array.isArray(planner.invalid_items) ? planner.invalid_items : [];
+    if (invalid.length === 0 && invalidItems.length === 0) {
+        notice?.remove();
+        return;
+    }
+    if (!notice) {
+        notice = document.createElement('div');
+        notice.id = 'craftSelectedStructureCalculationWarning';
+        anchor.parentNode.insertBefore(notice, anchor);
+    }
+    notice.innerHTML = buildStructureCalculationWarning({ invalid_structures: invalid, invalid_items: invalidItems });
+}
+
 function renderStructurePlanner(options = {}) {
+    updateSelectedStructureCalculationWarning();
     const summaryContainer = document.getElementById('structurePlannerSummary');
     const rowsContainer = document.getElementById('structurePlannerRows');
     const emptyContainer = document.getElementById('structurePlannerEmpty');
@@ -7139,9 +6904,15 @@ function renderStructurePlanner(options = {}) {
     }
 
     const items = getStructurePlannerItems();
+    const currentAssignments = mapLikeToMap(window.SimulationAPI?.getState?.().structureAssignments);
+    const calculationWarning = buildStructureCalculationWarning({
+        ...plannerData,
+        invalid_structures: (Array.isArray(plannerData.invalid_structures) ? plannerData.invalid_structures : [])
+            .filter((entry) => !entry.selection_only || isStructureCalculationErrorSelected(entry, currentAssignments)),
+    });
 
     if (items.length === 0) {
-        summaryContainer.innerHTML = '';
+        summaryContainer.innerHTML = calculationWarning;
         rowsContainer.innerHTML = '';
         emptyContainer.classList.remove('d-none');
         renderStructureCategoryAssignments([]);
@@ -7174,7 +6945,7 @@ function renderStructurePlanner(options = {}) {
     );
     const averageMaterialBonus = weightedItemCount > 0 ? (weightedMaterialBonus / weightedItemCount) : 0;
 
-    summaryContainer.innerHTML = `
+    summaryContainer.innerHTML = `${calculationWarning}
         <div class="craft-structure-summary-card">
             <div class="craft-structure-summary-label">${__('Selected network')}</div>
             <div class="craft-structure-summary-value">${formatInteger(uniqueStructureNames.size)}</div>
@@ -7212,11 +6983,14 @@ function renderStructurePlanner(options = {}) {
             : (item.recommendedDistanceLabel || item.recommended_distance_label || '');
         const itemGroupLabel = item.groupName || item.group_name || item.categoryName || item.category_name || item.activityLabel || item.activity_label || '';
         const options = getAlphabetizedStructureOptions(item, typeId);
-        const optionMarkup = options.map((option) => {
+        let optionMarkup = options.map((option) => {
             const structureId = Number(option.structureId || option.structure_id || 0) || 0;
             const decoratedOption = getStructurePlannerOption(typeId, structureId) || option;
             return `<option value="${structureId}" ${structureId === selectedStructureId ? 'selected' : ''}>${escapeHtml(buildStructureOptionLabel(decoratedOption))}</option>`;
         }).join('');
+        if (selectedStructureId > 0 && !options.some((option) => Number(option.structureId || option.structure_id) === selectedStructureId)) {
+            optionMarkup = `<option value="${selectedStructureId}" selected disabled>${escapeHtml(__('Selected structure cannot be calculated'))}</option>` + optionMarkup;
+        }
         const recommendedIdForApply = nearestOption
             ? (Number(nearestOption.structureId || nearestOption.structure_id || 0) || 0)
             : recommendedStructureId;
@@ -7380,7 +7154,8 @@ function getMarketFeeState() {
 }
 
 function getSalesTaxPercentForCharacter(character) {
-    return normalizeMarketFeePercent(character?.sales_tax_percent ?? 7.5);
+    // The literal is a compatibility fallback for pre-parameter payloads.
+    return normalizeMarketFeePercent(character?.sales_tax_percent ?? getMarketFeeProfiles().default_sales_tax_percent ?? 7.5);
 }
 
 function setMarketFeePersistStatus(message, variant = 'secondary') {

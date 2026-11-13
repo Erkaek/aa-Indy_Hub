@@ -1599,6 +1599,12 @@
             hideRigAdvisorEmptyState();
             renderRigAdvisorContext();
 
+            if (payload && payload.error) {
+                rigAdvisorCurrentActivities = [];
+                showRigAdvisorEmptyState(payload.error);
+                return;
+            }
+
             if (!payload || !payload.activities || !payload.activities.length) {
                 rigAdvisorCurrentActivities = [];
                 showRigAdvisorEmptyState('No compatible rig category could be resolved for the current selection.');
@@ -1649,11 +1655,11 @@
                 }
             })
                 .then(function (response) {
-                    return response.ok ? response.json() : { activities: [] };
+                    return response.json();
                 })
                 .then(function (payload) {
-                    rigAdvisorCacheKey = cacheKey;
-                    rigAdvisorCachePayload = payload;
+                    rigAdvisorCacheKey = payload.error ? '' : cacheKey;
+                    rigAdvisorCachePayload = payload.error ? null : payload;
                     renderRigAdvisor(payload);
                     if (rigAdvisorModal) {
                         rigAdvisorModal.show();
@@ -1951,6 +1957,16 @@
         }
 
         function renderBonusPreview(payload) {
+            if (bonusPreview && payload && payload.error) {
+                bonusPreview.classList.remove('d-none');
+                bonusPreviewBody.innerHTML = '';
+                const error = document.createElement('div');
+                error.className = 'alert alert-danger mb-0';
+                error.setAttribute('role', 'alert');
+                error.textContent = payload.error;
+                bonusPreviewBody.appendChild(error);
+                return;
+            }
             if (!bonusPreview || !payload || !payload.rows || !payload.rows.length) {
                 clearBonusPreview();
                 return;
@@ -2046,7 +2062,7 @@
                 }
             })
                 .then(function (response) {
-                    return response.ok ? response.json() : { rows: [] };
+                    return response.json();
                 })
                 .then(renderBonusPreview)
                 .catch(clearBonusPreview);

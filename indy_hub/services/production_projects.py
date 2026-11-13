@@ -8,7 +8,7 @@ import json
 import re
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
-from copy import copy
+from copy import copy, deepcopy
 from datetime import timedelta
 from functools import lru_cache
 from math import ceil
@@ -29,6 +29,9 @@ from ..models import (
     PROJECT_REF_BASE36_ALPHABET,
     PROJECT_REF_LENGTH,
     Blueprint,
+    IndustryStructure,
+    IndustryStructureRig,
+    IndustrySystemCostIndex,
     ProductionProject,
     ProductionProjectItem,
 )
@@ -44,7 +47,10 @@ from .craft_materials import (
 )
 from .craft_structures import build_craft_structure_planner
 from .craft_times import build_craft_time_map
+from .industry_constants import get_craft_calculation_parameters
+from .industry_rules import INDUSTRY_RULES_VERSION
 from .industry_skills import build_craft_character_advisor
+from .industry_structures import get_industry_calculation_cache_token
 from .market_fees import build_craft_market_fee_profiles
 from .temporary_project_models import TemporaryItemsQuerySet as _TemporaryItemsQuerySet
 from .temporary_project_models import (
@@ -118,7 +124,7 @@ SUBSYSTEM_GROUP_KEYWORDS = ("subsystem", "strategic cruiser")
 SERVICE_GROUP_KEYWORDS = ("service",)
 EFT_DRONE_CATEGORY_INDEX = 6
 PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY = "cachedProjectPayload"
-PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION = 6
+PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION = 7
 PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY = (
     "corpBlueprintAuthorizationFingerprint"
 )
@@ -817,12 +823,19 @@ def cached_project_workspace_payload_matches_state(
     if not isinstance(cached_payload, dict):
         return False
 
-    if cached_payload.get("cache_version") != PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION:
+    # Version 6 already carries raw recipes. Rebase its derived bonuses instead
+    # of replacing an intentionally saved recipe with the current SDE recipe.
+    if cached_payload.get("cache_version") not in {
+        6,
+        PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION,
+    }:
         return False
 
-    normalized_workspace_state = strip_project_workspace_cache(workspace_state)
-    if normalized_workspace_state.get("pendingWorkspaceRefresh"):
+    if isinstance(workspace_state, dict) and workspace_state.get(
+        "pendingWorkspaceRefresh"
+    ):
         return False
+    normalized_workspace_state = strip_project_workspace_cache(workspace_state)
 
     if not cached_project_workspace_payload_matches_corp_authorization(
         cached_payload,
@@ -854,6 +867,146 @@ def cached_project_workspace_payload_matches_state(
     return normalized_payload_runs == saved_runs
 
 
+def project_workspace_preserves_recipe(
+    cached_payload: dict[str, object],
+    previous_state: dict[str, object],
+    workspace_state: dict[str, object],
+) -> bool:
+    """Compare recipe inputs, allowing browser normalization of saved defaults."""
+    if bool(previous_state.get("use_corp_blueprints")) != bool(
+        workspace_state.get("use_corp_blueprints")
+    ):
+        return False
+    output_overrides = _extract_workspace_final_output_quantity_overrides(
+        workspace_state
+    )
+    outputs = cached_payload.get("final_outputs") or []
+    if output_overrides:
+        if len(output_overrides) != len(outputs) and int(
+            previous_state.get("runs") or 1
+        ) != int(workspace_state.get("runs") or 1):
+            return False
+        if any(
+            index >= len(outputs)
+            or int(outputs[index].get("quantity") or 0) != quantity
+            for index, quantity in output_overrides.items()
+        ):
+            return False
+    elif int(previous_state.get("runs") or 1) != int(workspace_state.get("runs") or 1):
+        return False
+
+    requested = _extract_workspace_me_te_overrides(workspace_state)
+    previous = _extract_workspace_me_te_overrides(previous_state)
+    if set(previous) - set(requested) or any(
+        set(config) - set(requested.get(blueprint_id, {}))
+        for blueprint_id, config in previous.items()
+    ):
+        return False
+    configs = (cached_payload.get("page") or {}).get("blueprint_configs") or []
+    baseline = {
+        int(row["type_id"]): {
+            "me": _clamp_blueprint_me(row.get("material_efficiency")),
+            "te": _clamp_blueprint_te(row.get("time_efficiency")),
+        }
+        for row in configs
+        if isinstance(row, dict) and row.get("type_id")
+    }
+    return all(
+        blueprint_id in baseline
+        and all(baseline[blueprint_id][key] == value for key, value in config.items())
+        for blueprint_id, config in requested.items()
+    )
+
+
+def get_project_structure_planner_signature() -> str:
+    """Fingerprint live facility inputs, excluding the derived bonus cache.
+
+    A saved recipe can stay frozen while rig loadouts, taxes, service flags and
+    registered facilities change. Include deletes and bulk updates as well as
+    ordinary saves, without relying on signals or clearing shared cache keys.
+    """
+    structure_fields = [
+        field.attname
+        for field in IndustryStructure._meta.concrete_fields
+        if not field.name.startswith("resolved_bonuses_cache")
+        and field.name not in {"created_at", "updated_at"}
+    ]
+    structures = list(
+        IndustryStructure.objects.order_by("pk").values(*structure_fields)
+    )
+    rigs = list(
+        IndustryStructureRig.objects.order_by("pk").values_list(
+            "pk",
+            "structure_id",
+            "slot_index",
+            "rig_type_id",
+            "rig_type_name",
+        )
+    )
+    systems = {row["solar_system_id"] for row in structures if row["solar_system_id"]}
+    indices = (
+        list(
+            IndustrySystemCostIndex.objects.filter(
+                solar_system_id__in=systems,
+            )
+            .order_by("solar_system_id", "activity_id")
+            .values_list(
+                "solar_system_id",
+                "activity_id",
+                "cost_index_percent",
+            )
+        )
+        if systems
+        else []
+    )
+    content = json.dumps([structures, rigs, indices], sort_keys=True, default=str)
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def refresh_project_payload_industry_rules(
+    cached_payload: dict[str, object],
+    workspace_state: dict[str, object] | None,
+    *,
+    force: bool = False,
+    include_full_structure_options: bool = False,
+) -> dict[str, object]:
+    """Refresh derived bonuses on a copy, preserving the saved recipe snapshot.
+
+    This does not write the project or refresh its SDE recipes. Version 6 has
+    the raw per-run quantities needed by the browser's demand calculation.
+    The caller must check authorization before passing a saved payload here.
+    """
+
+    payload = deepcopy(cached_payload)
+    # These are current calculation policy, not part of the frozen SDE recipe.
+    payload["calculation_parameters"] = get_craft_calculation_parameters()
+    calculation_version = get_industry_calculation_cache_token()
+    registry_signature = get_project_structure_planner_signature()
+    if (
+        force
+        or payload.get("cache_version") != PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION
+        or payload.get("industry_rules_version") != INDUSTRY_RULES_VERSION
+        or payload.get("industry_calculation_version") != calculation_version
+        or payload.get("structure_planner_signature") != registry_signature
+    ):
+        state = strip_project_workspace_cache(workspace_state)
+        payload["structure_planner"] = build_craft_structure_planner(
+            product_type_id=None,
+            product_type_name="",
+            product_output_per_cycle=0,
+            craft_cycles_summary=payload.get("craft_cycles_summary") or {},
+            include_all_options=include_full_structure_options,
+            selected_structure_assignments=_extract_workspace_structure_assignments(
+                state
+            ),
+        )
+        payload["cache_version"] = PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION
+        payload["industry_rules_version"] = INDUSTRY_RULES_VERSION
+        payload["industry_calculation_version"] = calculation_version
+        payload["structure_planner_signature"] = registry_signature
+    return payload
+
+
 def get_cached_project_workspace_payload(
     project: ProductionProject,
 ) -> tuple[dict[str, object] | None, bool]:
@@ -879,7 +1032,7 @@ def get_cached_project_workspace_payload(
         return None, False
 
     cached_signature = workspace_state.get(PROJECT_WORKSPACE_SDE_SIGNATURE_KEY)
-    payload = dict(cached_payload)
+    payload = refresh_project_payload_industry_rules(cached_payload, workspace_state)
     payload.update(
         {
             "project_id": project.id,
@@ -1833,6 +1986,10 @@ def build_project_workspace_payload(
             "source_kind": project.source_kind,
             "workspace_state": workspace_state,
             "cache_version": PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION,
+            "calculation_parameters": get_craft_calculation_parameters(),
+            "industry_rules_version": INDUSTRY_RULES_VERSION,
+            "industry_calculation_version": get_industry_calculation_cache_token(),
+            "structure_planner_signature": get_project_structure_planner_signature(),
             PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY: sorted(
                 viewable_corporation_ids
             ),
@@ -2735,6 +2892,7 @@ def build_project_workspace_payload(
     )
 
     structure_planner_started_at = perf_counter()
+    registry_signature = get_project_structure_planner_signature()
     structure_planner = build_craft_structure_planner(
         product_type_id=None,
         product_type_name="",
@@ -2915,6 +3073,10 @@ def build_project_workspace_payload(
         "source_kind": project.source_kind,
         "workspace_state": workspace_state,
         "cache_version": PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION,
+        "calculation_parameters": get_craft_calculation_parameters(),
+        "industry_rules_version": INDUSTRY_RULES_VERSION,
+        "industry_calculation_version": get_industry_calculation_cache_token(),
+        "structure_planner_signature": registry_signature,
         PROJECT_WORKSPACE_CORP_AUTHORIZATION_FINGERPRINT_KEY: sorted(
             viewable_corporation_ids
         ),
