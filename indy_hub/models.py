@@ -3163,8 +3163,8 @@ class IndustryStructure(models.Model):
     # Bump whenever `resolve_structure_bonuses`/rig type-family mappings change so
     # previously cached `resolved_bonuses_cache` rows are invalidated automatically
     # instead of silently serving stale supported-type lists (e.g. the
-    # Molecular-Forged Materials / hybrid_reactions family fix).
-    RESOLVED_BONUSES_CACHE_VERSION = 2
+    # numeric CCP target filters or source-specific Dogma bindings).
+    RESOLVED_BONUSES_CACHE_VERSION = 3
 
     class SecurityBand(models.TextChoices):
         HIGHSEC = "highsec", _("Highsec")
@@ -3551,10 +3551,25 @@ class IndustryStructure(models.Model):
 
     def get_resolved_bonuses(self):
         # AA Example App
+        from indy_hub.services.industry_rules import (
+            IndustryRulesError,
+            get_industry_source_metadata,
+        )
         from indy_hub.services.industry_structures import (
             IndustryStructureResolvedBonus,
+            get_industry_calculation_cache_token,
             resolve_structure_bonuses,
         )
+
+        # A malformed bundle may retain its old declared token. Validate before
+        # accepting persistent rows, while unrelated project functions can keep
+        # using the non-raising availability token.
+        try:
+            get_industry_source_metadata(int(self.structure_type_id or 0))
+        except IndustryRulesError as exc:
+            raise ValidationError(
+                f"CCP industry rules unavailable: {exc}", code=exc.code
+            ) from exc
 
         def _serialize_bonus_rows(
             rows: list[IndustryStructureResolvedBonus],
@@ -3568,6 +3583,11 @@ class IndustryStructure(models.Model):
                         "activity_id": int(row.activity_id),
                         "supported_types_label": row.supported_types_label,
                         "supported_type_names": list(row.supported_type_names or ()),
+                        "target_filter_id": row.target_filter_id,
+                        "target_group_ids": list(row.target_group_ids),
+                        "target_category_ids": list(row.target_category_ids),
+                        "dogma_effect_name": row.dogma_effect_name,
+                        "modifying_attribute_id": row.modifying_attribute_id,
                         "material_efficiency_percent": str(
                             row.material_efficiency_percent or Decimal("0")
                         ),
@@ -3602,6 +3622,25 @@ class IndustryStructure(models.Model):
                                 for name in (item.get("supported_type_names") or [])
                                 if name
                             ),
+                            target_filter_id=(
+                                int(item["target_filter_id"])
+                                if item.get("target_filter_id") is not None
+                                else None
+                            ),
+                            target_group_ids=tuple(
+                                int(group_id)
+                                for group_id in item.get("target_group_ids", ())
+                            ),
+                            target_category_ids=tuple(
+                                int(category_id)
+                                for category_id in item.get("target_category_ids", ())
+                            ),
+                            dogma_effect_name=str(item.get("dogma_effect_name") or ""),
+                            modifying_attribute_id=(
+                                int(item["modifying_attribute_id"])
+                                if item.get("modifying_attribute_id") is not None
+                                else None
+                            ),
                             material_efficiency_percent=Decimal(
                                 str(item.get("material_efficiency_percent") or "0")
                             ),
@@ -3627,6 +3666,7 @@ class IndustryStructure(models.Model):
         signature = "|".join(
             [
                 f"v{self.RESOLVED_BONUSES_CACHE_VERSION}",
+                get_industry_calculation_cache_token(),
                 str(int(self.structure_type_id or 0)),
                 str(self.system_security_band or ""),
                 ",".join(
@@ -3726,7 +3766,10 @@ class IndustryStructure(models.Model):
             "composite_reactions": "composite_reactions_tax_percent",
         }.get(service_category)
         if not field_name:
-            return Decimal("0")
+            raise ValidationError(
+                f"Unknown industry service category {service_category!r}; "
+                "no facility tax can be selected for this product."
+            )
         return getattr(self, field_name) or Decimal("0")
 
     def get_activity_tax_percent(

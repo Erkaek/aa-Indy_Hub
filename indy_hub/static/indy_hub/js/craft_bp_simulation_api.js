@@ -183,7 +183,8 @@
         }
         nodes.forEach((node) => {
             const typeId = Number(readValue(node, 'type_id', 'typeId'));
-            if (!typeId) {
+            if (!typeId || node.is_synthetic_final_output) {
+                ingestTree(readChildren(node), parentId);
                 return;
             }
             const typeName = readValue(node, 'type_name', 'typeName') || '';
@@ -356,6 +357,20 @@
 
         structureItemsMap.clear();
         structureAssignmentsMap.clear();
+        const invalidStructures = Array.isArray(structurePlannerPayload.invalid_structures) ? structurePlannerPayload.invalid_structures : [];
+        const invalidStructureIds = new Set(invalidStructures
+            .filter((entry) => !entry.selection_only)
+            .map((entry) => Number(entry.structure_id)));
+        const invalidSelectionsByType = new Map();
+        invalidStructures.filter((entry) => entry.selection_only).forEach((entry) => {
+            (entry.selected_type_ids || []).forEach((typeId) => {
+                const numericTypeId = Number(typeId);
+                if (!invalidSelectionsByType.has(numericTypeId)) invalidSelectionsByType.set(numericTypeId, new Set());
+                invalidSelectionsByType.get(numericTypeId).add(Number(entry.structure_id));
+            });
+        });
+        const isInvalidForType = (typeId, structureId) => invalidStructureIds.has(structureId)
+            || invalidSelectionsByType.get(typeId)?.has(structureId);
 
         readStructureItems().forEach((item) => {
             const typeId = Number(readValue(item, 'type_id', 'typeId'));
@@ -366,7 +381,7 @@
             const optionsMap = new Map();
             options.forEach((option) => {
                 const structureId = Number(readValue(option, 'structure_id', 'structureId'));
-                if (!structureId) {
+                if (!structureId || isInvalidForType(typeId, structureId)) {
                     return;
                 }
                 optionsMap.set(structureId, Object.assign({}, option, { structureId }));
@@ -391,7 +406,7 @@
                     selectedStructureId = preservedStructureId;
                 } else {
                     const preservedOption = preservedOptionsByType.get(typeId);
-                    if (preservedOption) {
+                    if (preservedOption && !isInvalidForType(typeId, preservedStructureId)) {
                         optionsMap.set(
                             preservedStructureId,
                             Object.assign({}, preservedOption, {
@@ -400,13 +415,26 @@
                             })
                         );
                         selectedStructureId = preservedStructureId;
+                    } else if (isInvalidForType(typeId, preservedStructureId)) {
+                        selectedStructureId = preservedStructureId;
                     }
                 }
             }
 
-            if (selectedStructureId && optionsMap.has(selectedStructureId)) {
+            if (selectedStructureId && (optionsMap.has(selectedStructureId) || isInvalidForType(typeId, selectedStructureId))) {
                 structureAssignmentsMap.set(typeId, selectedStructureId);
             }
+        });
+        invalidStructures.forEach((entry) => {
+            (entry.selected_type_ids || []).forEach((typeId) => {
+                const numericTypeId = Number(typeId);
+                const invalidStructureId = Number(entry.structure_id);
+                const preservedStructureId = preservedAssignments.get(numericTypeId);
+                if (!structureAssignmentsMap.has(numericTypeId)
+                    && (!preservedStructureId || preservedStructureId === invalidStructureId)) {
+                    structureAssignmentsMap.set(numericTypeId, invalidStructureId);
+                }
+            });
         });
     }
 
@@ -497,7 +525,7 @@
         }
 
         treeMap.forEach((entry) => {
-            if (!entry.craftable) {
+            if (!entry.craftable && entry.inclusionMode !== 'useless') {
                 return;
             }
 
@@ -598,7 +626,7 @@
         }
         metaState.changeCount += 1;
         metaState.lastUpdate = new Date().toISOString();
-        markTabsDirty(['materials', 'financial', 'needed']);
+        markTabsDirty(['materials', 'tree', 'cycles', 'financial', 'needed']);
     }
 
     function resolveSwitchStateFromInput(input) {
@@ -755,60 +783,79 @@
         return bonus > 0 ? bonus : 0;
     }
 
-    function computeStructureAdjustedMaterialQuantity(child, fallbackQuantity, materialBonusPercent) {
+    function computeStructureAdjustedMaterialQuantity(child, fallbackQuantity, materialBonusPercent, runsOverride, originalRuns) {
         const quantity = normalizeQuantity(fallbackQuantity);
-        const materialBonusApplicable = readValue(child, 'material_bonus_applicable', 'materialBonusApplicable');
         const baseQuantity = Number(readValue(child, 'base_quantity_per_run', 'baseQuantityPerRun')) || 0;
-        const jobRuns = Number(readValue(child, 'job_runs', 'jobRuns')) || 0;
-        const hasExplicitMaterialFlag = materialBonusApplicable === true || materialBonusApplicable === false;
-
-        // Only adjust true recipe material rows. Synthetic fit children and
-        // other non-material leaves must keep their exact quantity.
-        if (!hasExplicitMaterialFlag && !(baseQuantity > 0 && jobRuns > 0)) {
-            return quantity;
+        const savedRuns = normalizeQuantity(readValue(child, 'job_runs', 'jobRuns')) || normalizeQuantity(originalRuns);
+        const jobRuns = runsOverride === undefined ? savedRuns : normalizeQuantity(runsOverride);
+        const applicable = readValue(child, 'material_bonus_applicable', 'materialBonusApplicable');
+        if (!(jobRuns > 0)) {
+            return runsOverride === undefined ? quantity : 0;
         }
-
-        if (!(materialBonusPercent > 0) || materialBonusApplicable === false) {
-            return quantity;
+        if (baseQuantity > 0) {
+            const blueprintME = Math.max(0, Math.min(100,
+                Number(readValue(child, 'blueprint_material_efficiency', 'blueprintMaterialEfficiency')) || 0));
+            const blueprintMultiplier = applicable === false ? 1 : 1 - blueprintME / 100;
+            const structureMultiplier = applicable === false ? 1 : Math.max(0, 1 - materialBonusPercent / 100);
+            // Reduce the entire job, then round once, with one material per run.
+            return Math.max(jobRuns, Math.ceil(baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier));
         }
-
-        if (baseQuantity > 0 && jobRuns > 0) {
-            const blueprintME = Math.max(
-                0,
-                Math.min(
-                    100,
-                    Number(readValue(child, 'blueprint_material_efficiency', 'blueprintMaterialEfficiency')) || 0
-                )
-            );
-            const blueprintMultiplier = 1 - (blueprintME / 100);
-            const structureMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
-            const adjustedQuantity = normalizeQuantity(
-                baseQuantity * jobRuns * blueprintMultiplier * structureMultiplier
-            );
-            // EVE requires at least one unit of every listed material per run.
-            return Math.max(jobRuns, adjustedQuantity);
-        }
-
-        const fallbackMultiplier = Math.max(0, 1 - (materialBonusPercent / 100));
-        return normalizeQuantity(quantity * fallbackMultiplier);
+        // Pre-recipe payloads do not contain raw ME/exemption data. Preserve their
+        // saved inputs and reconstruct per job run, never per required output unit.
+        const reconstructed = savedRuns > 0 ? quantity * jobRuns / savedRuns : quantity;
+        const structureMultiplier = applicable === true ? Math.max(0, 1 - materialBonusPercent / 100) : 1;
+        return Math.max(jobRuns, normalizeQuantity(reconstructed * structureMultiplier));
     }
 
-    function adjustChildrenForStructure(children, typeId) {
-        const materialBonusPercent = getStructureMaterialBonus(typeId);
-        if (!(materialBonusPercent > 0) || !Array.isArray(children) || children.length === 0) {
-            return Array.isArray(children) ? children : [];
+    function getRecipeGraph() {
+        const recipes = new Map();
+        const rootNodes = Array.isArray(payload.materials_tree) ? payload.materials_tree : [];
+        function remember(node) {
+            const typeId = Number(readValue(node, 'type_id', 'typeId')) || 0;
+            const children = readChildren(node);
+            if (typeId > 0 && children.length > 0 && !node.is_synthetic_final_output && !recipes.has(typeId)) {
+                const summary = payload.craft_cycles_summary?.[typeId] || {};
+                const producedPerCycle = normalizeQuantity(readValue(node, 'produced_per_cycle', 'producedPerCycle'))
+                    || normalizeQuantity(readValue(summary, 'produced_per_cycle', 'producedPerCycle'))
+                    || (typeId === rootProductTypeId ? rootProductOutputPerCycle : 0) || 1;
+                const originalRuns = normalizeQuantity(node.cycles)
+                    || normalizeQuantity(readValue(children[0], 'job_runs', 'jobRuns'))
+                    || Math.ceil(normalizeQuantity(node.quantity) / producedPerCycle) || 1;
+                recipes.set(typeId, { node, children, producedPerCycle, originalRuns });
+            }
+            children.forEach(remember);
         }
-        return children.map((child) => {
-            const quantity = normalizeQuantity(readValue(child, 'quantity', 'qty'));
-            return cloneNodeWithQuantity(
-                child,
-                computeStructureAdjustedMaterialQuantity(
-                    child,
-                    quantity,
-                    materialBonusPercent
-                )
-            );
-        });
+        rootNodes.forEach(remember);
+        const flattenSynthetic = (nodes) => nodes.flatMap((node) => node.is_synthetic_final_output ? flattenSynthetic(readChildren(node)) : [node]);
+        const demandRoots = flattenSynthetic(rootNodes);
+        const includesRoot = rootProductTypeId > 0 && demandRoots.some((node) => Number(readValue(node, 'type_id', 'typeId')) === rootProductTypeId);
+        if (rootProductTypeId > 0 && rootNodes.length > 0 && !includesRoot) {
+            const finalQuantities = getFinalOutputQuantitiesByTypeId();
+            const producedPerCycle = rootProductOutputPerCycle || 1;
+            const quantity = finalQuantities.get(rootProductTypeId)
+                || normalizeQuantity(payload.final_product_qty || payload.finalProductQty)
+                || normalizeQuantity(payload.runs) * producedPerCycle;
+            recipes.set(rootProductTypeId, {
+                node: { type_id: rootProductTypeId, quantity },
+                children: rootNodes,
+                producedPerCycle,
+                originalRuns: normalizeQuantity(readValue(rootNodes[0], 'job_runs', 'jobRuns'))
+                    || normalizeQuantity(payload.runs) || Math.ceil(quantity / producedPerCycle) || 1,
+            });
+        }
+        return { recipes, rootNodes, demandRoots, includesRoot };
+    }
+
+    function getProductionInputs(typeId, runs, graph = getRecipeGraph()) {
+        const recipe = graph.recipes.get(Number(typeId));
+        if (!recipe) {
+            return [];
+        }
+        const bonus = getStructureMaterialBonus(typeId);
+        return recipe.children.map((child) => Object.assign({}, child, {
+            quantity: computeStructureAdjustedMaterialQuantity(child, readValue(child, 'quantity', 'qty'), bonus, runs, recipe.originalRuns),
+            job_runs: normalizeQuantity(runs),
+        }));
     }
 
     function getProdStockAllocationMap() {
@@ -851,102 +898,128 @@
         return Math.max(0, normalizedQuantity - coveredQuantity);
     }
 
-    function scaleChildrenQuantities(children, ratio) {
-        const normalizedRatio = Number(ratio);
-        if (!Array.isArray(children) || children.length === 0) {
-            return [];
-        }
-        if (!(normalizedRatio >= 0) || normalizedRatio === 1) {
-            return children;
-        }
-
-        return children
-            .map((child) => cloneNodeWithQuantity(
-                child,
-                normalizeQuantity(readValue(child, 'quantity', 'qty')) * normalizedRatio
-            ))
-            .filter((child) => normalizeQuantity(readValue(child, 'quantity', 'qty')) > 0);
-    }
-
-    function computeDemandFromPayloadTree() {
+    function computeDemandFromPayloadTree(options = {}) {
         const leafNeeds = new Map();
         const buyCraftables = new Map();
         const prodCraftables = new Map();
-        const rootNodes = Array.isArray(payload.materials_tree) ? payload.materials_tree : [];
-        const treeAlreadyIncludesRoot = Boolean(
-            rootProductTypeId
-            && rootNodes.some((node) => Number(readValue(node, 'type_id', 'typeId')) === rootProductTypeId)
-        );
+        const productionRuns = new Map();
+        const requirements = new Map();
+        const graph = getRecipeGraph();
+        const { recipes, rootNodes, demandRoots, includesRoot } = graph;
+        const usableTree = demandRoots.some((node) => Number(readValue(node, 'type_id', 'typeId')) > 0);
+        const finalQuantities = getFinalOutputQuantitiesByTypeId();
+        const allocations = options.stockAllocations === undefined ? getProdStockAllocationMap() : new Map(options.stockAllocations);
+        const modeFor = (typeId) => options.decisions?.get(typeId) || getSwitchState(typeId) || 'prod';
+        (options.skipStockForTypes || []).forEach((typeId) => allocations.delete(Number(typeId)));
 
-        const finalOutputQuantities = getFinalOutputQuantitiesByTypeId();
-        const remainingProdStockAllocations = getProdStockAllocationMap();
-
-        const walk = (nodes, blockedByBuyAncestor = false, rootLevel = false) => {
-            if (!Array.isArray(nodes) || nodes.length === 0) {
-                return;
-            }
-            nodes.forEach((node) => {
-                const typeId = Number(readValue(node, 'type_id', 'typeId'));
-                if (!typeId) {
-                    return;
-                }
-                if (blockedByBuyAncestor) {
-                    // A bought ancestor encapsulates this subtree; do not count children separately.
-                    return;
-                }
-
-                let qty = normalizeQuantity(readValue(node, 'quantity', 'qty'));
-                if (rootLevel && finalOutputQuantities.has(typeId)) {
-                    qty = finalOutputQuantities.get(typeId) || qty;
-                }
-                const children = readChildren(node);
-                const craftable = children.length > 0;
-
-                const state = craftable ? (getSwitchState(typeId) || 'prod') : (getSwitchState(typeId) || 'prod');
-                if (state === 'useless') {
-                    return;
-                }
-
-                if (craftable) {
-                    if (state === 'buy') {
-                        addToCounter(buyCraftables, typeId, qty);
-                        // Do not traverse children.
-                        return;
-                    }
-                    // Produced craftable: we need its inputs.
-                    const effectiveQty = consumeProdStockAllocation(remainingProdStockAllocations, typeId, qty);
-                    if (!(effectiveQty > 0)) {
-                        return;
-                    }
-                    addToCounter(prodCraftables, typeId, effectiveQty);
-                    const adjustedChildren = adjustChildrenForStructure(children, typeId);
-                    const scaledChildren = qty > 0 ? scaleChildrenQuantities(adjustedChildren, effectiveQty / qty) : adjustedChildren;
-                    walk(scaledChildren, false, false);
-                    return;
-                }
-
-                // Leaf material: always a buy input (unless explicitly marked useless).
-                addToCounter(leafNeeds, typeId, qty);
-            });
-        };
-
-        if (rootProductTypeId && rootNodes.length > 0) {
-            if (!treeAlreadyIncludesRoot) {
-                const rootQty = finalOutputQuantities.get(rootProductTypeId) || normalizeQuantity(payload.final_product_qty || payload.finalProductQty || 0);
-                const effectiveRootQty = consumeProdStockAllocation(remainingProdStockAllocations, rootProductTypeId, rootQty);
-                if (effectiveRootQty > 0) {
-                    addToCounter(prodCraftables, rootProductTypeId, effectiveRootQty);
-                    const adjustedRootChildren = adjustChildrenForStructure(rootNodes, rootProductTypeId);
-                    const scaledRootChildren = rootQty > 0 ? scaleChildrenQuantities(adjustedRootChildren, effectiveRootQty / rootQty) : adjustedRootChildren;
-                    walk(scaledRootChildren, false, false);
-                }
-            } else {
-                walk(rootNodes, false, true);
-            }
-        } else {
-            walk(rootNodes, false, true);
+        // A topological pass gathers every incoming requirement before rounding
+        // a shared subproduction. Its integer jobs drive both inputs and cycles.
+        const order = [];
+        const visited = new Set();
+        const visiting = new Set();
+        function visit(typeId) {
+            if (visited.has(typeId)) return;
+            if (visiting.has(typeId)) throw new Error('Cyclic craft recipe for type ' + typeId);
+            visiting.add(typeId);
+            const recipe = recipes.get(typeId);
+            if (recipe) recipe.children.forEach((child) => visit(Number(readValue(child, 'type_id', 'typeId'))));
+            visiting.delete(typeId);
+            visited.add(typeId);
+            order.push(typeId);
         }
-        return { leafNeeds, buyCraftables, prodCraftables };
+        if (Array.isArray(options.roots)) {
+            options.roots.forEach((root) => {
+                addToCounter(requirements, Number(root.typeId), root.quantity);
+                visit(Number(root.typeId));
+            });
+        } else if (rootProductTypeId > 0 && !includesRoot && recipes.has(rootProductTypeId)) {
+            addToCounter(requirements, rootProductTypeId, recipes.get(rootProductTypeId).node.quantity);
+            visit(rootProductTypeId);
+        } else {
+            const seededFinalTypes = new Set();
+            demandRoots.forEach((node) => {
+                const typeId = Number(readValue(node, 'type_id', 'typeId'));
+                if (finalQuantities.has(typeId)) {
+                    if (!seededFinalTypes.has(typeId)) addToCounter(requirements, typeId, finalQuantities.get(typeId));
+                    seededFinalTypes.add(typeId);
+                } else {
+                    addToCounter(requirements, typeId, readValue(node, 'quantity', 'qty'));
+                }
+                visit(typeId);
+            });
+        }
+        order.reverse().forEach((typeId) => {
+            const quantity = requirements.get(typeId) || 0;
+            const mode = modeFor(typeId);
+            if (!(quantity > 0) || mode === 'useless') return;
+            const recipe = recipes.get(typeId);
+            if (!recipe) {
+                addToCounter(leafNeeds, typeId, quantity);
+            } else if (mode === 'buy') {
+                addToCounter(buyCraftables, typeId, quantity);
+            } else {
+                const effectiveQuantity = consumeProdStockAllocation(allocations, typeId, quantity);
+                if (!(effectiveQuantity > 0)) return;
+                addToCounter(prodCraftables, typeId, effectiveQuantity);
+                const runs = Math.ceil(effectiveQuantity / recipe.producedPerCycle);
+                productionRuns.set(typeId, runs);
+                getProductionInputs(typeId, runs, graph).forEach((child) => {
+                    addToCounter(requirements, Number(readValue(child, 'type_id', 'typeId')), child.quantity);
+                });
+            }
+        });
+        const outputPerCycle = new Map(Array.from(recipes, ([typeId, recipe]) => [typeId, recipe.producedPerCycle]));
+        return { leafNeeds, buyCraftables, prodCraftables, productionRuns, requirements, outputPerCycle, usableTree };
+    }
+
+    function getCalculatedTree() {
+        const graph = getRecipeGraph();
+        const { recipes, rootNodes, includesRoot } = graph;
+        const allocations = getProdStockAllocationMap();
+        const finalQuantities = getFinalOutputQuantitiesByTypeId();
+        const cumulativeQuantity = new Map();
+        const seededFinalTypes = new Set();
+        function project(node, quantity) {
+            if (node.is_synthetic_final_output) {
+                return Object.assign({}, node, { sub_materials: readChildren(node).map((child) => project(child, normalizeQuantity(readValue(child, 'quantity', 'qty')))) });
+            }
+            const typeId = Number(readValue(node, 'type_id', 'typeId'));
+            const recipe = recipes.get(typeId);
+            const result = cloneNodeWithQuantity(node, quantity);
+            if (!recipe) return result;
+            const mode = getSwitchState(typeId) || 'prod';
+            const netQuantity = mode === 'prod' ? consumeProdStockAllocation(allocations, typeId, quantity) : 0;
+            const previousQuantity = cumulativeQuantity.get(typeId) || 0;
+            const nextQuantity = previousQuantity + netQuantity;
+            cumulativeQuantity.set(typeId, nextQuantity);
+            const previousRuns = Math.ceil(previousQuantity / recipe.producedPerCycle);
+            const nextRuns = Math.ceil(nextQuantity / recipe.producedPerCycle);
+            const previousInputs = new Map(getProductionInputs(typeId, previousRuns, graph).map((child) => [Number(readValue(child, 'type_id', 'typeId')), child.quantity]));
+            const nextInputs = new Map(getProductionInputs(typeId, nextRuns, graph).map((child) => [Number(readValue(child, 'type_id', 'typeId')), child.quantity]));
+            result.production_quantity = netQuantity;
+            result.cycles = nextRuns - previousRuns;
+            result.total_produced = result.cycles * recipe.producedPerCycle;
+            result.sub_materials = readChildren(node).map((child) => {
+                const childId = Number(readValue(child, 'type_id', 'typeId'));
+                const childQuantity = Math.max(0, (nextInputs.get(childId) || 0) - (previousInputs.get(childId) || 0));
+                return project(Object.assign({}, child, { job_runs: result.cycles }), childQuantity);
+            });
+            return result;
+        }
+        if (rootProductTypeId > 0 && !includesRoot && recipes.has(rootProductTypeId)) {
+            const recipe = recipes.get(rootProductTypeId);
+            const root = Object.assign({}, recipe.node, { sub_materials: rootNodes });
+            return project(root, root.quantity).sub_materials;
+        }
+        return rootNodes.map((node) => {
+            const typeId = Number(readValue(node, 'type_id', 'typeId'));
+            let quantity = normalizeQuantity(readValue(node, 'quantity', 'qty'));
+            if (!node.is_synthetic_final_output && finalQuantities.has(typeId)) {
+                quantity = seededFinalTypes.has(typeId) ? 0 : finalQuantities.get(typeId);
+                seededFinalTypes.add(typeId);
+            }
+            return project(node, quantity);
+        });
     }
 
     function getFinancialItems() {
@@ -965,7 +1038,7 @@
         demand.leafNeeds.forEach((qty, typeId) => addItem(typeId, qty));
         demand.buyCraftables.forEach((qty, typeId) => addItem(typeId, qty));
 
-        if (items.size === 0) {
+        if (!demand.usableTree) {
             const fallbackMaterials = Array.isArray(payload.direct_materials)
                 ? payload.direct_materials
                 : Array.isArray(payload.materials)
@@ -1064,7 +1137,8 @@
                 producedPerCycle = rootProductOutputPerCycle;
             }
 
-            const cycles = producedPerCycle > 0 ? Math.ceil(totalNeeded / producedPerCycle) : 0;
+            producedPerCycle = demand.outputPerCycle.get(Number(typeId)) || producedPerCycle;
+            const cycles = demand.productionRuns.get(Number(typeId)) || 0;
             const totalProduced = producedPerCycle * cycles;
             const surplus = Math.max(totalProduced - totalNeeded, 0);
 
@@ -1200,7 +1274,7 @@
                 preservedAssignments,
                 preservedStructureOptions
             );
-            markTabsDirty(['financial', 'cycles']);
+            markTabsDirty(['materials', 'tree', 'financial', 'needed', 'cycles']);
             return structurePlannerPayload;
         },
         setSwitchState,
@@ -1210,9 +1284,13 @@
             return entry ? entry.state : null;
         },
         getFinancialItems,
+        computeDemand: computeDemandFromPayloadTree,
+        getProductionInputs,
+        getCalculatedTree,
+        computeJobMaterialQuantity: computeStructureAdjustedMaterialQuantity,
         getAllMaterials,
         getNeededMaterials,
-    getProductionCycles: buildProductionCycles,
+        getProductionCycles: buildProductionCycles,
         getPrice,
         setPrice,
         setConfig,

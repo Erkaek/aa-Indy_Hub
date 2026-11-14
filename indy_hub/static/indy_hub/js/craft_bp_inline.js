@@ -17,6 +17,7 @@
     let projectWorkspaceDirtyBaselineSettled = !isProjectWorkspace;
     let projectWorkspaceUserInteracted = false;
     let projectWorkspaceAutoSavePromise = null;
+    let pendingRecipeRefresh = ['1', 'true', 'yes'].includes(new URLSearchParams(window.location?.search || '').get('refresh_sde')?.toLowerCase());
 
     function buildWorkspaceSignature(state) {
         const source = state && typeof state === 'object' ? { ...state } : {};
@@ -268,6 +269,7 @@
             stockLocationFilters: normalizedState.stockLocationFilters,
             decisionBuyTolerance: normalizedState.decisionBuyTolerance,
             cachedPayload: collectCachedProjectPayloadSnapshot(normalizedState),
+            refresh_sde: pendingRecipeRefresh,
             finalOutputQuantities: normalizedState.finalOutputQuantities,
             items: gatherProductionItems(),
             blueprint_efficiencies: gatherBlueprintEfficiencies(),
@@ -565,7 +567,7 @@
         }
 
         const { payload, normalizedState, signature } = collectProjectWorkspacePayload();
-        if (isProjectWorkspace && !isTemporaryProjectWorkspace && signature === lastSavedProjectStateSignature) {
+        if (isProjectWorkspace && !isTemporaryProjectWorkspace && signature === lastSavedProjectStateSignature && !pendingRecipeRefresh) {
             setProjectWorkspaceDirty(false);
             return true;
         }
@@ -587,6 +589,12 @@
         const data = await response.json();
         if (!data || !data.success) {
             throw new Error(data?.error || (isProjectWorkspace ? __('Unable to save table.') : __('Unable to save simulation.')));
+        }
+        if (pendingRecipeRefresh) {
+            pendingRecipeRefresh = false;
+            const savedUrl = new URL(window.location.href);
+            savedUrl.searchParams.delete('refresh_sde');
+            window.history.replaceState(window.history.state, '', savedUrl);
         }
 
         if (closeModal) {

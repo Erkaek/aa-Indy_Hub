@@ -14,6 +14,10 @@ from allianceauth.services.hooks import get_extension_logger
 
 # AA Example App
 from indy_hub.models import IndustryStructure, IndustryStructureRig
+from indy_hub.services.industry_constants import (
+    DEFAULT_DISABLED_ACTIVITY_FLAGS,
+    INDUSTRY_SERVICE_ACTIVITY_FLAGS,
+)
 from indy_hub.services.industry_structures import (
     get_industry_rig_catalog,
     get_structure_type_options,
@@ -26,34 +30,13 @@ from indy_hub.services.industry_structures import (
 
 logger = get_extension_logger(__name__)
 
-PASTE_ACTIVITY_FLAG_MAP = {
-    "material efficiency research": "enable_research",
-    "blueprint copying": "enable_research",
-    "time efficiency research": "enable_research",
-    "composite reactions": "enable_composite_reactions",
-    "biochemical reactions": "enable_biochemical_reactions",
-    "hybrid reactions": "enable_hybrid_reactions",
-    "invention": "enable_invention",
-    "manufacturing (standard)": "enable_manufacturing",
-    "manufacturing (capitals)": "enable_manufacturing_capitals",
-    "manufacturing (super capitals)": "enable_manufacturing_super_capitals",
-}
+# Compatibility name for integrations importing the original paste vocabulary.
+PASTE_ACTIVITY_FLAG_MAP = INDUSTRY_SERVICE_ACTIVITY_FLAGS
 
 UNSUPPORTED_SERVICE_LABELS = (
     "reprocessing",
     "compression",
 )
-
-DEFAULT_DISABLED_ACTIVITY_FLAGS = {
-    "enable_manufacturing": False,
-    "enable_manufacturing_capitals": False,
-    "enable_manufacturing_super_capitals": False,
-    "enable_research": False,
-    "enable_invention": False,
-    "enable_biochemical_reactions": False,
-    "enable_hybrid_reactions": False,
-    "enable_composite_reactions": False,
-}
 
 STRUCTURE_SCAN_MAX_LENGTH = 20000
 

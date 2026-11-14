@@ -159,11 +159,86 @@ class IndustryStructureRegistryViewTests(TestCase):
         self.assertIn("View", response.content.decode())
         self.assertIn("structureDetailModal1", response.content.decode())
         self.assertIn("Manufacturing", response.content.decode())
+        self.assertIn("Industry bonuses unavailable", response.content.decode())
+        self.assertIn(
+            "Cannot resolve selected structure 35825", response.content.decode()
+        )
         self.assertNotIn("Invention</td>", response.content.decode())
         self.assertRegex(
             response.content.decode(),
             r'(?s)name="update_existing_manual".*checked',
         )
+
+    @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
+    def test_registry_keeps_invalid_profile_visible_and_escapes_calculation_error(
+        self, _sde
+    ):
+        valid = IndustryStructure.objects.create(name="Valid profile")
+        invalid = IndustryStructure.objects.create(name="Invalid profile")
+
+        def resolve(structure):
+            if structure.pk == invalid.pk:
+                raise ValidationError(
+                    "Unsupported industry effect <script>bad</script>"
+                )
+            return []
+
+        with patch.object(
+            IndustryStructure,
+            "get_resolved_bonuses",
+            autospec=True,
+            side_effect=resolve,
+        ):
+            request = self._prepare_request(
+                self.factory.get(reverse("indy_hub:industry_structure_registry"))
+            )
+            response = self._view(request)
+        content = response.content.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(valid.name, content)
+        self.assertIn(invalid.name, content)
+        self.assertIn("Industry bonuses unavailable", content)
+        self.assertIn("&lt;script&gt;bad&lt;/script&gt;", content)
+        self.assertNotIn("<script>bad</script>", content)
+        self.assertTrue(IndustryStructure.objects.filter(pk=invalid.pk).exists())
+
+    def test_bonus_preview_and_advisor_return_explicit_configuration_errors(self):
+        for view, builder, route, rows_key in (
+            (
+                self._bonus_preview_view,
+                "build_structure_activity_previews",
+                "industry_structure_bonus_preview",
+                "rows",
+            ),
+            (
+                self._rig_advisor_view,
+                "build_structure_rig_advisor_rows",
+                "industry_structure_rig_advisor",
+                "activities",
+            ),
+        ):
+            with self.subTest(route=route):
+                with patch(
+                    f"indy_hub.views.industry.{builder}",
+                    side_effect=ValidationError(
+                        "Unknown industry effect on rig 999999"
+                    ),
+                ):
+                    request = self._prepare_request(
+                        self.factory.get(
+                            reverse(f"indy_hub:{route}"),
+                            {
+                                "structure_type_id": "35825",
+                                "solar_system_name": "Jita",
+                                "rig_type_id": "999999",
+                            },
+                        )
+                    )
+                    response = view(request)
+                self.assertEqual(response.status_code, 400)
+                payload = json.loads(response.content)
+                self.assertIn("Unknown industry effect", payload["error"])
+                self.assertEqual(payload[rows_key], [])
 
     @patch("indy_hub.views.industry.sde_item_types_loaded", return_value=True)
     @patch("indy_hub.models.IndustryStructure.get_resolved_bonuses")

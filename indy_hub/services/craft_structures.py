@@ -11,11 +11,23 @@ from functools import lru_cache
 from math import ceil
 
 # Django
+from django.core.exceptions import ValidationError
 from django.db import connection
 
 # AA Example App
 from indy_hub.models import IndustryActivityMixin, IndustryStructure
-from indy_hub.services.industry_structures import IndustryStructureResolvedBonus
+from indy_hub.services.industry_constants import (
+    COPYING_JOB_COST_BASE_RATE,
+    PERCENT_FACTOR,
+    SCC_SURCHARGE_RATE,
+)
+from indy_hub.services.industry_rules import get_industry_rule
+from indy_hub.services.industry_structures import (
+    IndustryStructureResolvedBonus,
+    _rules_validation_errors,
+    _sde_lru_cache,
+    get_industry_sde_qualification,
+)
 
 _SDE_ACTIVITY_ID_BY_NAME = {
     "manufacturing": IndustryActivityMixin.ACTIVITY_MANUFACTURING,
@@ -45,10 +57,6 @@ def _activity_id_from_sde_value(value: object) -> int:
         text, IndustryActivityMixin.ACTIVITY_MANUFACTURING
     )
 
-
-PERCENT_FACTOR = Decimal("100")
-SCC_SURCHARGE_RATE = Decimal("0.04")
-COPYING_JOB_COST_BASE_RATE = Decimal("0.02")
 
 SUPER_CAPITAL_GROUP_NAMES = {"Supercarrier", "Titan"}
 CAPITAL_GROUP_NAMES = {
@@ -164,7 +172,16 @@ def _serialize_bonus_breakdown(
 def _item_supported_by_bonus(
     bonus: IndustryStructureResolvedBonus,
     item_tags: set[str],
+    *,
+    group_id: int | None = None,
+    category_id: int | None = None,
 ) -> bool:
+    if bonus.target_filter_id is not None:
+        return (group_id is not None and int(group_id) in bonus.target_group_ids) or (
+            category_id is not None and int(category_id) in bonus.target_category_ids
+        )
+    # Compatibility for deliberately supplied legacy bonuses. Resolved CCP
+    # manufacturing/reaction bonuses always carry an authoritative numeric filter.
     if not bonus.supported_type_names:
         return True
     supported_names = {
@@ -184,14 +201,38 @@ def _normalize_label(value: str | None) -> str:
     return " ".join(words)
 
 
-def _reaction_service_category_for_item(group_name: str) -> str | None:
+def _reaction_service_category_for_item(
+    group_name: str = "", *, group_id: int | None = None
+) -> str | None:
+    if group_id is not None:
+        missing_bindings = []
+        for effect, service_category in (
+            ("rigReactionHybMatBonus", "hybrid_reactions"),
+            ("rigReactionBioMatBonus", "biochemical_reactions"),
+            ("rigReactionCompMatBonus", "composite_reactions"),
+        ):
+            rule = get_industry_rule(effect)
+            if rule is None:
+                missing_bindings.append(effect)
+                continue
+            if int(group_id) in rule.group_ids:
+                return service_category
+        if missing_bindings:
+            raise ValidationError(
+                f"Missing CCP reaction family binding {', '.join(missing_bindings)}; "
+                f"cannot classify reaction group {group_id} for facility services or taxes."
+            )
+        return None
     normalized_group = _normalize_label(group_name)
-    if normalized_group in {"biochemical reaction", "biochemical material"}:
+    if normalized_group in {
+        "biochemical reaction",
+        "biochemical material",
+        "molecular forged material",
+    }:
         return "biochemical_reactions"
     if normalized_group in {
         "hybrid reaction",
         "hybrid polymer",
-        "molecular forged material",
     }:
         return "hybrid_reactions"
     if normalized_group in {
@@ -204,7 +245,7 @@ def _reaction_service_category_for_item(group_name: str) -> str | None:
     return None
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def _get_manufacturing_ship_group_names() -> set[str]:
     """Return normalized manufacturing ship group names from live SDE data.
 
@@ -251,7 +292,7 @@ def _get_manufacturing_ship_group_names() -> set[str]:
     return fallback_normalized
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def _get_super_capital_ship_group_names() -> set[str]:
     return {
         group_name
@@ -261,7 +302,7 @@ def _get_super_capital_ship_group_names() -> set[str]:
     }
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def _get_capital_ship_group_names() -> set[str]:
     super_capital_names = _get_super_capital_ship_group_names()
     return {
@@ -272,14 +313,32 @@ def _get_capital_ship_group_names() -> set[str]:
     }
 
 
-def _service_category_for_item(activity_id: int, group_name: str) -> str | None:
+@_rules_validation_errors
+def _service_category_for_item(
+    activity_id: int, group_name: str, *, group_id: int | None = None
+) -> str | None:
     if activity_id in {
         IndustryActivityMixin.ACTIVITY_REACTIONS,
         IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
     }:
-        return _reaction_service_category_for_item(group_name)
+        return _reaction_service_category_for_item(group_name, group_id=group_id)
     if activity_id != IndustryActivityMixin.ACTIVITY_MANUFACTURING:
         return None
+
+    if group_id is not None:
+        # Service eligibility uses the numeric SDE group even in a translated
+        # installation. Freighters retain their existing capital-service policy.
+        if int(group_id) in {30, 659}:
+            return "manufacturing_super_capitals"
+        capital_filter = get_industry_rule("rigCapShipManufactureMaterialBonus")
+        if capital_filter is None:
+            raise ValidationError(
+                "Missing CCP capital manufacturing service binding; "
+                f"cannot classify product group {group_id} for facility services or taxes."
+            )
+        if int(group_id) in set(capital_filter.group_ids) | {513, 902}:
+            return "manufacturing_capitals"
+        return "manufacturing"
 
     normalized_group = _normalize_label(group_name)
     if _is_super_carrier_variant(normalized_group):
@@ -313,11 +372,8 @@ def _structure_supports_item(
             return bool(structure.enable_hybrid_reactions)
         if service_category == "composite_reactions":
             return bool(structure.enable_composite_reactions)
-        return bool(
-            structure.enable_biochemical_reactions
-            or structure.enable_hybrid_reactions
-            or structure.enable_composite_reactions
-        )
+        # A future reaction group cannot borrow another family's service/tax.
+        return False
 
     return False
 
@@ -328,7 +384,7 @@ def _activity_label(activity_id: int) -> str:
     )
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def _load_stargate_adjacency() -> dict[int, tuple[int, ...]]:
     adjacency: dict[int, set[int]] = {}
     with connection.cursor() as cursor:
@@ -722,7 +778,9 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
                 item.base_price AS base_price,
                 activity.activity AS activity_name,
                 {group_name_expr} AS group_name,
-                {category_name_expr} AS category_name
+                {category_name_expr} AS category_name,
+                grp.id AS group_id,
+                category.id AS category_id
             FROM eve_sde_blueprintactivityproduct product
             JOIN eve_sde_blueprintactivity activity ON activity.id = product.blueprint_activity_id
             JOIN eve_sde_itemtype item ON item.id = product.item_type_id
@@ -747,6 +805,8 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
             activity_name,
             group_name,
             category_name,
+            group_id,
+            category_id,
         ) in cursor.fetchall():
             activity_id = _activity_id_from_sde_value(activity_name)
             rows.append(
@@ -760,6 +820,8 @@ def _fetch_craftable_item_rows(type_ids: list[int]) -> list[dict[str, object]]:
                     "activity_label": _activity_label(activity_id),
                     "group_name": str(group_name or ""),
                     "category_name": str(category_name or ""),
+                    "group_id": int(group_id),
+                    "category_id": int(category_id),
                 }
             )
     return rows
@@ -797,6 +859,7 @@ def build_craft_structure_planner(
 
     item_rows = _fetch_craftable_item_rows(craftable_type_ids)
     item_rows_by_type_id = {int(row["type_id"]): row for row in item_rows}
+    industry_qualification = get_industry_sde_qualification()
 
     if product_type_id and product_type_id not in item_rows_by_type_id:
         item_rows_by_type_id[int(product_type_id)] = {
@@ -844,22 +907,73 @@ def build_craft_structure_planner(
         for structure in structures
     ]
 
+    registered_structure_ids = {int(structure.id) for structure in structures}
+    missing_selected_structure_ids = (
+        set(selected_assignments.values()) - registered_structure_ids
+    )
+    invalid_structures = [
+        {
+            "structure_id": structure_id,
+            "name": f"Structure {structure_id}",
+            "error": "The selected structure is no longer registered.",
+            "selected_type_ids": [
+                type_id
+                for type_id, selected_id in selected_assignments.items()
+                if selected_id == structure_id
+            ],
+        }
+        for structure_id in sorted(missing_selected_structure_ids)
+    ]
+
     if not structures:
         return {
             "items": [],
             "structures": serialized_structures,
+            "invalid_structures": invalid_structures,
+            "invalid_items": [],
             "summary": {
                 "has_structures": False,
+                "invalid_structure_count": len(invalid_structures),
+                "invalid_item_count": 0,
+                "industry_qualification": industry_qualification,
                 "message": "No registered structures available.",
             },
         }
 
-    resolved_bonuses_by_structure = {
-        int(structure.id): IndustryStructure.get_resolved_bonuses(structure)
-        for structure in structures
+    resolved_bonuses_by_structure = {}
+    for structure in structures:
+        try:
+            resolved_bonuses_by_structure[int(structure.id)] = (
+                IndustryStructure.get_resolved_bonuses(structure)
+            )
+        except ValidationError as exc:
+            invalid_structures.append(
+                {
+                    "structure_id": int(structure.id),
+                    "name": structure.name,
+                    "error": " ".join(exc.messages),
+                    "selected_type_ids": [
+                        type_id
+                        for type_id, structure_id in selected_assignments.items()
+                        if structure_id == int(structure.id)
+                    ],
+                }
+            )
+    errors_by_id = {row["structure_id"]: row["error"] for row in invalid_structures}
+    for structure in serialized_structures:
+        error = errors_by_id.get(structure["structure_id"], "")
+        structure["is_calculation_valid"] = not bool(error)
+        structure["calculation_error"] = error
+    structures_by_id = {int(structure.id): structure for structure in structures}
+    invalid_selected_structure_names = {
+        type_id: row["name"]
+        for row in invalid_structures
+        for type_id in row["selected_type_ids"]
     }
+    invalid_service_selections_by_structure = {}
 
     planner_items: list[dict[str, object]] = []
+    invalid_items: list[dict[str, object]] = []
     standalone_recommendations: dict[int, dict[str, object]] = {}
 
     for type_id in craftable_type_ids:
@@ -873,7 +987,64 @@ def build_craft_structure_planner(
             _normalize_label(value) for value in {group_name, category_name} if value
         }
         activity_id = int(item_row["activity_id"])
-        service_category = _service_category_for_item(activity_id, group_name)
+        group_id = item_row.get("group_id")
+        category_id = item_row.get("category_id")
+        calculation_error = ""
+        try:
+            service_category = _service_category_for_item(
+                activity_id, group_name, group_id=group_id
+            )
+        except ValidationError as exc:
+            service_category = None
+            calculation_error = " ".join(exc.messages)
+        if (
+            activity_id
+            in {
+                IndustryActivityMixin.ACTIVITY_REACTIONS,
+                IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
+            }
+            and service_category is None
+            and not calculation_error
+        ):
+            calculation_error = (
+                f"Unknown reaction family for product {type_id} "
+                f"(group {group_id if group_id is not None else group_name!s}); "
+                "update the verified reaction family rules before choosing a facility or tax."
+            )
+        if calculation_error:
+            invalid_items.append(
+                {
+                    "type_id": int(type_id),
+                    "type_name": str(item_row["type_name"]),
+                    "group_id": group_id,
+                    "activity_id": activity_id,
+                    "error": calculation_error,
+                }
+            )
+        selected_structure_id = selected_assignments.get(int(type_id))
+        if selected_structure_id in resolved_bonuses_by_structure:
+            selected_structure = structures_by_id[selected_structure_id]
+            if not _structure_supports_item(
+                selected_structure, activity_id, service_category
+            ):
+                selection_error = invalid_service_selections_by_structure.get(
+                    selected_structure_id
+                )
+                if selection_error is None:
+                    selection_error = {
+                        "structure_id": selected_structure_id,
+                        "name": selected_structure.name,
+                        "error": calculation_error
+                        or "The selected structure does not support this product's industry activity.",
+                        "selection_only": True,
+                        "selected_type_ids": [],
+                    }
+                    invalid_service_selections_by_structure[selected_structure_id] = (
+                        selection_error
+                    )
+                    invalid_structures.append(selection_error)
+                selection_error["selected_type_ids"].append(int(type_id))
+                invalid_selected_structure_names[int(type_id)] = selected_structure.name
         total_needed = int(
             (craft_cycles_summary.get(type_id) or {}).get("total_needed")
             or (craft_cycles_summary.get(str(type_id)) or {}).get("total_needed")
@@ -884,6 +1055,10 @@ def build_craft_structure_planner(
 
         options: list[dict[str, object]] = []
         for structure in structures:
+            if calculation_error:
+                continue
+            if int(structure.id) not in resolved_bonuses_by_structure:
+                continue
             if not _structure_supports_item(structure, activity_id, service_category):
                 continue
 
@@ -891,7 +1066,9 @@ def build_craft_structure_planner(
                 bonus
                 for bonus in resolved_bonuses_by_structure[int(structure.id)]
                 if bonus.activity_id == activity_id
-                and _item_supported_by_bonus(bonus, item_tags)
+                and _item_supported_by_bonus(
+                    bonus, item_tags, group_id=group_id, category_id=category_id
+                )
             ]
             rig_bonuses = [
                 bonus
@@ -1007,7 +1184,10 @@ def build_craft_structure_planner(
                 "activity_label": str(item_row["activity_label"]),
                 "group_name": group_name,
                 "category_name": category_name,
+                "group_id": group_id,
+                "category_id": category_id,
                 "service_category": service_category,
+                "calculation_error": calculation_error,
                 "base_price": float(item_row.get("base_price") or 0),
                 "estimated_item_value": float(
                     max(0, float(item_row.get("base_price") or 0))
@@ -1124,6 +1304,14 @@ def build_craft_structure_planner(
         if user_selected_option is not None:
             item["selected_structure_id"] = int(user_selected_option["structure_id"])
             item["selected_structure_name"] = str(user_selected_option["name"])
+        elif (
+            user_selected_structure_id
+            and int(item["type_id"]) in invalid_selected_structure_names
+        ):
+            item["selected_structure_id"] = int(user_selected_structure_id)
+            item["selected_structure_name"] = invalid_selected_structure_names[
+                int(item["type_id"])
+            ]
         else:
             item["selected_structure_id"] = None
             item["selected_structure_name"] = ""
@@ -1150,8 +1338,13 @@ def build_craft_structure_planner(
     return {
         "items": planner_items,
         "structures": serialized_structures,
+        "invalid_structures": invalid_structures,
+        "invalid_items": invalid_items,
         "summary": {
-            "has_structures": bool(serialized_structures),
+            "has_structures": bool(resolved_bonuses_by_structure),
+            "invalid_structure_count": len(invalid_structures),
+            "invalid_item_count": len(invalid_items),
+            "industry_qualification": industry_qualification,
             "has_full_options": bool(include_all_options),
             "anchor_structure_id": (
                 int(anchor_option["structure_id"]) if anchor_option else None

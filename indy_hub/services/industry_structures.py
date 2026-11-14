@@ -3,20 +3,37 @@
 from __future__ import annotations
 
 # Standard Library
-import re
+import hashlib
 from dataclasses import dataclass
 from decimal import Decimal
-from functools import lru_cache
+from functools import lru_cache, wraps
 
 # Django
 from django.core.exceptions import ValidationError
-from django.db import DatabaseError, connection
+from django.db import connection
 
 # AA Example App
 from indy_hub.models import (
     IndustryActivityMixin,
     IndustryStructure,
     IndustrySystemCostIndex,
+)
+from indy_hub.services.industry_constants import (
+    COPYING_JOB_COST_BASE_PERCENT,
+    PERCENT_FACTOR,
+    SCC_SURCHARGE_PERCENT,
+)
+from indy_hub.services.industry_rules import (
+    INDUSTRY_RULES_VERSION,
+    IndustryRulesError,
+    get_industry_build_qualification,
+    get_industry_rig_security_attribute_ids,
+    get_industry_rule,
+    get_industry_rules_for_hull,
+    get_industry_rules_for_rig,
+    get_industry_source_attribute_values,
+    get_industry_source_metadata,
+    is_known_industry_effect,
 )
 from indy_hub.services.industry_structure_primitives import (
     normalize_decimal as _normalize_decimal,
@@ -35,10 +52,168 @@ from indy_hub.services.industry_structure_primitives import (
 # Backward-compatible export used by tests and callers importing from this module.
 round_security_status = _round_security_status
 
-PERCENT_FACTOR = Decimal("100")
-DEFAULT_SCC_SURCHARGE_PERCENT = Decimal("4")
+DEFAULT_SCC_SURCHARGE_PERCENT = SCC_SURCHARGE_PERCENT
 ALPHA_CLONE_TAX_PERCENT = Decimal("0.25")
-COPYING_JOB_COST_BASE_PERCENT = Decimal("2")
+# Bump when resolver semantics change without changing the pinned CCP dataset.
+# Both structure and saved-project caches include this calculation token.
+INDUSTRY_RESOLVER_VERSION = "resolver-v4"
+_sde_cache_generation: str | None = None
+_RULE_QUALIFICATION_SECTIONS = frozenset(
+    {"TypeDogma", "TypeEffect", "DogmaEffect", "DogmaAttribute"}
+)
+
+
+def _rules_validation_errors(function):
+    """Expose typed rule failures through the existing Django consumer boundary."""
+
+    @wraps(function)
+    def checked(*args, **kwargs):
+        try:
+            return function(*args, **kwargs)
+        except IndustryRulesError as exc:
+            raise ValidationError(
+                f"CCP industry rules unavailable: {exc}", code=exc.code
+            ) from exc
+
+    return checked
+
+
+def _sde_lru_cache(*, maxsize: int):
+    """Check SDE generation before a hit, including cached missing records."""
+
+    def decorate(function):
+        cached = lru_cache(maxsize=maxsize)(function)
+
+        @wraps(function)
+        def lookup(*args, **kwargs):
+            get_industry_calculation_cache_token()
+            return cached(*args, **kwargs)
+
+        lookup.cache_clear = cached.cache_clear
+        lookup.cache_info = cached.cache_info
+        return lookup
+
+    return decorate
+
+
+def _get_industry_sde_sections():
+    """Read metadata directly, without a cross-process singleton cache."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT sde_section, build_number, last_update
+            FROM eve_sde_evesdesection
+            WHERE sde_section IN (
+                'ItemType', 'ItemGroup', 'ItemCategory', 'TypeDogma', 'TypeEffect',
+                'DogmaEffect', 'DogmaAttribute', 'BlueprintActivity',
+                'BlueprintActivityProduct', 'Stargate', 'SolarSystem'
+            )
+            ORDER BY sde_section
+            """
+        )
+        return cursor.fetchall()
+
+
+def get_industry_sde_qualification(
+    *, source_type_id: int | None = None
+) -> dict[str, object]:
+    """Report archive qualification separately from the installed build number."""
+    rows = _get_industry_sde_sections()
+    builds = sorted(
+        {
+            int(row[1])
+            for row in rows
+            if row[0] in _RULE_QUALIFICATION_SECTIONS and row[1] is not None
+        }
+    )
+    try:
+        result = get_industry_build_qualification(builds, source_type_id=source_type_id)
+    except IndustryRulesError as exc:
+        return {
+            "status": "incompatible",
+            "build_numbers": builds,
+            "reason": f"CCP industry rules unavailable: {exc}",
+            "error_code": exc.code,
+        }
+    required = {"TypeDogma", "TypeEffect", "DogmaEffect", "DogmaAttribute"}
+    present = {row[0] for row in rows if row[1] is not None}
+    if required - present and result["status"] != "incompatible":
+        result["status"] = "unqualified"
+        result["reason"] = (
+            "Missing installed SDE build metadata for "
+            + ", ".join(sorted(required - present))
+            + "; qualify the complete local Dogma import before calculating its bonuses."
+        )
+    result["attribute_build_numbers"] = sorted(
+        {int(row[1]) for row in rows if row[0] == "TypeDogma" and row[1] is not None}
+    )
+    return result
+
+
+def get_industry_calculation_cache_token() -> str:
+    """Version derived data against validated rules, SDE and resolver semantics.
+
+    Every process observes an SDE reload on its next calculation. No shared keys
+    or intentionally frozen recipe snapshots are cleared. Validation precedes
+    even a warm persistent-cache hit, so a malformed bundle cannot reuse it.
+    """
+    global _sde_cache_generation
+    rows = _get_industry_sde_sections()
+    availability = ""
+    try:
+        get_industry_build_qualification(
+            int(row[1])
+            for row in rows
+            if row[0] in _RULE_QUALIFICATION_SECTIONS and row[1] is not None
+        )
+    except IndustryRulesError as exc:
+        # A bad bundle invalidates calculations without blocking saved recipes,
+        # stock edits or other project functions independent of these rules.
+        availability = (
+            ":unavailable-" + hashlib.sha256(str(exc).encode()).hexdigest()[:16]
+        )
+    generation = hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()[:16]
+    token = f"{INDUSTRY_RULES_VERSION}{availability}:{generation}:{INDUSTRY_RESOLVER_VERSION}"
+    if _sde_cache_generation != token:
+        clear_industry_sde_caches()
+        _sde_cache_generation = token
+    return token
+
+
+def clear_industry_sde_caches() -> None:
+    """Invalidate only the in-process SDE lookups used by industry calculations."""
+    for name in (
+        "get_type_snapshot",
+        "get_structure_type_options",
+        "get_supported_industry_structure_type_ids",
+        "get_structure_type_catalog",
+        "structure_type_supports_rigs",
+        "get_industry_rig_options",
+        "get_industry_rig_catalog",
+        "get_grouped_industry_rig_options",
+        "get_structure_type_catalog_entry",
+        "is_rig_compatible_with_structure_type",
+        "resolve_item_type_reference",
+        "resolve_solar_system_reference",
+        "resolve_solar_system_location_reference",
+    ):
+        lookup = globals().get(name)
+        if lookup is not None and hasattr(lookup, "cache_clear"):
+            lookup.cache_clear()
+    # Local import avoids the planner's import of this module during startup.
+    # AA Example App
+    from indy_hub.services import craft_structures
+
+    for lookup in (
+        craft_structures._get_table_column_names,
+        craft_structures._sde_name_expression,
+        craft_structures._get_manufacturing_ship_group_names,
+        craft_structures._get_super_capital_ship_group_names,
+        craft_structures._get_capital_ship_group_names,
+        craft_structures._load_stargate_adjacency,
+    ):
+        lookup.cache_clear()
+
 
 RIG_SIZE_ATTRIBUTE_ID = 1547
 RIG_COMPATIBLE_GROUP_ATTRIBUTE_IDS = (1298, 1299, 1300)
@@ -48,6 +223,7 @@ ENGINEERING_RIG_MATERIAL_BONUS_ATTRIBUTE_ID = 2594
 ENGINEERING_RIG_COST_BONUS_ATTRIBUTE_ID = 2595
 REACTION_RIG_TIME_BONUS_ATTRIBUTE_ID = 2713
 REACTION_RIG_MATERIAL_BONUS_ATTRIBUTE_ID = 2714
+HIGHSEC_MODIFIER_ATTRIBUTE_ID = 2355
 LOWSEC_MODIFIER_ATTRIBUTE_ID = 2356
 NULLSEC_MODIFIER_ATTRIBUTE_ID = 2357
 
@@ -165,234 +341,6 @@ ENGINEERING_HULL_BONUS_MAPPING = {
 
 SUPPORTED_TYPES_LABEL = "Types supported"
 
-SHIP_SUPPORTED_TYPE_FALLBACKS = {
-    "ships_all": (
-        "Assault Frigate",
-        "Attack Battlecruiser",
-        "Battleship",
-        "Black Ops",
-        "Blockade Runner",
-        "Capital Industrial Ship",
-        "Carrier",
-        "Combat Battlecruiser",
-        "Combat Recon Ship",
-        "Command Destroyer",
-        "Command Ship",
-        "Corvette",
-        "Covert Ops",
-        "Cruiser",
-        "Deep Space Transport",
-        "Destroyer",
-        "Dreadnought",
-        "Electronic Attack Ship",
-        "Exhumer",
-        "Expedition Command Ship",
-        "Expedition Frigate",
-        "Flag Cruiser",
-        "Force Auxiliary",
-        "Force Recon Ship",
-        "Freighter",
-        "Frigate",
-        "Hauler",
-        "Heavy Assault Cruiser",
-        "Heavy Interdiction Cruiser",
-        "Industrial Command Ship",
-        "Interceptor",
-        "Interdictor",
-        "Jump Freighter",
-        "Lancer Dreadnought",
-        "Logistics",
-        "Logistics Frigate",
-        "Marauder",
-        "Mining Barge",
-        "Shuttle",
-        "Stealth Bomber",
-        "Strategic Cruiser",
-        "Supercarrier",
-        "Tactical Destroyer",
-        "Titan",
-    ),
-    "ships_capital": (
-        "Capital Industrial Ship",
-        "Carrier",
-        "Dreadnought",
-        "Force Auxiliary",
-        "Freighter",
-        "Jump Freighter",
-        "Lancer Dreadnought",
-        "Supercarrier",
-        "Titan",
-    ),
-    "ships_small": (
-        "Assault Frigate",
-        "Command Destroyer",
-        "Corvette",
-        "Covert Ops",
-        "Destroyer",
-        "Electronic Attack Ship",
-        "Expedition Frigate",
-        "Frigate",
-        "Interceptor",
-        "Interdictor",
-        "Logistics Frigate",
-        "Shuttle",
-        "Stealth Bomber",
-        "Tactical Destroyer",
-    ),
-    "ships_medium": (
-        "Attack Battlecruiser",
-        "Combat Battlecruiser",
-        "Combat Recon Ship",
-        "Command Ship",
-        "Cruiser",
-        "Flag Cruiser",
-        "Force Recon Ship",
-        "Heavy Assault Cruiser",
-        "Heavy Interdiction Cruiser",
-        "Logistics",
-        "Strategic Cruiser",
-    ),
-    "ships_large": (
-        "Battleship",
-        "Black Ops",
-        "Blockade Runner",
-        "Deep Space Transport",
-        "Exhumer",
-        "Expedition Command Ship",
-        "Hauler",
-        "Industrial Command Ship",
-        "Marauder",
-        "Mining Barge",
-    ),
-}
-
-SUPPORTED_TYPE_FALLBACKS = {
-    **SHIP_SUPPORTED_TYPE_FALLBACKS,
-    "equipment": ("Module", "Subsystem", "Deployable", "Implant", "Cargo Container"),
-    "ammo": ("Charge", "Script"),
-    "drones": ("Drone", "Fighter"),
-    "advanced_components": (
-        "Advanced Component",
-        "Construction Component",
-        "Hybrid Tech Component",
-        "Tool",
-        "Data Interface",
-        "Subsystem Component",
-    ),
-    "advanced_capital_components": (
-        "Advanced Capital Component",
-        "Advanced Capital Construction Component",
-    ),
-    "basic_capital_components": (
-        "Capital Component",
-        "Capital Construction Component",
-        "Construction Component",
-        "Structure Component",
-    ),
-    "structures": (
-        "Fuel Block",
-        "Infrastructure Upgrade",
-        "Sovereignty Structure",
-        "Starbase Structure",
-        "Structure",
-        "Structure Module",
-    ),
-    "invention": ("Invention",),
-    "me_research": ("ME Research",),
-    "te_research": ("TE Research",),
-    "copying": ("Copying",),
-    "biochemical_reactions": ("Biochemical Reaction", "Biochemical Material"),
-    "composite_reactions": (
-        "Composite Reaction",
-        "Composite",
-        "Intermediate Material",
-        "Unrefined Mineral",
-    ),
-    "hybrid_reactions": (
-        "Hybrid Reaction",
-        "Hybrid Polymer",
-        "Molecular-Forged Material",
-    ),
-    "polymer_reactions": (
-        "Polymer Reaction",
-        "Hybrid Polymer",
-        "Molecular-Forged Material",
-    ),
-}
-
-RIG_EFFECT_SUPPORTED_TYPE_FAMILIES = {
-    "rigallshipmanufacturematerialbonus": "ships_all",
-    "rigallshipmanufacturetimebonus": "ships_all",
-    "rigadvallshipmanufacturematerialbonus": "ships_all",
-    "rigadvallshipmanufacturetimebonus": "ships_all",
-    "rigcapshipmanufacturematerialbonus": "ships_capital",
-    "rigcapshipmanufacturetimebonus": "ships_capital",
-    "rigsmallshipmanufacturematerialbonus": "ships_small",
-    "rigsmallshipmanufacturetimebonus": "ships_small",
-    "rigadvsmallshipmanufacturematerialbonus": "ships_small",
-    "rigadvsmallshipmanufacturetimebonus": "ships_small",
-    "rigmedshipmanufacturematerialbonus": "ships_medium",
-    "rigmedshipmanufacturetimebonus": "ships_medium",
-    "rigadvmedshipmanufacturematerialbonus": "ships_medium",
-    "rigadvmedshipmanufacturetimebonus": "ships_medium",
-    "riglargeshipmanufacturematerialbonus": "ships_large",
-    "riglargeshipmanufacturetimebonus": "ships_large",
-    "rigadvlargeshipmanufacturematerialbonus": "ships_large",
-    "rigadvlargeshipmanufacturetimebonus": "ships_large",
-    "rigequipmentmanufacturematerialbonus": "equipment",
-    "rigequipmentmanufacturetimebonus": "equipment",
-    "rigammomanufacturematerialbonus": "ammo",
-    "rigammomanufacturetimebonus": "ammo",
-    "rigdronemanufacturematerialbonus": "drones",
-    "rigdronemanufacturetimebonus": "drones",
-    "rigadvcomponentmanufacturematerialbonus": "advanced_components",
-    "rigadvcomponentmanufacturetimebonus": "advanced_components",
-    "rigadvcapcomponentmanufacturematerialbonus": "advanced_capital_components",
-    "rigadvcapcomponentmanufacturetimebonus": "advanced_capital_components",
-    "rigcomponentmanufacturematerialbonus": "basic_capital_components",
-    "rigcomponentmanufacturetimebonus": "basic_capital_components",
-    "rigbascapcompmanufacturematerialbonus": "basic_capital_components",
-    "rigbascapcompmanufacturetimebonus": "basic_capital_components",
-    "rigstructuremanufacturematerialbonus": "structures",
-    "rigstructuremanufacturetimebonus": "structures",
-    "riginventioncostbonus": "invention",
-    "riginventiontimebonus": "invention",
-    "rigmeresearchcostbonus": "me_research",
-    "rigmeresearchtimebonus": "me_research",
-    "rigteresearchcostbonus": "te_research",
-    "rigteresearchtimebonus": "te_research",
-    "rigcopycostbonus": "copying",
-    "rigcopytimebonus": "copying",
-    "rigbiochemicalreactioncostbonus": "biochemical_reactions",
-    "rigbiochemicalreactiontimebonus": "biochemical_reactions",
-    "rigreactionbiomatbonus": "biochemical_reactions",
-    "rigreactionbiotimebonus": "biochemical_reactions",
-    "rigcompositereactioncostbonus": "composite_reactions",
-    "rigcompositereactiontimebonus": "composite_reactions",
-    "rigreactioncompmatbonus": "composite_reactions",
-    "rigreactioncomptimebonus": "composite_reactions",
-    "righybridreactioncostbonus": "hybrid_reactions",
-    "righybridreactiontimebonus": "hybrid_reactions",
-    "rigreactionhybmatbonus": "hybrid_reactions",
-    "rigreactionhybtimebonus": "hybrid_reactions",
-    "rigpolymerreactioncostbonus": "polymer_reactions",
-    "rigpolymerreactiontimebonus": "polymer_reactions",
-}
-
-LIVE_OUTPUT_SUPPORTED_TYPE_FAMILIES = {
-    "equipment": "manufacturing",
-    "ammo": "manufacturing",
-    "drones": "manufacturing",
-    "advanced_components": "manufacturing",
-    "advanced_capital_components": "manufacturing",
-    "basic_capital_components": "manufacturing",
-    "structures": "manufacturing",
-    "biochemical_reactions": "reaction",
-    "composite_reactions": "reaction",
-    "hybrid_reactions": "reaction",
-    "polymer_reactions": "reaction",
-}
-
 ENGINEERING_ACTIVITY_DEFAULTS = {
     "enable_manufacturing": True,
     "enable_manufacturing_capitals": False,
@@ -423,6 +371,9 @@ class SDETypeSnapshot:
     dogma_attributes: dict[int, Decimal]
     dogma_effect_names: tuple[str, ...]
     group_id: int | None = None
+    # Installed ORM snapshots carry IDs paired with names. None preserves the
+    # historical in-memory snapshot constructor used by integrations/fixtures.
+    dogma_effect_ids: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -435,6 +386,12 @@ class IndustryStructureResolvedBonus:
     material_efficiency_percent: Decimal = Decimal("0")
     time_efficiency_percent: Decimal = Decimal("0")
     job_cost_percent: Decimal = Decimal("0")
+    # These IDs are authoritative. Names above are display/legacy metadata only.
+    target_filter_id: int | None = None
+    target_group_ids: tuple[int, ...] = ()
+    target_category_ids: tuple[int, ...] = ()
+    dogma_effect_name: str = ""
+    modifying_attribute_id: int | None = None
 
     def get_activity_id_display(self) -> str:
         return dict(IndustryActivityMixin.INDUSTRY_ACTIVITY_CHOICES).get(
@@ -528,12 +485,12 @@ def sde_item_types_loaded() -> bool:
     return bool(row and row[0])
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def get_structure_type_options() -> list[tuple[int, str]]:
     return [(entry["type_id"], entry["name"]) for entry in get_structure_type_catalog()]
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def get_supported_industry_structure_type_ids() -> set[int]:
     return {int(entry["type_id"]) for entry in get_structure_type_catalog()}
 
@@ -544,7 +501,7 @@ def is_supported_industry_structure_type(structure_type_id: int | None) -> bool:
     return int(structure_type_id) in get_supported_industry_structure_type_ids()
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def get_structure_type_catalog() -> list[dict[str, object]]:
     catalog: list[dict[str, object]] = []
     for fallback in FALLBACK_STRUCTURE_TYPE_CATALOG:
@@ -567,7 +524,7 @@ def get_structure_type_catalog() -> list[dict[str, object]]:
     return sorted(catalog, key=lambda entry: str(entry["name"]))
 
 
-@lru_cache(maxsize=2048)
+@_sde_lru_cache(maxsize=2048)
 def structure_type_supports_rigs(structure_type_id: int | None) -> bool:
     if structure_type_id is None:
         return False
@@ -662,7 +619,7 @@ def get_enabled_activity_ids_from_flags(
     return activity_ids
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def get_industry_rig_options() -> list[tuple[int, str]]:
     return [
         (int(entry["type_id"]), str(entry["name"]))
@@ -685,7 +642,7 @@ def _rig_family_label(effect_names: tuple[str, ...]) -> str:
     return "Manufacturing"
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def get_industry_rig_catalog() -> list[dict[str, object]]:
     with connection.cursor() as cursor:
         cursor.execute(
@@ -773,7 +730,7 @@ def _is_rig_catalog_entry_compatible(
     return True
 
 
-@lru_cache(maxsize=1)
+@_sde_lru_cache(maxsize=1)
 def get_grouped_industry_rig_options(
     structure_type_id: int | None = None,
 ) -> list[tuple[str, list[tuple[int, str]]]]:
@@ -805,7 +762,7 @@ def get_grouped_industry_rig_options(
     return grouped_choices
 
 
-@lru_cache(maxsize=64)
+@_sde_lru_cache(maxsize=64)
 def get_structure_type_catalog_entry(
     structure_type_id: int,
 ) -> dict[str, object] | None:
@@ -815,7 +772,7 @@ def get_structure_type_catalog_entry(
     return None
 
 
-@lru_cache(maxsize=2048)
+@_sde_lru_cache(maxsize=2048)
 def is_rig_compatible_with_structure_type(
     *,
     rig_type_id: int | None,
@@ -874,7 +831,7 @@ def search_solar_system_options(
     ]
 
 
-@lru_cache(maxsize=2048)
+@_sde_lru_cache(maxsize=2048)
 def resolve_solar_system_reference(
     *, solar_system_id: int | None = None, solar_system_name: str | None = None
 ) -> tuple[int, str, str] | None:
@@ -891,7 +848,7 @@ def resolve_solar_system_reference(
     )
 
 
-@lru_cache(maxsize=2048)
+@_sde_lru_cache(maxsize=2048)
 def resolve_solar_system_location_reference(
     *, solar_system_id: int | None = None, solar_system_name: str | None = None
 ) -> dict[str, int | str | None] | None:
@@ -951,7 +908,7 @@ def resolve_solar_system_location_reference(
     }
 
 
-@lru_cache(maxsize=2048)
+@_sde_lru_cache(maxsize=2048)
 def resolve_item_type_reference(
     *, item_type_id: int | None = None, item_type_name: str | None = None
 ) -> tuple[int, str] | None:
@@ -983,7 +940,7 @@ def resolve_item_type_reference(
     return int(row[0]), str(row[1])
 
 
-@lru_cache(maxsize=2048)
+@_sde_lru_cache(maxsize=2048)
 def get_type_snapshot(item_type_id: int) -> SDETypeSnapshot | None:
     with connection.cursor() as cursor:
         cursor.execute(
@@ -1006,15 +963,22 @@ def get_type_snapshot(item_type_id: int) -> SDETypeSnapshot | None:
 
         cursor.execute(
             """
-            SELECT DISTINCT e.name
+            SELECT DISTINCT te.dogma_effect_id, e.name
             FROM eve_sde_typeeffect te
-            JOIN eve_sde_dogmaeffect e ON te.dogma_effect_id = e.id
-            WHERE te.item_type_id = %s AND e.name IS NOT NULL AND e.name != ''
-            ORDER BY e.name
+            LEFT JOIN eve_sde_dogmaeffect e ON te.dogma_effect_id = e.id
+            WHERE te.item_type_id = %s
+            ORDER BY e.name, te.dogma_effect_id
             """,
             [item_type_id],
         )
-        dogma_effect_names = tuple(str(row[0]) for row in cursor.fetchall())
+        effect_rows = cursor.fetchall()
+        if any(row[0] is None or not row[1] for row in effect_rows):
+            raise ValidationError(
+                f"Industrial source {item_type_id} has an incomplete Dogma effect "
+                "association; refresh or repair the local SDE."
+            )
+        dogma_effect_ids = tuple(int(row[0]) for row in effect_rows)
+        dogma_effect_names = tuple(str(row[1]) for row in effect_rows)
 
     return SDETypeSnapshot(
         type_id=int(item_row[0]),
@@ -1022,15 +986,16 @@ def get_type_snapshot(item_type_id: int) -> SDETypeSnapshot | None:
         group_id=int(item_row[2]) if item_row[2] is not None else None,
         dogma_attributes=dogma_attributes,
         dogma_effect_names=dogma_effect_names,
+        dogma_effect_ids=dogma_effect_ids,
     )
 
 
 def _multiplier_attribute_to_percent(value: Decimal) -> Decimal:
-    if value <= 0:
-        return Decimal("0")
-    if value <= Decimal("1"):
-        return (Decimal("1") - value) * PERCENT_FACTOR
-    return Decimal("0")
+    if not value.is_finite() or not Decimal("0") < value <= Decimal("1"):
+        raise ValidationError(
+            f"Unsupported CCP hull multiplier {value!s}; expected a finite value in (0, 1]."
+        )
+    return (Decimal("1") - value) * PERCENT_FACTOR
 
 
 def _security_modifier(
@@ -1040,423 +1005,225 @@ def _security_modifier(
         return dogma_attributes.get(LOWSEC_MODIFIER_ATTRIBUTE_ID, Decimal("1"))
     if security_band == IndustryStructure.SecurityBand.NULLSEC:
         return dogma_attributes.get(NULLSEC_MODIFIER_ATTRIBUTE_ID, Decimal("1"))
-    return Decimal("1")
+    return dogma_attributes.get(HIGHSEC_MODIFIER_ATTRIBUTE_ID, Decimal("1"))
 
 
-def _supported_type_family_from_effect_name(effect_name: str) -> str:
-    normalized = effect_name.lower()
-    return RIG_EFFECT_SUPPORTED_TYPE_FAMILIES.get(normalized, "")
-
-
-def _normalize_supported_type_name(value: str | None) -> str:
-    text = str(value or "").strip().casefold()
-    text = re.sub(r"[^a-z0-9]+", " ", text)
-    words = []
-    for word in text.split():
-        if len(word) > 3 and word.endswith("s"):
-            word = word[:-1]
-        words.append(word)
-    return " ".join(words)
-
-
-@lru_cache(maxsize=2)
-def _get_blueprint_output_name_rows(
-    activity_name: str,
-) -> tuple[tuple[str, str], ...]:
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT DISTINCT
-                    COALESCE(g.name_en, g.name) AS group_name,
-                    COALESCE(c.name_en, c.name) AS category_name
-                FROM eve_sde_blueprintactivityproduct bap
-                JOIN eve_sde_blueprintactivity ba ON ba.id = bap.blueprint_activity_id
-                JOIN eve_sde_itemtype t ON t.id = bap.item_type_id
-                JOIN eve_sde_itemgroup g ON g.id = t.group_id
-                JOIN eve_sde_itemcategory c ON c.id = g.category_id
-                WHERE ba.activity = %s
-                                AND t.published = 1
-                ORDER BY COALESCE(c.name_en, c.name), COALESCE(g.name_en, g.name)
-                """,
-                [activity_name],
-            )
-
-            rows = cursor.fetchall()
-    except DatabaseError:
-        return ()
-    return tuple(
-        (str(group_name or ""), str(category_name or ""))
-        for group_name, category_name in rows
-        if group_name or category_name
-    )
-
-
-def _live_output_row_matches_family(
-    family_key: str,
-    *,
-    group_name: str,
-    category_name: str,
-) -> bool:
-    normalized_group = _normalize_supported_type_name(group_name)
-    normalized_category = _normalize_supported_type_name(category_name)
-
-    if family_key == "equipment":
-        return (
-            normalized_category in {"module", "subsystem", "deployable", "implant"}
-            or normalized_group == "cargo container"
-        )
-    if family_key == "ammo":
-        return normalized_category == "charge" or normalized_group == "script"
-    if family_key == "drones":
-        return normalized_category == "drone" or normalized_group == "fighter"
-    if family_key == "advanced_components":
-        return normalized_category == "commodity" and (
-            normalized_group
-            in {
-                "advanced component",
-                "construction component",
-                "hybrid tech component",
-                "tool",
-                "data interface",
-                "subsystem component",
-            }
-        )
-    if family_key == "advanced_capital_components":
-        return normalized_category == "commodity" and (
-            normalized_group == "advanced capital component"
-            or normalized_group == "advanced capital construction component"
-        )
-    if family_key == "basic_capital_components":
-        return normalized_category == "commodity" and normalized_group in {
-            "capital component",
-            "capital construction component",
-            "construction component",
-            "structure component",
-        }
-    if family_key == "structures":
-        return normalized_category == "structure" or normalized_group in {
-            "fuel block",
-            "infrastructure upgrade",
-            "sovereignty structure",
-            "starbase structure",
-            "structure module",
-        }
-    if family_key == "biochemical_reactions":
-        return normalized_group in {"biochemical reaction", "biochemical material"}
-    if family_key == "composite_reactions":
-        return normalized_group in {
-            "composite reaction",
-            "composite",
-            "intermediate material",
-            "unrefined mineral",
-        }
-    if family_key == "hybrid_reactions":
-        return normalized_group in {
-            "hybrid reaction",
-            "hybrid polymer",
-            "molecular forged material",
-        }
-    if family_key == "polymer_reactions":
-        return normalized_group in {
-            "polymer reaction",
-            "hybrid polymer",
-            "molecular forged material",
-        }
-    return False
-
-
-def _supported_type_names_from_live_outputs(family_key: str) -> tuple[str, ...]:
-    activity_name = LIVE_OUTPUT_SUPPORTED_TYPE_FAMILIES.get(family_key)
-    if not activity_name:
-        return ()
-
-    live_rows = _get_blueprint_output_name_rows(activity_name)
-    if not live_rows:
-        return ()
-
-    use_category_labels = family_key in {"equipment", "ammo", "drones", "structures"}
-    resolved_names: list[str] = []
-    seen_names: set[str] = set()
-    for group_name, category_name in live_rows:
-        if not _live_output_row_matches_family(
-            family_key,
-            group_name=group_name,
-            category_name=category_name,
-        ):
-            continue
-
-        candidate_name = category_name if use_category_labels else group_name
-        if not candidate_name or candidate_name in seen_names:
-            continue
-        seen_names.add(candidate_name)
-        resolved_names.append(candidate_name)
-
-    return tuple(resolved_names)
-
-
-@lru_cache(maxsize=1)
-def _get_manufacturing_ship_group_names() -> tuple[str, ...]:
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT COALESCE(g.name_en, g.name) AS group_name
-                FROM eve_sde_blueprintactivityproduct bap
-                JOIN eve_sde_blueprintactivity ba ON ba.id = bap.blueprint_activity_id
-                JOIN eve_sde_itemtype t ON t.id = bap.item_type_id
-                JOIN eve_sde_itemgroup g ON g.id = t.group_id
-                JOIN eve_sde_itemcategory c ON c.id = g.category_id
-                WHERE ba.activity = 'manufacturing'
-                                AND t.published = 1
-                                AND COALESCE(c.name_en, c.name) = 'Ship'
-                GROUP BY g.id, COALESCE(g.name_en, g.name)
-                ORDER BY COALESCE(g.name_en, g.name)
-                """
-            )
-
-            rows = cursor.fetchall()
-    except DatabaseError:
-        return ()
-    return tuple(str(row[0]) for row in rows if row and row[0])
-
-
-def _filter_ship_supported_type_names(
-    family_key: str,
-    ship_group_names: tuple[str, ...],
-) -> tuple[str, ...]:
-    lowered = {name: name.lower() for name in ship_group_names}
-    if family_key == "ships_all":
-        return ship_group_names
-
-    keyword_sets = {
-        "ships_capital": (
-            "capital",
-            "carrier",
-            "dreadnought",
-            "auxiliary",
-            "freighter",
-            "supercarrier",
-            "titan",
-        ),
-        "ships_small": (
-            "frigate",
-            "destroyer",
-            "corvette",
-            "shuttle",
-            "bomber",
-            "interceptor",
-            "interdictor",
-            "covert ops",
-            "electronic attack",
-        ),
-        "ships_medium": (
-            "cruiser",
-            "battlecruiser",
-            "recon",
-            "command ship",
-            "logistics",
-            "strategic cruiser",
-        ),
-        "ships_large": (
-            "battleship",
-            "black ops",
-            "marauder",
-            "mining barge",
-            "exhumer",
-            "hauler",
-            "transport",
-            "industrial command",
-            "expedition command",
-        ),
-    }
-    keywords = keyword_sets.get(family_key)
-    if not keywords:
-        return ()
-    return tuple(
-        name
-        for name in ship_group_names
-        if any(keyword in lowered[name] for keyword in keywords)
-    )
-
-
+@_rules_validation_errors
 def _supported_type_names_for_effect(effect_name: str) -> tuple[str, ...]:
-    family_key = _supported_type_family_from_effect_name(effect_name)
-    if not family_key:
-        return ()
-
-    if family_key.startswith("ships_"):
-        ship_group_names = _get_manufacturing_ship_group_names()
-        filtered_names = _filter_ship_supported_type_names(family_key, ship_group_names)
-        if filtered_names:
-            return filtered_names
-
-    live_output_names = _supported_type_names_from_live_outputs(family_key)
-    if live_output_names:
-        return live_output_names
-
-    return SUPPORTED_TYPE_FALLBACKS.get(family_key, ())
+    """Return exact CCP filter labels for display, never product eligibility."""
+    rule = get_industry_rule(effect_name)
+    return rule.supported_type_names if rule is not None else ()
 
 
+@_rules_validation_errors
 def _rig_effect_mapping(effect_name: str) -> tuple[list[int], str] | None:
-    normalized = effect_name.lower()
-    if normalized in {
-        "structureengineeringrigsecuritymodification",
-        "structurereactionrigsecuritymodification",
-    }:
+    """Compatibility export backed by the versioned CCP source bindings."""
+    rule = get_industry_rule(effect_name)
+    if rule is None:
         return None
-    if "manufacture" in normalized and "material" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return (
-            [IndustryActivityMixin.ACTIVITY_MANUFACTURING],
-            "material_efficiency_percent",
-        )
-    if "manufacture" in normalized and "time" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return (
-            [IndustryActivityMixin.ACTIVITY_MANUFACTURING],
-            "time_efficiency_percent",
-        )
-    if "invention" in normalized and "cost" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return ([IndustryActivityMixin.ACTIVITY_INVENTION], "job_cost_percent")
-    if "invention" in normalized and "time" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return ([IndustryActivityMixin.ACTIVITY_INVENTION], "time_efficiency_percent")
-    if "meresearch" in normalized and "cost" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return ([IndustryActivityMixin.ACTIVITY_ME_RESEARCH], "job_cost_percent")
-    if "meresearch" in normalized and "time" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return ([IndustryActivityMixin.ACTIVITY_ME_RESEARCH], "time_efficiency_percent")
-    if "teresearch" in normalized and "cost" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return ([IndustryActivityMixin.ACTIVITY_TE_RESEARCH], "job_cost_percent")
-    if "teresearch" in normalized and "time" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return ([IndustryActivityMixin.ACTIVITY_TE_RESEARCH], "time_efficiency_percent")
-    if "copy" in normalized and "cost" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return ([IndustryActivityMixin.ACTIVITY_COPYING], "job_cost_percent")
-    if "copy" in normalized and "time" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return ([IndustryActivityMixin.ACTIVITY_COPYING], "time_efficiency_percent")
-    if "reaction" in normalized and (
-        "material" in normalized or "matbonus" in normalized
-    ):
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return (
-            [
-                IndustryActivityMixin.ACTIVITY_REACTIONS,
-                IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
-            ],
-            "material_efficiency_percent",
-        )
-    if "reaction" in normalized and "time" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return (
-            [
-                IndustryActivityMixin.ACTIVITY_REACTIONS,
-                IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
-            ],
-            "time_efficiency_percent",
-        )
-    if "reaction" in normalized and "cost" in normalized:
-        if not _supported_type_family_from_effect_name(effect_name):
-            return None
-        return (
-            [
-                IndustryActivityMixin.ACTIVITY_REACTIONS,
-                IndustryActivityMixin.ACTIVITY_REACTIONS_LEGACY,
-            ],
-            "material_efficiency_percent",
-        )
-    return None
+    return list(rule.activity_ids), rule.field_name
 
 
 def _rig_percent_for_field(
     dogma_attributes: dict[int, Decimal],
     *,
-    field_name: str,
+    modifying_attribute_id: int,
     security_band: str,
 ) -> Decimal:
-    attribute_ids = {
-        "time_efficiency_percent": (
-            ENGINEERING_RIG_TIME_BONUS_ATTRIBUTE_ID,
-            REACTION_RIG_TIME_BONUS_ATTRIBUTE_ID,
-        ),
-        "material_efficiency_percent": (
-            ENGINEERING_RIG_MATERIAL_BONUS_ATTRIBUTE_ID,
-            REACTION_RIG_MATERIAL_BONUS_ATTRIBUTE_ID,
-        ),
-        "job_cost_percent": (ENGINEERING_RIG_COST_BONUS_ATTRIBUTE_ID,),
-    }.get(field_name)
-    if not attribute_ids:
-        return Decimal("0")
-
-    base_value = Decimal("0")
-    for attribute_id in attribute_ids:
-        base_value = dogma_attributes.get(attribute_id, Decimal("0"))
-        if base_value != 0:
-            break
-    if base_value == 0:
-        return Decimal("0")
-
+    if modifying_attribute_id not in dogma_attributes:
+        raise ValidationError(
+            f"Industry rig is missing its CCP modifying attribute "
+            f"{modifying_attribute_id}; refresh or repair the local SDE."
+        )
+    base_value = dogma_attributes[modifying_attribute_id]
+    if not base_value.is_finite() or not Decimal("-100") <= base_value <= 0:
+        raise ValidationError(
+            f"Industry rig attribute {modifying_attribute_id} has unsupported "
+            f"CCP negative-percent value {base_value!s}; expected [-100, 0]."
+        )
     security_modifier = _security_modifier(dogma_attributes, security_band)
-    return abs(base_value * security_modifier)
+    if not security_modifier.is_finite() or security_modifier <= 0:
+        raise ValidationError(
+            f"Industry rig has unsupported CCP security multiplier {security_modifier!s}; "
+            "expected a finite positive value."
+        )
+    percent = abs(base_value * security_modifier)
+    if percent > PERCENT_FACTOR:
+        raise ValidationError(
+            f"Industry rig attribute {modifying_attribute_id} produces unsupported "
+            f"reduction {percent!s}%; expected [0, 100]."
+        )
+    return percent
 
 
+def _is_industry_bonus_effect(effect_name: str, effect_id: int | None = None) -> bool:
+    if is_known_industry_effect(effect_name, effect_id=effect_id):
+        return True
+    # Kept only to diagnose unsupported historical/new aliases. Source IDs and
+    # complete effect metadata remain authoritative when names do not match.
+    normalized = effect_name.casefold()
+    return normalized.startswith("rig") and any(
+        word in normalized
+        for word in ("manufacture", "reaction", "research", "invention", "copy")
+    )
+
+
+def _source_metadata(snapshot: SDETypeSnapshot, kind: str) -> dict:
+    metadata = get_industry_source_metadata(snapshot.type_id)
+    if metadata is None or metadata["kind"] != kind:
+        raise ValidationError(
+            f"Unknown industry source {snapshot.type_id} ({kind}); update the "
+            "verified CCP source bindings before calculating its bonuses."
+        )
+    return metadata
+
+
+def _validate_source_effects(snapshot: SDETypeSnapshot, metadata: dict) -> None:
+    """Validate the fields actually available from django-eveonline-sde.
+
+    modifierInfo is not stored by the installed ORM. Its operations/associations
+    are checked against the archive by the generator, never invented at runtime.
+    Historical in-memory snapshots omit IDs; real ORM snapshots always carry
+    them and must match the full source effect set, including nonindustrial ones.
+    """
+    expected_names = {row["name"].casefold() for row in metadata["effects"].values()}
+    for name in snapshot.dogma_effect_names:
+        rule = get_industry_rule(name, rig_type_id=snapshot.type_id)
+        canonical_name = rule.effect_name if rule is not None else name
+        if canonical_name.casefold() not in expected_names:
+            raise ValidationError(
+                f"Unknown industry effect {name!r} on source {snapshot.type_id}; "
+                "qualify the source archive before calculating its bonuses."
+            )
+    if snapshot.dogma_effect_ids is None:
+        return
+    if "group_id" in metadata and snapshot.group_id != metadata["group_id"]:
+        raise ValidationError(
+            f"Industry source {snapshot.type_id} group {snapshot.group_id!s} differs "
+            f"from its qualified CCP group {metadata['group_id']!s}."
+        )
+    if len(snapshot.dogma_effect_ids) != len(snapshot.dogma_effect_names):
+        raise ValidationError(
+            f"Incomplete Dogma effect names/IDs on source {snapshot.type_id}."
+        )
+    expected = {int(key): row for key, row in metadata["effects"].items()}
+    actual = dict(
+        zip(snapshot.dogma_effect_ids, snapshot.dogma_effect_names, strict=True)
+    )
+    if (
+        len(actual) != len(snapshot.dogma_effect_ids)
+        or actual.keys() != expected.keys()
+    ):
+        raise ValidationError(
+            f"CCP Dogma effect set differs on industry source {snapshot.type_id}: "
+            f"missing {sorted(expected.keys() - actual.keys())}, "
+            f"unknown {sorted(actual.keys() - expected.keys())}; "
+            "qualify the source archive or repair the local SDE."
+        )
+    for effect_id, name in actual.items():
+        expected_name = expected[effect_id]["name"]
+        # Preserve old spellings only when their canonical bound effect is exact.
+        rule = get_industry_rule(name, rig_type_id=snapshot.type_id)
+        canonical_name = rule.effect_name if rule is not None else name
+        if canonical_name.casefold() != expected_name.casefold():
+            raise ValidationError(
+                f"Unknown industry effect {name!r} (ID {effect_id}) on source "
+                f"{snapshot.type_id}; expected {expected_name!r}."
+            )
+    qualification = get_industry_sde_qualification(source_type_id=snapshot.type_id)
+    if qualification["status"] in {
+        "incompatible",
+        "unqualified",
+    }:
+        raise ValidationError(
+            f"Industry source {snapshot.type_id} cannot be calculated: "
+            f"{qualification['reason']}"
+        )
+    expected_attributes = get_industry_source_attribute_values(
+        snapshot.type_id,
+        build_numbers=qualification.get(
+            "attribute_build_numbers", qualification["build_numbers"]
+        ),
+    )
+    for raw_attribute_id, expected_value in expected_attributes.items():
+        attribute_id = int(raw_attribute_id)
+        actual_value = snapshot.dogma_attributes.get(attribute_id)
+        expected_decimal = Decimal(str(expected_value))
+        if actual_value != expected_decimal:
+            raise ValidationError(
+                f"Industry source {snapshot.type_id} attribute {attribute_id} differs "
+                f"from the qualified CCP projection: expected {expected_decimal!s}, "
+                f"found {actual_value!s}; qualify the source archive or repair the local SDE."
+            )
+    for raw_attribute_id, expected_value in metadata.get(
+        "fitting_attribute_values", {}
+    ).items():
+        attribute_id = int(raw_attribute_id)
+        value = snapshot.dogma_attributes.get(attribute_id)
+        if value != Decimal(str(expected_value)):
+            raise ValidationError(
+                f"Industry source {snapshot.type_id} fitting attribute {attribute_id} "
+                f"differs from its qualified CCP value {expected_value!s}: found {value!s}."
+            )
+
+
+@_rules_validation_errors
 def resolve_structure_type_bonuses(
     structure_type_id: int | None,
     *,
     structure_type_name: str = "",
 ) -> list[IndustryStructureResolvedBonus]:
-    if not structure_type_id:
+    if not structure_type_id or int(structure_type_id) == NPC_STATION_STRUCTURE_TYPE_ID:
         return []
 
     snapshot = get_type_snapshot(int(structure_type_id))
     if snapshot is None:
-        return []
+        raise ValidationError(
+            f"Cannot resolve selected structure {structure_type_id} from the local SDE; "
+            "its industry bonuses are unavailable."
+        )
+
+    metadata = _source_metadata(snapshot, "hull")
+    rules = get_industry_rules_for_hull(int(structure_type_id))
+    expected_attributes = {rule.attribute_id for rule in rules}
+    missing_attributes = expected_attributes - snapshot.dogma_attributes.keys()
+    if missing_attributes:
+        raise ValidationError(
+            f"Industry hull {structure_type_id} is missing its CCP modifying attributes "
+            f"{', '.join(str(value) for value in sorted(missing_attributes))}; "
+            "refresh or repair the local SDE."
+        )
+    _validate_source_effects(snapshot, metadata)
 
     label = structure_type_name or snapshot.name or "Structure role bonus"
     bonuses: list[IndustryStructureResolvedBonus] = []
-    for attribute_id, config in ENGINEERING_HULL_BONUS_MAPPING.items():
-        raw_value = snapshot.dogma_attributes.get(attribute_id)
-        if raw_value in {None, Decimal("0")}:
-            continue
+    # Hull sources bind multipliers directly. They deliberately do not pretend
+    # to be rig percentage effects and need no synthetic Dogma association.
+    for rule in rules:
+        raw_value = snapshot.dogma_attributes[rule.attribute_id]
         percent = _multiplier_attribute_to_percent(raw_value)
         if percent <= 0:
             continue
-        for activity_id in config["activities"]:
+        for activity_id in rule.activity_ids:
             values = {
                 "material_efficiency_percent": Decimal("0"),
                 "time_efficiency_percent": Decimal("0"),
                 "job_cost_percent": Decimal("0"),
             }
-            values[config["field"]] = percent
+            values[rule.field_name] = percent
             bonuses.append(
                 IndustryStructureResolvedBonus(
                     source=STRUCTURE_SOURCE,
                     label=label,
                     activity_id=activity_id,
+                    modifying_attribute_id=rule.attribute_id,
                     **values,
                 )
             )
     return bonuses
 
 
+@_rules_validation_errors
 def resolve_rig_type_bonuses(
     rig_type_id: int | None,
     *,
@@ -1465,26 +1232,87 @@ def resolve_rig_type_bonuses(
 ) -> list[IndustryStructureResolvedBonus]:
     if not rig_type_id:
         return []
+    if security_band not in {
+        IndustryStructure.SecurityBand.HIGHSEC,
+        IndustryStructure.SecurityBand.LOWSEC,
+        IndustryStructure.SecurityBand.NULLSEC,
+    }:
+        raise ValidationError(f"Unsupported industry security band {security_band!r}.")
 
     snapshot = get_type_snapshot(int(rig_type_id))
     if snapshot is None:
-        return []
+        raise ValidationError(
+            f"Cannot resolve selected rig {rig_type_id} from the local SDE; "
+            "its industry bonuses are unavailable."
+        )
 
     label = rig_type_name or snapshot.name or f"Rig {rig_type_id}"
-    bonuses: list[IndustryStructureResolvedBonus] = []
-    for effect_name in snapshot.dogma_effect_names:
-        mapping = _rig_effect_mapping(effect_name)
-        if not mapping:
+    rules = {}
+    for index, effect_name in enumerate(snapshot.dogma_effect_names):
+        effect_id = (
+            snapshot.dogma_effect_ids[index]
+            if snapshot.dogma_effect_ids is not None
+            and index < len(snapshot.dogma_effect_ids)
+            else None
+        )
+        rule = get_industry_rule(effect_name, rig_type_id=int(rig_type_id))
+        if rule is None:
+            if _is_industry_bonus_effect(effect_name, effect_id=effect_id):
+                raise ValidationError(
+                    f"Unknown industry effect {effect_name!r} on rig {rig_type_id}; "
+                    "update the pinned CCP industry rules before using this rig."
+                )
             continue
-        activity_ids, field_name = mapping
+        rules[rule.effect_name] = rule
+    missing_effects = {
+        rule.effect_name for rule in get_industry_rules_for_rig(int(rig_type_id))
+    } - rules.keys()
+    if missing_effects:
+        raise ValidationError(
+            f"Selected rig {rig_type_id} is missing its CCP industry effects "
+            f"{', '.join(sorted(missing_effects))}; refresh or repair the local SDE."
+        )
+    missing_modifying_attributes = {
+        rule.modifying_attribute_id for rule in rules.values()
+    } - snapshot.dogma_attributes.keys()
+    if missing_modifying_attributes:
+        raise ValidationError(
+            f"Industry rig {rig_type_id} is missing its CCP modifying attributes "
+            f"{', '.join(str(value) for value in sorted(missing_modifying_attributes))}; "
+            "refresh or repair the local SDE."
+        )
+    missing_security_attributes = (
+        set(get_industry_rig_security_attribute_ids(int(rig_type_id)))
+        - snapshot.dogma_attributes.keys()
+    )
+    if missing_security_attributes:
+        raise ValidationError(
+            f"Industry rig {rig_type_id} is missing its CCP security attributes "
+            f"{', '.join(str(value) for value in sorted(missing_security_attributes))}; "
+            "refresh or repair the local SDE."
+        )
+    metadata = _source_metadata(snapshot, "rig")
+    # Validate every declared multiplier, not only the currently selected band.
+    for attribute_id in metadata["security_attribute_ids"]:
+        value = snapshot.dogma_attributes[attribute_id]
+        if not value.is_finite() or value <= 0:
+            raise ValidationError(
+                f"Industry rig {rig_type_id} has unsupported CCP security attribute "
+                f"{attribute_id} value {value!s}; expected a finite positive multiplier."
+            )
+    _validate_source_effects(snapshot, metadata)
+
+    bonuses: list[IndustryStructureResolvedBonus] = []
+    for rule in rules.values():
+        activity_ids, field_name = rule.activity_ids, rule.field_name
         percent = _rig_percent_for_field(
             snapshot.dogma_attributes,
-            field_name=field_name,
+            modifying_attribute_id=rule.modifying_attribute_id,
             security_band=security_band,
         )
         if percent <= 0:
             continue
-        supported_type_names = _supported_type_names_for_effect(effect_name)
+        supported_type_names = rule.supported_type_names
         for activity_id in activity_ids:
             values = {
                 "material_efficiency_percent": Decimal("0"),
@@ -1501,6 +1329,11 @@ def resolve_rig_type_bonuses(
                         SUPPORTED_TYPES_LABEL if supported_type_names else ""
                     ),
                     supported_type_names=supported_type_names,
+                    target_filter_id=rule.target_filter_id,
+                    target_group_ids=rule.group_ids,
+                    target_category_ids=rule.category_ids,
+                    dogma_effect_name=rule.effect_name,
+                    modifying_attribute_id=rule.modifying_attribute_id,
                     **values,
                 )
             )

@@ -1,0 +1,18 @@
+{"_key": 1, "categoryIDs": [18, 87], "name": "Drones/Fighters"}
+{"_key": 2, "categoryIDs": [7, 20, 22], "groupIDs": [12, 340, 448, 649], "name": "Equipment"}
+{"_key": 3, "categoryIDs": [6, 32], "name": "Ships"}
+{"_key": 4, "categoryIDs": [8], "name": "Charges"}
+{"_key": 5, "groupIDs": [25, 31, 420], "name": "Small T1 Ships"}
+{"_key": 6, "groupIDs": [324, 541, 830, 831, 834, 893, 1283, 1305, 1527, 1534], "name": "Small T2 Ships"}
+{"_key": 7, "groupIDs": [26, 28, 419, 463, 1201, 4902, 5087], "name": "Medium T1 Ships"}
+{"_key": 8, "categoryIDs": [32], "groupIDs": [358, 380, 540, 543, 832, 833, 894, 906, 963, 1202, 1972, 4902], "name": "Medium T2 Ships"}
+{"_key": 9, "groupIDs": [27, 513, 941], "name": "Large T1 Ships"}
+{"_key": 10, "groupIDs": [898, 900, 902], "name": "Large T2 Ships"}
+{"_key": 11, "groupIDs": [485, 547, 883, 1538, 4594, 5120], "name": "Capital Ships"}
+{"_key": 12, "categoryIDs": [23, 39, 40, 65, 66], "groupIDs": [536, 1136, 4736], "name": "Structures"}
+{"_key": 13, "groupIDs": [873], "name": "Capital Components"}
+{"_key": 14, "groupIDs": [332, 334, 716, 964], "name": "Components"}
+{"_key": 15, "groupIDs": [913], "name": "Advanced Capital Components"}
+{"_key": 16, "groupIDs": [974], "name": "Hybrid Reactions"}
+{"_key": 17, "groupIDs": [712, 4096], "name": "Biochemical Reactions"}
+{"_key": 18, "groupIDs": [428, 429, 4932], "name": "Composite Reactions"}

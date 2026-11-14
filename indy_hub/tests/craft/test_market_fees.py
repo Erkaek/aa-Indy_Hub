@@ -54,7 +54,11 @@ class CraftMarketFeeTests(TestCase):
     def test_profiles_ignore_an_unsaved_or_placeholder_user(self) -> None:
         self.assertEqual(
             build_craft_market_fee_profiles(object()),
-            {"characters": [], "default_character_id": None},
+            {
+                "characters": [],
+                "default_character_id": None,
+                "default_sales_tax_percent": 7.5,
+            },
         )
 
     def test_profile_uses_cached_skills_and_saved_broker_fee(self) -> None:
@@ -74,6 +78,7 @@ class CraftMarketFeeTests(TestCase):
 
         payload = build_craft_market_fee_profiles(self.user)
 
+        self.assertEqual(payload["default_sales_tax_percent"], 7.5)
         self.assertEqual(payload["default_character_id"], self.character.character_id)
         row = payload["characters"][0]
         self.assertEqual(row["accounting_level"], 3)

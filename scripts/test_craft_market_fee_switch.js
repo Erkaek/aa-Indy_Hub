@@ -73,4 +73,22 @@ Object.entries(expected).forEach(([key, value]) => {
     }
 });
 
+// Exercise the real rate lookup as well as the fee arithmetic. A current
+// server default must supersede the compatibility literal for old payloads.
+const rateContext = {
+    getMarketFeeProfiles: () => ({ default_sales_tax_percent: 8.25 }),
+    normalizeMarketFeePercent: context.normalizeMarketFeePercent,
+};
+vm.createContext(rateContext);
+vm.runInContext(extractFunction(source, 'getSalesTaxPercentForCharacter', '\nfunction setMarketFeePersistStatus'), rateContext);
+if (rateContext.getSalesTaxPercentForCharacter(null) !== 8.25
+    || rateContext.getSalesTaxPercentForCharacter({ sales_tax_percent: 0 }) !== 0
+    || rateContext.getSalesTaxPercentForCharacter(character) !== 3.8375) {
+    throw new Error('Sales tax must use the explicit character rate or the server default');
+}
+rateContext.getMarketFeeProfiles = () => ({});
+if (rateContext.getSalesTaxPercentForCharacter(null) !== 7.5) {
+    throw new Error('Historical payloads must retain their original fallback');
+}
+
 console.log('craft market fee switch regression passed');

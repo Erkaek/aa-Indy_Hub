@@ -217,6 +217,8 @@ class CraftStructurePlannerTests(TestCase):
                     11,
                     "Composite Reactions",
                     "Material",
+                    429,
+                    4,
                 ),
             ]
         )
@@ -580,8 +582,381 @@ class CraftStructurePlannerTests(TestCase):
         )
         self.assertEqual(
             _service_category_for_item(9, "Molecular-Forged Materials"),
-            "hybrid_reactions",
+            "biochemical_reactions",
         )
+
+    @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
+    def test_invalid_structure_is_reported_and_excluded_without_changing_assignments(
+        self, item_rows
+    ):
+        # Django
+        from django.core.exceptions import ValidationError
+
+        item_rows.return_value = [
+            {
+                "type_id": 603,
+                "blueprint_type_id": 686,
+                "type_name": "Merlin",
+                "produced_per_cycle": 1,
+                "activity_id": 1,
+                "activity_label": "Manufacturing",
+                "group_id": 25,
+                "category_id": 6,
+                "group_name": "Frigate",
+                "category_name": "Ship",
+            }
+        ]
+        assignments = {603: self.nearby_structure.pk}
+
+        def resolve(structure):
+            if structure.pk == self.nearby_structure.pk:
+                raise ValidationError("Unknown industry effect on selected rig")
+            return []
+
+        with patch.object(
+            IndustryStructure,
+            "get_resolved_bonuses",
+            autospec=True,
+            side_effect=resolve,
+        ):
+            planner = build_craft_structure_planner(
+                product_type_id=603,
+                product_type_name="Merlin",
+                product_output_per_cycle=1,
+                craft_cycles_summary={},
+                selected_structure_assignments=assignments,
+            )
+        (invalid,) = planner["invalid_structures"]
+        self.assertEqual(invalid["structure_id"], self.nearby_structure.pk)
+        self.assertEqual(invalid["selected_type_ids"], [603])
+        self.assertIn("Unknown industry effect", invalid["error"])
+        self.assertEqual(planner["summary"]["invalid_structure_count"], 1)
+        (item,) = planner["items"]
+        self.assertTrue(item["options"])
+        self.assertNotIn(
+            self.nearby_structure.pk, [row["structure_id"] for row in item["options"]]
+        )
+        self.assertEqual(assignments, {603: self.nearby_structure.pk})
+        structure = next(
+            row
+            for row in planner["structures"]
+            if row["structure_id"] == self.nearby_structure.pk
+        )
+        self.assertFalse(structure["is_calculation_valid"])
+
+    def test_reaction_service_category_uses_numeric_groups_over_translated_names(self):
+        for group_id, expected in (
+            (974, "hybrid_reactions"),
+            (712, "biochemical_reactions"),
+            (4096, "biochemical_reactions"),
+            (428, "composite_reactions"),
+            (429, "composite_reactions"),
+            (4932, "composite_reactions"),
+            (999, None),
+        ):
+            with self.subTest(group=group_id):
+                self.assertEqual(
+                    _service_category_for_item(9, "Nom traduit", group_id=group_id),
+                    expected,
+                )
+
+    @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
+    @patch("indy_hub.models.IndustryStructure.get_resolved_bonuses", return_value=[])
+    def test_unknown_reaction_family_has_no_service_tax_or_recommendation(
+        self, resolved_bonuses, item_rows
+    ):
+        selected = self.nearby_structure
+        selected.enable_biochemical_reactions = True
+        selected.enable_hybrid_reactions = True
+        selected.enable_composite_reactions = True
+        selected.biochemical_reactions_tax_percent = Decimal("1")
+        selected.hybrid_reactions_tax_percent = Decimal("2")
+        selected.composite_reactions_tax_percent = Decimal("3")
+        selected.save()
+        item_rows.return_value = [
+            {
+                "type_id": 999999,
+                "type_name": "Future reaction product",
+                "produced_per_cycle": 1,
+                "activity_id": 9,
+                "activity_label": "Reactions",
+                "group_id": 999999,
+                "category_id": 4,
+                # An old English label cannot override the unknown numeric ID.
+                "group_name": "Molecular-Forged Materials",
+                "category_name": "Material",
+            },
+            {
+                "type_id": 603,
+                "type_name": "Merlin",
+                "produced_per_cycle": 1,
+                "activity_id": 1,
+                "activity_label": "Manufacturing",
+                "group_id": 25,
+                "category_id": 6,
+                "group_name": "Frigate",
+                "category_name": "Ship",
+            },
+        ]
+        assignments = {999999: selected.pk}
+        original_tax = IndustryStructure.get_activity_tax_percent
+
+        def checked_tax(structure, activity_id, **kwargs):
+            self.assertEqual(activity_id, 1, "Unknown reaction must never select a tax")
+            return original_tax(structure, activity_id, **kwargs)
+
+        with patch.object(
+            IndustryStructure,
+            "get_activity_tax_percent",
+            autospec=True,
+            side_effect=checked_tax,
+        ):
+            planner = build_craft_structure_planner(
+                product_type_id=999999,
+                product_type_name="Future reaction product",
+                product_output_per_cycle=1,
+                craft_cycles_summary={603: {"total_needed": 1}},
+                selected_structure_assignments=assignments,
+            )
+        items = {row["type_id"]: row for row in planner["items"]}
+        self.assertEqual(items[999999]["options"], [])
+        self.assertIsNone(items[999999]["recommended_structure_id"])
+        self.assertEqual(items[999999]["selected_structure_id"], selected.pk)
+        self.assertIsNone(items[999999]["service_category"])
+        self.assertIn("Unknown reaction family", items[999999]["calculation_error"])
+        self.assertTrue(items[603]["options"])
+        self.assertEqual(planner["summary"]["invalid_item_count"], 1)
+        self.assertEqual(planner["invalid_items"][0]["group_id"], 999999)
+        self.assertEqual(assignments, {999999: selected.pk})
+
+    def test_unknown_explicit_service_cannot_be_presented_as_zero_tax(self):
+        # Django
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaisesMessage(ValidationError, "Unknown industry service"):
+            self.nearby_structure.get_activity_tax_percent(
+                9, service_category="future_reactions"
+            )
+
+    @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
+    @patch("indy_hub.models.IndustryStructure.get_resolved_bonuses", return_value=[])
+    def test_deleted_selected_structure_is_reported_even_with_an_empty_registry(
+        self, resolved_bonuses, item_rows
+    ):
+        item_rows.return_value = [
+            {
+                "type_id": 603,
+                "blueprint_type_id": 686,
+                "type_name": "Merlin",
+                "produced_per_cycle": 1,
+                "activity_id": 1,
+                "activity_label": "Manufacturing",
+                "group_id": 25,
+                "category_id": 6,
+                "group_name": "Frigate",
+                "category_name": "Ship",
+            }
+        ]
+        selected_id = self.nearby_structure.pk
+        assignments = {603: selected_id}
+        IndustryStructure.objects.filter(pk=selected_id).delete()
+        for keep_other_structures in (True, False):
+            with self.subTest(keep_other_structures=keep_other_structures):
+                if not keep_other_structures:
+                    IndustryStructure.objects.all().delete()
+                planner = build_craft_structure_planner(
+                    product_type_id=603,
+                    product_type_name="Merlin",
+                    product_output_per_cycle=1,
+                    craft_cycles_summary={},
+                    selected_structure_assignments=assignments,
+                )
+                invalid = planner.get("invalid_structures", [])
+                self.assertEqual(len(invalid), 1)
+                self.assertEqual(invalid[0]["structure_id"], selected_id)
+                self.assertEqual(invalid[0]["selected_type_ids"], [603])
+                self.assertIn("no longer registered", invalid[0]["error"])
+                self.assertEqual(planner["summary"]["invalid_structure_count"], 1)
+                self.assertEqual(assignments, {603: selected_id})
+                self.assertNotIn(
+                    selected_id, [row["structure_id"] for row in planner["structures"]]
+                )
+                if keep_other_structures:
+                    (item,) = planner["items"]
+                    self.assertEqual(item["selected_structure_id"], selected_id)
+                    self.assertNotIn(
+                        selected_id, [row["structure_id"] for row in item["options"]]
+                    )
+
+    @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
+    def test_ineligible_selection_is_scoped_to_its_product_and_keeps_valid_reaction_bonus(
+        self, item_rows
+    ):
+        selected = self.nearby_structure
+        selected.enable_manufacturing = False
+        selected.enable_manufacturing_capitals = False
+        selected.enable_manufacturing_super_capitals = False
+        selected.enable_composite_reactions = True
+        selected.system_security_band = "nullsec"
+        selected.save()
+        item_rows.return_value = [
+            {
+                "type_id": 603,
+                "type_name": "Merlin",
+                "produced_per_cycle": 1,
+                "activity_id": 1,
+                "activity_label": "Manufacturing",
+                "group_id": 25,
+                "category_id": 6,
+                "group_name": "Frigate",
+                "category_name": "Ship",
+            },
+            {
+                "type_id": 166,
+                "type_name": "Composite product",
+                "produced_per_cycle": 1,
+                "activity_id": 9,
+                "activity_label": "Reactions",
+                "group_id": 428,
+                "category_id": 4,
+                "group_name": "Composite",
+                "category_name": "Material",
+            },
+        ]
+        assignments = {603: selected.pk, 166: selected.pk}
+
+        def resolve(structure):
+            if structure.pk != selected.pk:
+                return []
+            return [
+                IndustryStructureResolvedBonus(
+                    source="rig",
+                    label="Composite rig",
+                    activity_id=9,
+                    target_filter_id=18,
+                    target_group_ids=(428, 429, 4932),
+                    material_efficiency_percent=Decimal("2.4"),
+                )
+            ]
+
+        with patch.object(
+            IndustryStructure,
+            "get_resolved_bonuses",
+            autospec=True,
+            side_effect=resolve,
+        ):
+            planner = build_craft_structure_planner(
+                product_type_id=603,
+                product_type_name="Merlin",
+                product_output_per_cycle=1,
+                craft_cycles_summary={166: {"total_needed": 1}},
+                selected_structure_assignments=assignments,
+            )
+        (invalid,) = planner.get("invalid_structures", [])
+        self.assertEqual(invalid["structure_id"], selected.pk)
+        self.assertEqual(invalid["selected_type_ids"], [603])
+        self.assertTrue(invalid["selection_only"])
+        structure = next(
+            row for row in planner["structures"] if row["structure_id"] == selected.pk
+        )
+        self.assertTrue(structure["is_calculation_valid"])
+        items = {row["type_id"]: row for row in planner["items"]}
+        self.assertEqual(items[603]["selected_structure_id"], selected.pk)
+        self.assertNotIn(
+            selected.pk, [option["structure_id"] for option in items[603]["options"]]
+        )
+        self.assertEqual(items[166]["selected_structure_id"], selected.pk)
+        reaction_option = next(
+            option
+            for option in items[166]["options"]
+            if option["structure_id"] == selected.pk
+        )
+        self.assertEqual(reaction_option["material_bonus_percent"], 2.4)
+        self.assertEqual(assignments, {603: selected.pk, 166: selected.pk})
+
+    @patch("indy_hub.services.craft_structures._fetch_craftable_item_rows")
+    @patch("indy_hub.services.industry_structures.get_type_snapshot")
+    def test_molecular_forged_uses_specialized_biochemical_reactor_and_tax(
+        self, snapshot, item_rows
+    ):
+        # AA Example App
+        from indy_hub.models import IndustryStructureRig
+        from indy_hub.services.industry_structures import SDETypeSnapshot
+
+        biochemical = IndustryStructure.objects.create(
+            name="Biochemical M-Set",
+            structure_type_id=35835,
+            structure_type_name="Athanor",
+            system_security_band="nullsec",
+            enable_biochemical_reactions=True,
+            enable_hybrid_reactions=False,
+            enable_composite_reactions=False,
+            biochemical_reactions_tax_percent=Decimal("3.500"),
+            hybrid_reactions_tax_percent=Decimal("9.000"),
+        )
+        hybrid = IndustryStructure.objects.create(
+            name="Hybrid M-Set",
+            structure_type_id=35835,
+            structure_type_name="Athanor",
+            system_security_band="nullsec",
+            enable_biochemical_reactions=False,
+            enable_hybrid_reactions=True,
+            enable_composite_reactions=False,
+            hybrid_reactions_tax_percent=Decimal("0.100"),
+        )
+        for structure, rig_id in ((biochemical, 46495), (hybrid, 46491)):
+            IndustryStructureRig.objects.create(
+                structure=structure,
+                slot_index=1,
+                rig_type_id=rig_id,
+                rig_type_name=f"Specialized reactor {rig_id}",
+            )
+
+        def get_snapshot(type_id):
+            return SDETypeSnapshot(
+                type_id=type_id,
+                name=str(type_id),
+                dogma_attributes={
+                    2356: Decimal("1"),
+                    2714: Decimal("-2.4"),
+                    2357: Decimal("1.1"),
+                },
+                dogma_effect_names=(
+                    ("rigReactionBioMatBonus",)
+                    if type_id == 46495
+                    else ("rigReactionHybMatBonus",) if type_id == 46491 else ()
+                ),
+            )
+
+        snapshot.side_effect = get_snapshot
+        item_rows.return_value = [
+            {
+                "type_id": 57458,
+                "blueprint_type_id": 57495,
+                "type_name": "Meta-Operant Neurolink Enhancer",
+                "produced_per_cycle": 1,
+                "base_price": 0,
+                "activity_id": 9,
+                "activity_label": "Reactions",
+                "group_name": "Molecular-Forged Materials",
+                "category_name": "Material",
+                "group_id": 4096,
+                "category_id": 4,
+            }
+        ]
+        planner = build_craft_structure_planner(
+            product_type_id=57458,
+            product_type_name="Meta-Operant Neurolink Enhancer",
+            product_output_per_cycle=1,
+            craft_cycles_summary={},
+        )
+        (item,) = planner["items"]
+        self.assertEqual(item["service_category"], "biochemical_reactions")
+        options = {row["structure_id"]: row for row in item["options"]}
+        self.assertNotIn(hybrid.id, options)
+        option = options[biochemical.id]
+        self.assertEqual(option["material_bonus_percent"], 2.64)
+        self.assertEqual(option["tax_percent"], 3.5)
 
     def test_manufacturing_service_category_supports_command_carrier_groups(
         self,

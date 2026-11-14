@@ -11,9 +11,7 @@ from django.db import connection
 
 # AA Example App
 from indy_hub.models import IndustryActivityMixin
-
-EVE_JOB_LAUNCH_WINDOW_SECONDS = 30 * 24 * 60 * 60
-
+from indy_hub.services.industry_constants import EVE_JOB_LAUNCH_WINDOW_SECONDS
 
 _ACTIVITY_LABELS = {
     IndustryActivityMixin.ACTIVITY_MANUFACTURING: "Manufacturing",

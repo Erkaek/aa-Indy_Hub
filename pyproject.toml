@@ -63,6 +63,21 @@ urls.Tracker = "https://github.com/Erkaek/aa-Indy_Hub/issues"
 name = "indy_hub"
 skip_gitignore = true
 
+[tool.flit.sdist]
+include = [
+    "docs/INDUSTRY_RULES.md",
+    "scripts/*.py",
+    "scripts/*.js",
+    "scripts/*.cjs",
+    "testauth/**/*.py",
+    "runtests.py",
+    "tox.ini",
+    "package.json",
+    "package-lock.json",
+    "eslint.config.js",
+    ".stylelintrc.json",
+]
+
 [tool.isort]
 profile = "django"
 sections = [

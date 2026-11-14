@@ -1412,13 +1412,13 @@
 
 {% block extra_javascript %}
 {{ blueprint_payload|json_script:"blueprint-payload" }}
-<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20260804-pr154-review-fixes"></script>
+<script src="{% static 'indy_hub/js/craft_bp_page.js' %}?v=20261113-industry-qualified"></script>
 {% if not deferred_shell %}
-<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20260524-build-final-targets"></script>
+<script src="{% static 'indy_hub/js/craft_bp_simulation_api.js' %}?v=20261112-industry-rules"></script>
 <script src="{% static 'indy_hub/js/craft_bp_active_tab.js' %}?v=20260505-deferred-tab-init"></script>
 <script src="{% static 'indy_hub/js/craft_bp_financial_planner.js' %}?v=20260428-no-output-override"></script>
-<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20260829-market-switch"></script>
-<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20260829-market-switch"></script>
+<script src="{% static 'indy_hub/js/craft_bp.js' %}?v=20261113-industry-qualified"></script>
+<script src="{% static 'indy_hub/js/craft_bp_inline.js' %}?v=20261112-industry-rules"></script>
 <script src="{% static 'indy_hub/js/craft_bp_project_rename.js' %}?v=20260523-project-rename-status"></script>
 {% endif %}
 {% endblock extra_javascript %}

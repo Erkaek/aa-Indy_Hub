@@ -1,0 +1,4852 @@
+{
+    "fixture_sha256": {
+        "dogmaEffects.jsonl": "e90ab97f6c085bddb683d8809e063c75556b34069582aaac33043f39c283df95",
+        "industryModifierSources.jsonl": "73bcc42e08404fe6c8b6eece355094bbc5932841af0ab5aadee6a68b50e28a9b",
+        "industryTargetFilters.jsonl": "daa27eac84f90e26e6a2d0ad8e35a973f081e225b9db63485d1d843241ecf316",
+        "typeDogma.jsonl": "377efe45ec554a7a280f61f6ac4521969bd7dfb67177fd939c0e413ab99870ae"
+    },
+    "group_activity_cases": [
+        {
+            "activity": "manufacturing",
+            "category_id": 2,
+            "category_name": "Celestial",
+            "group_id": 12,
+            "group_name": "Cargo Container",
+            "representative_name": "Small Standard Container",
+            "representative_type_id": 3297
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 25,
+            "group_name": "Frigate",
+            "representative_name": "Bantam",
+            "representative_type_id": 582
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 26,
+            "group_name": "Cruiser",
+            "representative_name": "Osprey",
+            "representative_type_id": 620
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 27,
+            "group_name": "Battleship",
+            "representative_name": "Raven",
+            "representative_type_id": 638
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 28,
+            "group_name": "Hauler",
+            "representative_name": "Badger",
+            "representative_type_id": 648
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 30,
+            "group_name": "Titan",
+            "representative_name": "Erebus",
+            "representative_type_id": 671
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 31,
+            "group_name": "Shuttle",
+            "representative_name": "Caldari Shuttle",
+            "representative_type_id": 672
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 38,
+            "group_name": "Shield Extender",
+            "representative_name": "Small Shield Extender I",
+            "representative_type_id": 377
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 39,
+            "group_name": "Shield Recharger",
+            "representative_name": "Shield Recharger I",
+            "representative_type_id": 393
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 40,
+            "group_name": "Shield Booster",
+            "representative_name": "Small Shield Booster I",
+            "representative_type_id": 399
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 41,
+            "group_name": "Remote Shield Booster",
+            "representative_name": "CONCORD Capital Remote Shield Booster",
+            "representative_type_id": 3544
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 43,
+            "group_name": "Capacitor Recharger",
+            "representative_name": "Cap Recharger I",
+            "representative_type_id": 1195
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 46,
+            "group_name": "Propulsion Module",
+            "representative_name": "5MN Microwarpdrive I",
+            "representative_type_id": 434
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 47,
+            "group_name": "Cargo Scanner",
+            "representative_name": "Cargo Scanner I",
+            "representative_type_id": 442
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 48,
+            "group_name": "Ship Scanner",
+            "representative_name": "Ship Scanner I",
+            "representative_type_id": 443
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 49,
+            "group_name": "Mining Survey Chipset",
+            "representative_name": "Mining Survey Chipset I",
+            "representative_type_id": 444
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 52,
+            "group_name": "Warp Scrambler",
+            "representative_name": "Warp Scrambler I",
+            "representative_type_id": 447
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 53,
+            "group_name": "Energy Weapon",
+            "representative_name": "Gatling Pulse Laser I",
+            "representative_type_id": 450
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 54,
+            "group_name": "Mining Laser",
+            "representative_name": "Miner II",
+            "representative_type_id": 482
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 55,
+            "group_name": "Projectile Weapon",
+            "representative_name": "125mm Gatling AutoCannon I",
+            "representative_type_id": 484
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 57,
+            "group_name": "Shield Power Relay",
+            "representative_name": "Shield Power Relay II",
+            "representative_type_id": 1422
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 59,
+            "group_name": "Gyrostabilizer",
+            "representative_name": "Gyrostabilizer II",
+            "representative_type_id": 519
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 60,
+            "group_name": "Damage Control",
+            "representative_name": "Damage Control I",
+            "representative_type_id": 2046
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 61,
+            "group_name": "Capacitor Battery",
+            "representative_name": "Small Cap Battery I",
+            "representative_type_id": 1185
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 62,
+            "group_name": "Armor Repair Unit",
+            "representative_name": "Small Armor Repairer I",
+            "representative_type_id": 523
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 63,
+            "group_name": "Hull Repair Unit",
+            "representative_name": "Small Hull Repairer I",
+            "representative_type_id": 524
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 65,
+            "group_name": "Stasis Web",
+            "representative_name": "Stasis Webifier I",
+            "representative_type_id": 526
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 67,
+            "group_name": "Remote Capacitor Transmitter",
+            "representative_name": "Small Remote Capacitor Transmitter I",
+            "representative_type_id": 529
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 68,
+            "group_name": "Energy Nosferatu",
+            "representative_name": "Small Energy Nosferatu I",
+            "representative_type_id": 530
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 71,
+            "group_name": "Energy Neutralizer",
+            "representative_name": "Small Energy Neutralizer I",
+            "representative_type_id": 533
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 72,
+            "group_name": "Smart Bomb",
+            "representative_name": "Small Proton Smartbomb I",
+            "representative_type_id": 1547
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 74,
+            "group_name": "Hybrid Weapon",
+            "representative_name": "75mm Gatling Rail I",
+            "representative_type_id": 561
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 76,
+            "group_name": "Capacitor Booster",
+            "representative_name": "Medium Capacitor Booster I",
+            "representative_type_id": 577
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 77,
+            "group_name": "Shield Hardener",
+            "representative_name": "Multispectrum Shield Hardener I",
+            "representative_type_id": 578
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 78,
+            "group_name": "Reinforced Bulkhead",
+            "representative_name": "Reinforced Bulkheads I",
+            "representative_type_id": 1333
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 80,
+            "group_name": "Burst Jammer",
+            "representative_name": "Burst Jammer I",
+            "representative_type_id": 580
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 82,
+            "group_name": "Passive Targeting System",
+            "representative_name": "Passive Targeter I",
+            "representative_type_id": 581
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 83,
+            "group_name": "Projectile Ammo",
+            "representative_name": "Carbonized Lead S",
+            "representative_type_id": 178
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 85,
+            "group_name": "Hybrid Charge",
+            "representative_name": "Iron Charge S",
+            "representative_type_id": 215
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 86,
+            "group_name": "Frequency Crystal",
+            "representative_name": "Radio S",
+            "representative_type_id": 239
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 87,
+            "group_name": "Capacitor Booster Charge",
+            "representative_name": "Cap Booster 25",
+            "representative_type_id": 263
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 88,
+            "group_name": "Defender Missiles",
+            "representative_name": "Defender Missile I",
+            "representative_type_id": 32782
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 89,
+            "group_name": "Torpedo",
+            "representative_name": "Scourge Torpedo",
+            "representative_type_id": 267
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 90,
+            "group_name": "Bomb",
+            "representative_name": "Concussion Bomb",
+            "representative_type_id": 27912
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 96,
+            "group_name": "Automated Targeting System",
+            "representative_name": "Auto Targeting System I",
+            "representative_type_id": 1182
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 98,
+            "group_name": "Armor Coating",
+            "representative_name": "EM Coating I",
+            "representative_type_id": 1197
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 18,
+            "category_name": "Drone",
+            "group_id": 100,
+            "group_name": "Combat Drone",
+            "representative_name": "Wasp I",
+            "representative_type_id": 1201
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 18,
+            "category_name": "Drone",
+            "group_id": 101,
+            "group_name": "Mining Drone",
+            "representative_name": "Civilian Mining Drone",
+            "representative_type_id": 1202
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 201,
+            "group_name": "ECM",
+            "representative_name": "Magnetometric ECM I",
+            "representative_type_id": 1948
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 205,
+            "group_name": "Heat Sink",
+            "representative_name": "Heat Sink I",
+            "representative_type_id": 2363
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 208,
+            "group_name": "Sensor Dampener",
+            "representative_name": "Remote Sensor Dampener I",
+            "representative_type_id": 1968
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 209,
+            "group_name": "Remote Tracking Computer",
+            "representative_name": "Remote Tracking Computer I",
+            "representative_type_id": 2103
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 210,
+            "group_name": "Signal Amplifier",
+            "representative_name": "Signal Amplifier I",
+            "representative_type_id": 1986
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 211,
+            "group_name": "Tracking Enhancer",
+            "representative_name": "Tracking Enhancer I",
+            "representative_type_id": 1998
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 212,
+            "group_name": "Sensor Booster",
+            "representative_name": "Sensor Booster I",
+            "representative_type_id": 1973
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 213,
+            "group_name": "Tracking Computer",
+            "representative_name": "Tracking Computer I",
+            "representative_type_id": 1977
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 285,
+            "group_name": "CPU Enhancer",
+            "representative_name": "Co-Processor I",
+            "representative_type_id": 3887
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 290,
+            "group_name": "Remote Sensor Booster",
+            "representative_name": "Remote Sensor Booster I",
+            "representative_type_id": 1963
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 291,
+            "group_name": "Weapon Disruptor",
+            "representative_name": "Tracking Disruptor I",
+            "representative_type_id": 2108
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 295,
+            "group_name": "Shield Resistance Amplifier",
+            "representative_name": "EM Shield Amplifier I",
+            "representative_type_id": 1808
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 20,
+            "category_name": "Implant",
+            "group_id": 300,
+            "group_name": "Cyberimplant",
+            "representative_name": "High-grade Ascendancy Alpha",
+            "representative_type_id": 33516
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 302,
+            "group_name": "Magnetic Field Stabilizer",
+            "representative_name": "Magnetic Field Stabilizer I",
+            "representative_type_id": 9944
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 20,
+            "category_name": "Implant",
+            "group_id": 303,
+            "group_name": "Booster",
+            "representative_name": "Standard Blue Pill Booster",
+            "representative_type_id": 9950
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 311,
+            "group_name": "Reprocessing Array",
+            "representative_name": "Intensive Reprocessing Array",
+            "representative_type_id": 19470
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 314,
+            "group_name": "Miscellaneous",
+            "representative_name": "Mangled Sansha Data Analyzer",
+            "representative_type_id": 3585
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 315,
+            "group_name": "Warp Core Stabilizer",
+            "representative_name": "Warp Core Stabilizer I",
+            "representative_type_id": 10998
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 316,
+            "group_name": "Gang Coordinator",
+            "representative_name": "Mining Foreman Link - Harvester Capacitor Efficiency II",
+            "representative_type_id": 4274
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 324,
+            "group_name": "Assault Frigate",
+            "representative_name": "Malice",
+            "representative_type_id": 3516
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 325,
+            "group_name": "Remote Armor Repairer",
+            "representative_name": "CONCORD Capital Remote Armor Repairer",
+            "representative_type_id": 3536
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 326,
+            "group_name": "Energized Armor Membrane",
+            "representative_name": "'Basic' EM Energized Membrane",
+            "representative_type_id": 11215
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 328,
+            "group_name": "Armor Hardener",
+            "representative_name": "Thermal Armor Hardener I",
+            "representative_type_id": 11277
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 329,
+            "group_name": "Armor Plate",
+            "representative_name": "1600mm Steel Plates I",
+            "representative_type_id": 11279
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 330,
+            "group_name": "Cloaking Device",
+            "representative_name": "Improved Cloaking Device II",
+            "representative_type_id": 11577
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 332,
+            "group_name": "Tool",
+            "representative_name": "R.Db - Roden Shipyards",
+            "representative_type_id": 11465
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 334,
+            "group_name": "Construction Components",
+            "representative_name": "Thermonuclear Trigger Unit",
+            "representative_type_id": 11691
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 338,
+            "group_name": "Shield Boost Amplifier",
+            "representative_name": "Shield Boost Amplifier I",
+            "representative_type_id": 11561
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 339,
+            "group_name": "Auxiliary Power Core",
+            "representative_name": "Micro Auxiliary Power Core II",
+            "representative_type_id": 4254
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 2,
+            "category_name": "Celestial",
+            "group_id": 340,
+            "group_name": "Secure Cargo Container",
+            "representative_name": "Giant Secure Container",
+            "representative_type_id": 11489
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 358,
+            "group_name": "Heavy Assault Cruiser",
+            "representative_name": "Vangel",
+            "representative_type_id": 3518
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 361,
+            "group_name": "Mobile Warp Disruptor",
+            "representative_name": "Mobile Small Warp Disruptor I",
+            "representative_type_id": 12198
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 363,
+            "group_name": "Ship Maintenance Array",
+            "representative_name": "X-Large Ship Maintenance Array",
+            "representative_type_id": 24646
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 365,
+            "group_name": "Control Tower",
+            "representative_name": "Amarr Control Tower",
+            "representative_type_id": 12235
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 367,
+            "group_name": "Ballistic Control System",
+            "representative_name": "Ballistic Control System I",
+            "representative_type_id": 12274
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 372,
+            "group_name": "Advanced Autocannon Ammo",
+            "representative_name": "Hail S",
+            "representative_type_id": 12608
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 373,
+            "group_name": "Advanced Railgun Charge",
+            "representative_name": "Spike S",
+            "representative_type_id": 12618
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 374,
+            "group_name": "Advanced Beam Laser Crystal",
+            "representative_name": "Gleam S",
+            "representative_type_id": 12557
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 375,
+            "group_name": "Advanced Pulse Laser Crystal",
+            "representative_name": "Scorch S",
+            "representative_type_id": 12563
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 376,
+            "group_name": "Advanced Artillery Ammo",
+            "representative_name": "Quake S",
+            "representative_type_id": 12631
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 377,
+            "group_name": "Advanced Blaster Charge",
+            "representative_name": "Void S",
+            "representative_type_id": 12612
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 379,
+            "group_name": "Target Painter",
+            "representative_name": "Target Painter I",
+            "representative_type_id": 12709
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 380,
+            "group_name": "Deep Space Transport",
+            "representative_name": "Bustard",
+            "representative_type_id": 12731
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 384,
+            "group_name": "Light Missile",
+            "representative_name": "Scourge Light Missile",
+            "representative_type_id": 210
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 385,
+            "group_name": "Heavy Missile",
+            "representative_name": "Nova Heavy Missile",
+            "representative_type_id": 206
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 386,
+            "group_name": "Cruise Missile",
+            "representative_name": "Mjolnir Cruise Missile",
+            "representative_type_id": 202
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 387,
+            "group_name": "Rocket",
+            "representative_name": "Scourge Rocket",
+            "representative_type_id": 266
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 394,
+            "group_name": "Auto-Targeting Light Missile",
+            "representative_name": "Mjolnir Auto-Targeting Light Missile I",
+            "representative_type_id": 269
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 395,
+            "group_name": "Auto-Targeting Heavy Missile",
+            "representative_name": "Scourge Auto-Targeting Heavy Missile I",
+            "representative_type_id": 1818
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 396,
+            "group_name": "Auto-Targeting Cruise Missile",
+            "representative_name": "Scourge Auto-Targeting Cruise Missile I",
+            "representative_type_id": 1826
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 397,
+            "group_name": "Assembly Array",
+            "representative_name": "Advanced Large Ship Assembly Array",
+            "representative_type_id": 24657
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 404,
+            "group_name": "Silo",
+            "representative_name": "Biochemical Silo",
+            "representative_type_id": 25270
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 407,
+            "group_name": "Fighter Support Unit",
+            "representative_name": "Fighter Support Unit I",
+            "representative_type_id": 24283
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 413,
+            "group_name": "Laboratory",
+            "representative_name": "Experimental Laboratory",
+            "representative_type_id": 24567
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 416,
+            "group_name": "Moon Mining",
+            "representative_name": "Moon Harvesting Array",
+            "representative_type_id": 16221
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 417,
+            "group_name": "Mobile Missile Sentry",
+            "representative_name": "XL Torpedo Battery",
+            "representative_type_id": 17773
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 419,
+            "group_name": "Combat Battlecruiser",
+            "representative_name": "Ferox",
+            "representative_type_id": 16227
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 420,
+            "group_name": "Destroyer",
+            "representative_name": "Coercer",
+            "representative_type_id": 16236
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 426,
+            "group_name": "Mobile Projectile Sentry",
+            "representative_name": "Large Artillery Battery",
+            "representative_type_id": 16689
+        },
+        {
+            "activity": "reaction",
+            "category_id": 4,
+            "category_name": "Material",
+            "group_id": 428,
+            "group_name": "Intermediate Materials",
+            "representative_name": "Caesarium Cadmide",
+            "representative_type_id": 16663
+        },
+        {
+            "activity": "reaction",
+            "category_id": 4,
+            "category_name": "Material",
+            "group_id": 429,
+            "group_name": "Composite",
+            "representative_name": "Titanium Carbide",
+            "representative_type_id": 16671
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 430,
+            "group_name": "Mobile Laser Sentry",
+            "representative_name": "Small Pulse Laser Battery",
+            "representative_type_id": 17408
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 438,
+            "group_name": "Mobile Reactor",
+            "representative_name": "Biochemical Reactor Array",
+            "representative_type_id": 24684
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 439,
+            "group_name": "Electronic Warfare Battery",
+            "representative_name": "Ion Field Projection Battery",
+            "representative_type_id": 17174
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 440,
+            "group_name": "Sensor Dampening Battery",
+            "representative_name": "Sensor Dampening Battery",
+            "representative_type_id": 17180
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 441,
+            "group_name": "Stasis Webification Battery",
+            "representative_name": "Stasis Webification Battery",
+            "representative_type_id": 17178
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 443,
+            "group_name": "Warp Scrambling Battery",
+            "representative_name": "Warp Disruption Battery",
+            "representative_type_id": 17181
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 444,
+            "group_name": "Shield Hardening Array",
+            "representative_name": "Ballistic Deflection Array",
+            "representative_type_id": 17184
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 2,
+            "category_name": "Celestial",
+            "group_id": 448,
+            "group_name": "Audit Log Secure Container",
+            "representative_name": "Station Warehouse Container",
+            "representative_type_id": 17368
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 449,
+            "group_name": "Mobile Hybrid Sentry",
+            "representative_name": "Large Blaster Battery",
+            "representative_type_id": 17402
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 463,
+            "group_name": "Mining Barge",
+            "representative_name": "Covetor",
+            "representative_type_id": 17476
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 464,
+            "group_name": "Strip Miner",
+            "representative_name": "Ice Harvester I",
+            "representative_type_id": 16278
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 471,
+            "group_name": "Corporate Hangar Array",
+            "representative_name": "Corporate Hangar Array",
+            "representative_type_id": 17621
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 476,
+            "group_name": "XL Torpedo",
+            "representative_name": "Mjolnir XL Torpedo",
+            "representative_type_id": 17857
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 479,
+            "group_name": "Scanner Probe",
+            "representative_name": "Core Scanner Probe I",
+            "representative_type_id": 30013
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 481,
+            "group_name": "Scan Probe Launcher",
+            "representative_name": "Core Probe Launcher II",
+            "representative_type_id": 4258
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 482,
+            "group_name": "Mining Crystal",
+            "representative_name": "Ubiquitous Moon Mining Crystal Type A I",
+            "representative_type_id": 46355
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 483,
+            "group_name": "Frequency Mining Laser",
+            "representative_name": "Modulated Strip Miner II",
+            "representative_type_id": 17912
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 485,
+            "group_name": "Dreadnought",
+            "representative_name": "Revelation",
+            "representative_type_id": 19720
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 492,
+            "group_name": "Survey Probe",
+            "representative_name": "Quest Survey Probe I",
+            "representative_type_id": 18626
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 506,
+            "group_name": "Missile Launcher Cruise",
+            "representative_name": "Cruise Missile Launcher I",
+            "representative_type_id": 13320
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 507,
+            "group_name": "Missile Launcher Rocket",
+            "representative_name": "Rocket Launcher I",
+            "representative_type_id": 10629
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 508,
+            "group_name": "Missile Launcher Torpedo",
+            "representative_name": "Torpedo Launcher I",
+            "representative_type_id": 503
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 509,
+            "group_name": "Missile Launcher Light",
+            "representative_name": "Light Missile Launcher I",
+            "representative_type_id": 499
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 510,
+            "group_name": "Missile Launcher Heavy",
+            "representative_name": "Heavy Missile Launcher I",
+            "representative_type_id": 501
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 511,
+            "group_name": "Missile Launcher Rapid Light",
+            "representative_name": "Rapid Light Missile Launcher I",
+            "representative_type_id": 1875
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 512,
+            "group_name": "Missile Launcher Defender",
+            "representative_name": "Defender Launcher I",
+            "representative_type_id": 44102
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 513,
+            "group_name": "Freighter",
+            "representative_name": "Providence",
+            "representative_type_id": 20183
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 514,
+            "group_name": "ECM Stabilizer",
+            "representative_name": "Signal Distortion Amplifier I",
+            "representative_type_id": 25561
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 515,
+            "group_name": "Siege Module",
+            "representative_name": "Siege Module II",
+            "representative_type_id": 4292
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 524,
+            "group_name": "Missile Launcher XL Torpedo",
+            "representative_name": "CONCORD XL Torpedo Launcher",
+            "representative_type_id": 3565
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 526,
+            "group_name": "Commodities",
+            "representative_name": "Basic Robotics",
+            "representative_type_id": 29226
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 536,
+            "group_name": "Structure Components",
+            "representative_name": "Structure Construction Parts",
+            "representative_type_id": 21947
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 538,
+            "group_name": "Data Miners",
+            "representative_name": "Purloined Sansha Data Analyzer",
+            "representative_type_id": 3581
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 540,
+            "group_name": "Command Ship",
+            "representative_name": "Eos",
+            "representative_type_id": 22442
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 541,
+            "group_name": "Interdictor",
+            "representative_name": "Heretic",
+            "representative_type_id": 22452
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 543,
+            "group_name": "Exhumer",
+            "representative_name": "Hulk",
+            "representative_type_id": 22544
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 18,
+            "category_name": "Drone",
+            "group_id": 544,
+            "group_name": "Energy Neutralizer Drone",
+            "representative_name": "Praetor EV-900",
+            "representative_type_id": 22572
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 546,
+            "group_name": "Mining Upgrade",
+            "representative_name": "Mining Laser Upgrade I",
+            "representative_type_id": 22542
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 547,
+            "group_name": "Carrier",
+            "representative_name": "Archon",
+            "representative_type_id": 23757
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 548,
+            "group_name": "Interdiction Probe",
+            "representative_name": "Warp Disrupt Probe",
+            "representative_type_id": 22778
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 585,
+            "group_name": "Remote Hull Repairer",
+            "representative_name": "Large Remote Hull Repairer II",
+            "representative_type_id": 3986
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 588,
+            "group_name": "Super Weapon",
+            "representative_name": "'Gjallarhorn' Explosive Doomsday",
+            "representative_type_id": 23674
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 589,
+            "group_name": "Interdiction Sphere Launcher",
+            "representative_name": "Interdiction Sphere Launcher I",
+            "representative_type_id": 22782
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 590,
+            "group_name": "Jump Portal Generator",
+            "representative_name": "Jump Portal Generator I",
+            "representative_type_id": 23953
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 18,
+            "category_name": "Drone",
+            "group_id": 639,
+            "group_name": "Electronic Warfare Drone",
+            "representative_name": "Wasp EC-900",
+            "representative_type_id": 23473
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 18,
+            "category_name": "Drone",
+            "group_id": 640,
+            "group_name": "Logistic Drone",
+            "representative_name": "Heavy Shield Maintenance Bot I",
+            "representative_type_id": 22765
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 18,
+            "category_name": "Drone",
+            "group_id": 641,
+            "group_name": "Stasis Webifying Drone",
+            "representative_name": "Berserker SW-900",
+            "representative_type_id": 23536
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 644,
+            "group_name": "Drone Navigation Computer",
+            "representative_name": "Drone Navigation Computer I",
+            "representative_type_id": 24395
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 645,
+            "group_name": "Drone Damage Modules",
+            "representative_name": "Drone Damage Amplifier I",
+            "representative_type_id": 4393
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 646,
+            "group_name": "Drone Tracking Modules",
+            "representative_name": "Omnidirectional Tracking Link I",
+            "representative_type_id": 23533
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 647,
+            "group_name": "Drone Control Range Module",
+            "representative_name": "Drone Link Augmentor I",
+            "representative_type_id": 23527
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 648,
+            "group_name": "Advanced Rocket",
+            "representative_name": "Mjolnir Rage Rocket",
+            "representative_type_id": 2817
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 2,
+            "category_name": "Celestial",
+            "group_id": 649,
+            "group_name": "Freight Container",
+            "representative_name": "Giant Freight Container",
+            "representative_type_id": 24445
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 650,
+            "group_name": "Tractor Beam",
+            "representative_name": "Small Tractor Beam II",
+            "representative_type_id": 4250
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 653,
+            "group_name": "Advanced Light Missile",
+            "representative_name": "Mjolnir Fury Light Missile",
+            "representative_type_id": 2613
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 654,
+            "group_name": "Advanced Heavy Assault Missile",
+            "representative_name": "Scourge Rage Heavy Assault Missile",
+            "representative_type_id": 2679
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 655,
+            "group_name": "Advanced Heavy Missile",
+            "representative_name": "Scourge Fury Heavy Missile",
+            "representative_type_id": 2629
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 656,
+            "group_name": "Advanced Cruise Missile",
+            "representative_name": "Inferno Fury Cruise Missile",
+            "representative_type_id": 2621
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 657,
+            "group_name": "Advanced Torpedo",
+            "representative_name": "Nova Javelin Torpedo",
+            "representative_type_id": 2801
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 658,
+            "group_name": "Cynosural Field Generator",
+            "representative_name": "Cynosural Field Generator I",
+            "representative_type_id": 21096
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 659,
+            "group_name": "Supercarrier",
+            "representative_name": "Revenant",
+            "representative_type_id": 3514
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 663,
+            "group_name": "Mercoxit Mining Crystal",
+            "representative_name": "Mercoxit Asteroid Mining Crystal Type A I",
+            "representative_type_id": 18054
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 707,
+            "group_name": "Jump Portal Array",
+            "representative_name": "Jump Bridge",
+            "representative_type_id": 27897
+        },
+        {
+            "activity": "reaction",
+            "category_id": 4,
+            "category_name": "Material",
+            "group_id": 712,
+            "group_name": "Biochemical Material",
+            "representative_name": "Pure Synth Drop Booster",
+            "representative_type_id": 28688
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 716,
+            "group_name": "Data Interfaces",
+            "representative_name": "Esoteric Data Interface",
+            "representative_type_id": 25555
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 737,
+            "group_name": "Gas Cloud Scoops",
+            "representative_name": "Gas Cloud Scoop I",
+            "representative_type_id": 25266
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 20,
+            "category_name": "Implant",
+            "group_id": 740,
+            "group_name": "Cyber Electronic Systems",
+            "representative_name": "Inquest 'Hedone' Entanglement Optimizer WS-802",
+            "representative_type_id": 50053
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 762,
+            "group_name": "Inertial Stabilizer",
+            "representative_name": "Inertial Stabilizers I",
+            "representative_type_id": 1403
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 763,
+            "group_name": "Nanofiber Internal Structure",
+            "representative_name": "Nanofiber Internal Structure I",
+            "representative_type_id": 2603
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 764,
+            "group_name": "Overdrive Injector System",
+            "representative_name": "Overdrive Injector System II",
+            "representative_type_id": 1236
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 765,
+            "group_name": "Expanded Cargohold",
+            "representative_name": "Expanded Cargohold I",
+            "representative_type_id": 1317
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 766,
+            "group_name": "Power Diagnostic System",
+            "representative_name": "Power Diagnostic System I",
+            "representative_type_id": 1539
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 767,
+            "group_name": "Capacitor Power Relay",
+            "representative_name": "Capacitor Power Relay I",
+            "representative_type_id": 1445
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 768,
+            "group_name": "Capacitor Flux Coil",
+            "representative_name": "Capacitor Flux Coil I",
+            "representative_type_id": 1246
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 769,
+            "group_name": "Reactor Control Unit",
+            "representative_name": "Reactor Control Unit I",
+            "representative_type_id": 1353
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 770,
+            "group_name": "Shield Flux Coil",
+            "representative_name": "Shield Flux Coil I",
+            "representative_type_id": 1254
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 771,
+            "group_name": "Missile Launcher Heavy Assault",
+            "representative_name": "Heavy Assault Missile Launcher II",
+            "representative_type_id": 25715
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 772,
+            "group_name": "Heavy Assault Missile",
+            "representative_name": "Nova Heavy Assault Missile",
+            "representative_type_id": 21867
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 773,
+            "group_name": "Rig Armor",
+            "representative_name": "Large EM Armor Reinforcer I",
+            "representative_type_id": 25736
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 774,
+            "group_name": "Rig Shield",
+            "representative_name": "Large Core Defense Capacitor Safeguard I",
+            "representative_type_id": 25906
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 775,
+            "group_name": "Rig Energy Weapon",
+            "representative_name": "Large Energy Discharge Elutriation I",
+            "representative_type_id": 25968
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 776,
+            "group_name": "Rig Hybrid Weapon",
+            "representative_name": "Large Hybrid Discharge Elutriation I",
+            "representative_type_id": 25996
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 777,
+            "group_name": "Rig Projectile Weapon",
+            "representative_name": "Large Projectile Ambit Extension I",
+            "representative_type_id": 26038
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 778,
+            "group_name": "Rig Drones",
+            "representative_name": "Large Drone Control Range Augmentor I",
+            "representative_type_id": 25908
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 779,
+            "group_name": "Rig Launcher",
+            "representative_name": "Large Hydraulic Bay Thrusters I",
+            "representative_type_id": 26016
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 781,
+            "group_name": "Rig Core",
+            "representative_name": "Medium Processor Overclocking Unit I",
+            "representative_type_id": 4395
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 782,
+            "group_name": "Rig Navigation",
+            "representative_name": "Large Dynamic Fuel Valve I",
+            "representative_type_id": 26056
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 786,
+            "group_name": "Rig Electronic Systems",
+            "representative_name": "Large Signal Disruption Amplifier I",
+            "representative_type_id": 25928
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 815,
+            "group_name": "Clone Vat Bay",
+            "representative_name": "Clone Vat Bay I",
+            "representative_type_id": 23735
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 830,
+            "group_name": "Covert Ops",
+            "representative_name": "Helios",
+            "representative_type_id": 11172
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 831,
+            "group_name": "Interceptor",
+            "representative_name": "Crow",
+            "representative_type_id": 11176
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 832,
+            "group_name": "Logistics",
+            "representative_name": "Scimitar",
+            "representative_type_id": 11978
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 833,
+            "group_name": "Force Recon Ship",
+            "representative_name": "Falcon",
+            "representative_type_id": 11957
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 834,
+            "group_name": "Stealth Bomber",
+            "representative_name": "Nemesis",
+            "representative_type_id": 11377
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 837,
+            "group_name": "Energy Neutralizing Battery",
+            "representative_name": "Energy Neutralizing Battery",
+            "representative_type_id": 27672
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 838,
+            "group_name": "Cynosural Generator Array",
+            "representative_name": "Cynosural Generator Array",
+            "representative_type_id": 27673
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 839,
+            "group_name": "Cynosural System Jammer",
+            "representative_name": "Cynosural System Jammer",
+            "representative_type_id": 27674
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 842,
+            "group_name": "Burst Projectors",
+            "representative_name": "ECM Jammer Burst Projector",
+            "representative_type_id": 27678
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 862,
+            "group_name": "Missile Launcher Bomb",
+            "representative_name": "Bomb Launcher II",
+            "representative_type_id": 4256
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 863,
+            "group_name": "Bomb ECM",
+            "representative_name": "Lockbreaker Bomb",
+            "representative_type_id": 27922
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 864,
+            "group_name": "Bomb Energy",
+            "representative_name": "Void Bomb",
+            "representative_type_id": 27924
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 873,
+            "group_name": "Capital Construction Components",
+            "representative_name": "Capital Propulsion Engine",
+            "representative_type_id": 21009
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 883,
+            "group_name": "Capital Industrial Ship",
+            "representative_name": "Rorqual",
+            "representative_type_id": 28352
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 893,
+            "group_name": "Electronic Attack Ship",
+            "representative_name": "Keres",
+            "representative_type_id": 11174
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 894,
+            "group_name": "Heavy Interdiction Cruiser",
+            "representative_name": "Onyx",
+            "representative_type_id": 11995
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 898,
+            "group_name": "Black Ops",
+            "representative_name": "Redeemer",
+            "representative_type_id": 22428
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 899,
+            "group_name": "Warp Disrupt Field Generator",
+            "representative_name": "Warp Disruption Field Generator II",
+            "representative_type_id": 4248
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 900,
+            "group_name": "Marauder",
+            "representative_name": "Paladin",
+            "representative_type_id": 28659
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 902,
+            "group_name": "Jump Freighter",
+            "representative_name": "Rhea",
+            "representative_type_id": 28844
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 906,
+            "group_name": "Combat Recon Ship",
+            "representative_name": "Rook",
+            "representative_type_id": 11959
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 907,
+            "group_name": "Tracking Script",
+            "representative_name": "Optimal Range Script",
+            "representative_type_id": 28999
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 908,
+            "group_name": "Warp Disruption Script",
+            "representative_name": "Focused Warp Disruption Script",
+            "representative_type_id": 29003
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 909,
+            "group_name": "Tracking Disruption Script",
+            "representative_name": "Optimal Range Disruption Script",
+            "representative_type_id": 29005
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 910,
+            "group_name": "Sensor Booster Script",
+            "representative_name": "Targeting Range Script",
+            "representative_type_id": 29009
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 911,
+            "group_name": "Sensor Dampener Script",
+            "representative_name": "Scan Resolution Dampening Script",
+            "representative_type_id": 29013
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 913,
+            "group_name": "Advanced Capital Construction Components",
+            "representative_name": "Capital Antimatter Reactor Unit",
+            "representative_type_id": 29039
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 916,
+            "group_name": "Nanite Repair Paste",
+            "representative_name": "Nanite Repair Paste",
+            "representative_type_id": 28668
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 941,
+            "group_name": "Industrial Command Ship",
+            "representative_name": "Orca",
+            "representative_type_id": 28606
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 32,
+            "category_name": "Subsystem",
+            "group_id": 954,
+            "group_name": "Defensive Subsystem",
+            "representative_name": "Legion Defensive - Covert Reconfiguration",
+            "representative_type_id": 45586
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 32,
+            "category_name": "Subsystem",
+            "group_id": 956,
+            "group_name": "Offensive Subsystem",
+            "representative_name": "Legion Offensive - Liquid Crystal Magnifiers",
+            "representative_type_id": 45598
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 32,
+            "category_name": "Subsystem",
+            "group_id": 957,
+            "group_name": "Propulsion Subsystem",
+            "representative_name": "Legion Propulsion - Interdiction Nullifier",
+            "representative_type_id": 45610
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 32,
+            "category_name": "Subsystem",
+            "group_id": 958,
+            "group_name": "Core Subsystem",
+            "representative_name": "Legion Core - Dissolution Sequencer",
+            "representative_type_id": 45622
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 963,
+            "group_name": "Strategic Cruiser",
+            "representative_name": "Tengu",
+            "representative_type_id": 29984
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 964,
+            "group_name": "Hybrid Tech Components",
+            "representative_name": "Optimized Nano-Engines",
+            "representative_type_id": 29992
+        },
+        {
+            "activity": "reaction",
+            "category_id": 4,
+            "category_name": "Material",
+            "group_id": 974,
+            "group_name": "Hybrid Polymers",
+            "representative_name": "Methanofullerene",
+            "representative_type_id": 30306
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 40,
+            "category_name": "Sovereignty Structures",
+            "group_id": 1012,
+            "group_name": "Sovereignty Hub",
+            "representative_name": "Sovereignty Hub",
+            "representative_type_id": 32458
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1019,
+            "group_name": "XL Cruise Missile",
+            "representative_name": "Scourge XL Cruise Missile",
+            "representative_type_id": 32436
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 46,
+            "category_name": "Orbitals",
+            "group_id": 1106,
+            "group_name": "Orbital Construction Platform",
+            "representative_name": "Customs Office Gantry",
+            "representative_type_id": 3962
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1122,
+            "group_name": "Salvager",
+            "representative_name": "Salvager I",
+            "representative_type_id": 25861
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 4,
+            "category_name": "Material",
+            "group_id": 1136,
+            "group_name": "Fuel Block",
+            "representative_name": "Oxygen Fuel Block",
+            "representative_type_id": 4312
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1150,
+            "group_name": "Armor Resistance Shift Hardener",
+            "representative_name": "Reactive Armor Hardener",
+            "representative_type_id": 4403
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1154,
+            "group_name": "Signature Suppressor",
+            "representative_name": "Signature Radius Suppressor I",
+            "representative_type_id": 4409
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1156,
+            "group_name": "Ancillary Shield Booster",
+            "representative_name": "Large Ancillary Shield Booster",
+            "representative_type_id": 4391
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 18,
+            "category_name": "Drone",
+            "group_id": 1159,
+            "group_name": "Salvage Drone",
+            "representative_name": "Salvage Drone I",
+            "representative_type_id": 32787
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1189,
+            "group_name": "Micro Jump Drive",
+            "representative_name": "Large Micro Jump Drive",
+            "representative_type_id": 4383
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 63,
+            "category_name": "Special Edition Assets",
+            "group_id": 1194,
+            "group_name": "Special Edition Commodities",
+            "representative_name": "Deactivated Station Key Pass",
+            "representative_type_id": 33017
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1199,
+            "group_name": "Ancillary Armor Repairer",
+            "representative_name": "Small Ancillary Armor Repairer",
+            "representative_type_id": 33076
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 1201,
+            "group_name": "Attack Battlecruiser",
+            "representative_name": "Oracle",
+            "representative_type_id": 4302
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 1202,
+            "group_name": "Blockade Runner",
+            "representative_name": "Crane",
+            "representative_type_id": 12729
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 1212,
+            "group_name": "Personal Hangar",
+            "representative_name": "Personal Hangar Array",
+            "representative_type_id": 33149
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1223,
+            "group_name": "Scanning Upgrade",
+            "representative_name": "Scan Pinpointing Array I",
+            "representative_type_id": 33178
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1226,
+            "group_name": "Survey Probe Launcher",
+            "representative_name": "Survey Probe Launcher I",
+            "representative_type_id": 33270
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 20,
+            "category_name": "Implant",
+            "group_id": 1230,
+            "group_name": "Cyber Scanning",
+            "representative_name": "Neural Lace 'Blackglass' Net Intrusion 920-40",
+            "representative_type_id": 47028
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1232,
+            "group_name": "Rig Resource Processing",
+            "representative_name": "Large Salvage Tackle I",
+            "representative_type_id": 25902
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1233,
+            "group_name": "Rig Scanning",
+            "representative_name": "Large Emission Scope Sharpener I",
+            "representative_type_id": 25930
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1234,
+            "group_name": "Rig Targeting",
+            "representative_name": "Large Targeting System Subcontroller I",
+            "representative_type_id": 26100
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1238,
+            "group_name": "Scanning Upgrade Time",
+            "representative_name": "Scan Acquisition Array I",
+            "representative_type_id": 33176
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1245,
+            "group_name": "Missile Launcher Rapid Heavy",
+            "representative_name": "Caldari Navy Rapid Heavy Missile Launcher",
+            "representative_type_id": 33446
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 1246,
+            "group_name": "Mobile Depot",
+            "representative_name": "Mobile Depot",
+            "representative_type_id": 33474
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 1247,
+            "group_name": "Mobile Siphon Unit",
+            "representative_name": "Small Mobile Siphon Unit",
+            "representative_type_id": 33477
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 1249,
+            "group_name": "Mobile Cyno Inhibitor",
+            "representative_name": "Mobile Cynosural Inhibitor",
+            "representative_type_id": 33476
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 1250,
+            "group_name": "Mobile Tractor Unit",
+            "representative_name": "Mobile Tractor Unit",
+            "representative_type_id": 33475
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 1275,
+            "group_name": "Mobile Scan Inhibitor",
+            "representative_name": "Mobile Scan Inhibitor",
+            "representative_type_id": 33589
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 1276,
+            "group_name": "Mobile Micro Jump Unit",
+            "representative_name": "Mobile Micro Jump Unit",
+            "representative_type_id": 33591
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 23,
+            "category_name": "Starbase",
+            "group_id": 1282,
+            "group_name": "Compression Array",
+            "representative_name": "Compression Array",
+            "representative_type_id": 12239
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 1283,
+            "group_name": "Expedition Frigate",
+            "representative_name": "Prospect",
+            "representative_type_id": 33697
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1289,
+            "group_name": "Warp Accelerator",
+            "representative_name": "Limited Hyperspatial Accelerator",
+            "representative_type_id": 33981
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1292,
+            "group_name": "Drone Tracking Enhancer",
+            "representative_name": "Omnidirectional Tracking Enhancer I",
+            "representative_type_id": 33822
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1299,
+            "group_name": "Jump Drive Economizer",
+            "representative_name": "Limited Jump Drive Economizer",
+            "representative_type_id": 34122
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 1305,
+            "group_name": "Tactical Destroyer",
+            "representative_name": "Confessor",
+            "representative_type_id": 34317
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1308,
+            "group_name": "Rig Anchor",
+            "representative_name": "Small Higgs Anchor I",
+            "representative_type_id": 34266
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1313,
+            "group_name": "Entosis Link",
+            "representative_name": "Entosis Link I",
+            "representative_type_id": 34593
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 1314,
+            "group_name": "Unknown Components",
+            "representative_name": "Coalesced Element",
+            "representative_type_id": 36902
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1321,
+            "group_name": "Structure Citadel Service Module",
+            "representative_name": "Standup Market Hub I",
+            "representative_type_id": 35892
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1322,
+            "group_name": "Structure Resource Processing Service Module",
+            "representative_name": "Standup Reprocessing Facility I",
+            "representative_type_id": 35899
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1327,
+            "group_name": "Structure XL Missile Launcher",
+            "representative_name": "Standup Anticapital Missile Launcher I",
+            "representative_type_id": 35921
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1328,
+            "group_name": "Structure Guided Bomb Launcher",
+            "representative_name": "Standup Guided Bomb Launcher I",
+            "representative_type_id": 35923
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1329,
+            "group_name": "Structure Energy Neutralizer",
+            "representative_name": "Standup XL Energy Neutralizer I",
+            "representative_type_id": 35924
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1330,
+            "group_name": "Structure Area Denial Module",
+            "representative_name": "Standup Point Defense Battery I",
+            "representative_type_id": 35926
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1331,
+            "group_name": "Structure Burst Projector",
+            "representative_name": "Standup Target Illumination Burst Projector",
+            "representative_type_id": 47072
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1332,
+            "group_name": "Structure ECM Battery",
+            "representative_name": "Standup Variable Spectrum ECM I",
+            "representative_type_id": 35940
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1333,
+            "group_name": "Structure Doomsday Weapon",
+            "representative_name": "Standup Arcing Vorton Projector I",
+            "representative_type_id": 35928
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1395,
+            "group_name": "Missile Guidance Enhancer",
+            "representative_name": "Missile Guidance Enhancer I",
+            "representative_type_id": 35770
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1396,
+            "group_name": "Missile Guidance Computer",
+            "representative_name": "Missile Guidance Computer I",
+            "representative_type_id": 35788
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1400,
+            "group_name": "Missile Guidance Script",
+            "representative_name": "Missile Range Script",
+            "representative_type_id": 35794
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 65,
+            "category_name": "Structure",
+            "group_id": 1404,
+            "group_name": "Engineering Complex",
+            "representative_name": "Raitaru",
+            "representative_type_id": 35825
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 65,
+            "category_name": "Structure",
+            "group_id": 1406,
+            "group_name": "Refinery",
+            "representative_name": "Athanor",
+            "representative_type_id": 35835
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 65,
+            "category_name": "Structure",
+            "group_id": 1408,
+            "group_name": "Upwell Jump Bridge",
+            "representative_name": "Ansiblex Jump Bridge",
+            "representative_type_id": 35841
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1415,
+            "group_name": "Structure Engineering Service Module",
+            "representative_name": "Standup Capital Shipyard I",
+            "representative_type_id": 35881
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1429,
+            "group_name": "Structure Weapon Upgrade",
+            "representative_name": "Standup Ballistic Control System I",
+            "representative_type_id": 35959
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1430,
+            "group_name": "Structure Fitting Module",
+            "representative_name": "Standup Co-Processor Array I",
+            "representative_type_id": 35963
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1441,
+            "group_name": "Structure Stasis Webifier",
+            "representative_name": "Standup Stasis Webifier I",
+            "representative_type_id": 35943
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1442,
+            "group_name": "Structure Warp Scrambler",
+            "representative_name": "Standup Focused Warp Disruptor I",
+            "representative_type_id": 35949
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 1527,
+            "group_name": "Logistics Frigate",
+            "representative_name": "Deacon",
+            "representative_type_id": 37457
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1533,
+            "group_name": "Micro Jump Field Generators",
+            "representative_name": "Micro Jump Field Generator",
+            "representative_type_id": 37479
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 1534,
+            "group_name": "Command Destroyer",
+            "representative_name": "Stork",
+            "representative_type_id": 37482
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1535,
+            "group_name": "Structure Signal Amplifier",
+            "representative_name": "Standup Signal Amplifier I",
+            "representative_type_id": 37532
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 87,
+            "category_name": "Fighter",
+            "group_id": 1537,
+            "group_name": "Support Fighter",
+            "representative_name": "Cenobite I",
+            "representative_type_id": 37599
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 1538,
+            "group_name": "Force Auxiliary",
+            "representative_name": "Apostle",
+            "representative_type_id": 37604
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1546,
+            "group_name": "Structure Anti-Capital Missile",
+            "representative_name": "Standup Super-heavy Torpedo",
+            "representative_type_id": 37843
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1547,
+            "group_name": "Structure Anti-Subcapital Missile",
+            "representative_name": "Standup Cruise Missile",
+            "representative_type_id": 37846
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1548,
+            "group_name": "Guided Bomb",
+            "representative_name": "Standup Heavy Guided Bomb",
+            "representative_type_id": 37849
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1549,
+            "group_name": "Structure ECM script",
+            "representative_name": "Standup Gravimetric ECM Script",
+            "representative_type_id": 37821
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1551,
+            "group_name": "Structure Warp Disruptor Script",
+            "representative_name": "Standup Focused Warp Scrambling Script",
+            "representative_type_id": 47336
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1562,
+            "group_name": "Structure Multirole Missile Launcher",
+            "representative_name": "Standup Multirole Missile Launcher I",
+            "representative_type_id": 35922
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1569,
+            "group_name": "Guidance Disruption Script",
+            "representative_name": "Missile Range Disruption Script",
+            "representative_type_id": 40334
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1613,
+            "group_name": "Structure Combat Rig M - Missile Application",
+            "representative_name": "Standup M-Set Missile Precision I",
+            "representative_type_id": 37216
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1614,
+            "group_name": "Structure Combat Rig M - Missile Projection",
+            "representative_name": "Standup M-Set Missile Projection I",
+            "representative_type_id": 37220
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1615,
+            "group_name": "Structure Combat Rig M - Energy Neutralizer Projection",
+            "representative_name": "Standup M-Set Energy Neutralizer Projection I",
+            "representative_type_id": 37218
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1616,
+            "group_name": "Structure Combat Rig M - Energy Neutralizer Cap Reduction",
+            "representative_name": "Standup M-Set Energy Neutralizer Economy I",
+            "representative_type_id": 37222
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1619,
+            "group_name": "Structure Combat Rig M - EW projection",
+            "representative_name": "Standup M-Set Electronic Warfare Projection I",
+            "representative_type_id": 37228
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1620,
+            "group_name": "Structure Combat Rig M - EW Cap Reduction",
+            "representative_name": "Standup M-Set Electronic Warfare Economy I",
+            "representative_type_id": 37230
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1621,
+            "group_name": "Structure Combat Rig M - Max Targets",
+            "representative_name": "Standup M-Set Structure Target Multiplexing I",
+            "representative_type_id": 37232
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1622,
+            "group_name": "Structure Combat Rig M - Boosted Sensors",
+            "representative_name": "Standup M-Set Enhanced Targeting System I",
+            "representative_type_id": 37234
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1629,
+            "group_name": "Structure Combat Rig L - Missile Application and Projection",
+            "representative_name": "Standup L-Set Missile Flight Processor I",
+            "representative_type_id": 37248
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1630,
+            "group_name": "Structure Combat Rig L - Energy Neutralizer Projection and Cap Reduction",
+            "representative_name": "Standup L-Set Energy Neutralizer Feedback Control I",
+            "representative_type_id": 37250
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1632,
+            "group_name": "Structure Combat Rig L - EW Projection and Cap Reduction",
+            "representative_name": "Standup L-Set EW Command System I",
+            "representative_type_id": 37254
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1633,
+            "group_name": "Structure Combat Rig L - AoE Launcher Application and Projection",
+            "representative_name": "Standup L-Set Bomb Aimer I",
+            "representative_type_id": 37256
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1634,
+            "group_name": "Structure Combat Rig L - Point Defense Battery Application and Projection",
+            "representative_name": "Standup L-Set Point Defense Battery Control I",
+            "representative_type_id": 37258
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1635,
+            "group_name": "Structure Combat Rig L - Max Targets and Sensor Boosting",
+            "representative_name": "Standup L-Set Target Acquisition Array I",
+            "representative_type_id": 37260
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1639,
+            "group_name": "Structure Combat Rig XL - Missile and AoE Missile",
+            "representative_name": "Standup XL-Set Missile Fire Control Computer I",
+            "representative_type_id": 37268
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1641,
+            "group_name": "Structure Combat Rig XL - Energy Neutralizer and EW",
+            "representative_name": "Standup XL-Set EW and Emissions Co-ordinator I",
+            "representative_type_id": 37272
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1642,
+            "group_name": "Structure Combat Rig XL - Doomsday and Targeting",
+            "representative_name": "Standup XL-Set Extinction Level Weapons Suite I",
+            "representative_type_id": 37274
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 87,
+            "category_name": "Fighter",
+            "group_id": 1652,
+            "group_name": "Light Fighter",
+            "representative_name": "Templar I",
+            "representative_type_id": 23055
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 87,
+            "category_name": "Fighter",
+            "group_id": 1653,
+            "group_name": "Heavy Fighter",
+            "representative_name": "Shadow",
+            "representative_type_id": 2948
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 65,
+            "category_name": "Structure",
+            "group_id": 1657,
+            "group_name": "Citadel",
+            "representative_name": "Astrahus",
+            "representative_type_id": 35832
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1672,
+            "group_name": "Stasis Grappler",
+            "representative_name": "Heavy Stasis Grappler I",
+            "representative_type_id": 41040
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1673,
+            "group_name": "Missile Launcher Rapid Torpedo",
+            "representative_name": "Rapid Torpedo Launcher I",
+            "representative_type_id": 37288
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1674,
+            "group_name": "Missile Launcher XL Cruise",
+            "representative_name": "CONCORD XL Cruise Missile Launcher",
+            "representative_type_id": 3563
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1677,
+            "group_name": "Advanced XL Torpedo",
+            "representative_name": "Scourge Javelin XL Torpedo",
+            "representative_type_id": 41270
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1678,
+            "group_name": "Advanced XL Cruise Missile",
+            "representative_name": "Inferno Precision XL Cruise Missile",
+            "representative_type_id": 41286
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1697,
+            "group_name": "Ancillary Remote Shield Booster",
+            "representative_name": "Small Ancillary Remote Shield Booster",
+            "representative_type_id": 41480
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1698,
+            "group_name": "Ancillary Remote Armor Repairer",
+            "representative_name": "Small Ancillary Remote Armor Repairer",
+            "representative_type_id": 41476
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1699,
+            "group_name": "Flex Armor Hardener",
+            "representative_name": "Capital Flex Armor Hardener I",
+            "representative_type_id": 41515
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1700,
+            "group_name": "Flex Shield Hardener",
+            "representative_name": "Dread Guristas Capital Flex Shield Hardener",
+            "representative_type_id": 41530
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1701,
+            "group_name": "Flex Armor Hardener Script",
+            "representative_name": "Armor EM Resistance Script",
+            "representative_type_id": 41517
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1702,
+            "group_name": "Flex Shield Hardener Script",
+            "representative_name": "Shield EM Resistance Script",
+            "representative_type_id": 41521
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1706,
+            "group_name": "Capital Sensor Array",
+            "representative_name": "Networked Sensor Array",
+            "representative_type_id": 41411
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1719,
+            "group_name": "Structure Disruption Battery",
+            "representative_name": "Standup Remote Sensor Dampener I",
+            "representative_type_id": 35941
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1769,
+            "group_name": "Shield Command Burst Charges",
+            "representative_name": "Active Shielding Charge",
+            "representative_type_id": 42694
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1770,
+            "group_name": "Command Burst",
+            "representative_name": "Mining Foreman Burst I",
+            "representative_type_id": 42528
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1771,
+            "group_name": "Mining Foreman Burst Charges",
+            "representative_name": "Mining Equipment Preservation Charge",
+            "representative_type_id": 42831
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1772,
+            "group_name": "Skirmish Command Burst Charges",
+            "representative_name": "Evasive Maneuvers Charge",
+            "representative_type_id": 42838
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1773,
+            "group_name": "Information Command Burst Charges",
+            "representative_name": "Electronic Hardening Charge",
+            "representative_type_id": 42837
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1774,
+            "group_name": "Armor Command Burst Charges",
+            "representative_name": "Armor Energizing Charge",
+            "representative_type_id": 42832
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1815,
+            "group_name": "Titan Phenomena Generator",
+            "representative_name": "Amarr Phenomena Generator",
+            "representative_type_id": 43658
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1816,
+            "group_name": "Structure Engineering Rig M - Equipment ME",
+            "representative_name": "Standup M-Set Equipment Manufacturing Material Efficiency I",
+            "representative_type_id": 43920
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1819,
+            "group_name": "Structure Engineering Rig M - Equipment TE",
+            "representative_name": "Standup M-Set Equipment Manufacturing Time Efficiency I",
+            "representative_type_id": 37160
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1820,
+            "group_name": "Structure Engineering Rig M - Ammunition ME",
+            "representative_name": "Standup M-Set Ammunition Manufacturing Material Efficiency I",
+            "representative_type_id": 37158
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1821,
+            "group_name": "Structure Engineering Rig M - Ammunition TE",
+            "representative_name": "Standup M-Set Ammunition Manufacturing Time Efficiency I",
+            "representative_type_id": 37150
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1822,
+            "group_name": "Structure Engineering Rig M - Drone and Fighter ME",
+            "representative_name": "Standup M-Set Drone and Fighter Manufacturing Material Efficiency I",
+            "representative_type_id": 37156
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1823,
+            "group_name": "Structure Engineering Rig M - Drone and Fighter TE",
+            "representative_name": "Standup M-Set Drone and Fighter Manufacturing Time Efficiency I",
+            "representative_type_id": 37148
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1824,
+            "group_name": "Structure Engineering Rig M - Basic Small Ship ME",
+            "representative_name": "Standup M-Set Basic Small Ship Manufacturing Material Efficiency I",
+            "representative_type_id": 37154
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1825,
+            "group_name": "Structure Engineering Rig M - Basic Small Ship TE",
+            "representative_name": "Standup M-Set Basic Small Ship Manufacturing Time Efficiency I",
+            "representative_type_id": 37162
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1826,
+            "group_name": "Structure Engineering Rig M - Basic Medium Ship ME",
+            "representative_name": "Standup M-Set Basic Medium Ship Manufacturing Material Efficiency I",
+            "representative_type_id": 37146
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1827,
+            "group_name": "Structure Engineering Rig M - Basic Medium Ship TE",
+            "representative_name": "Standup M-Set Basic Medium Ship Manufacturing Time Efficiency I",
+            "representative_type_id": 43919
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1828,
+            "group_name": "Structure Engineering Rig M - Basic Large Ship ME",
+            "representative_name": "Standup M-Set Basic Large Ship Manufacturing Material Efficiency I",
+            "representative_type_id": 43732
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1829,
+            "group_name": "Structure Engineering Rig M - Basic Large Ship TE",
+            "representative_name": "Standup M-Set Basic Large Ship Manufacturing Time Efficiency I",
+            "representative_type_id": 43733
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1830,
+            "group_name": "Structure Engineering Rig M - Advanced Small Ship ME",
+            "representative_name": "Standup M-Set Advanced Small Ship Manufacturing Material Efficiency I",
+            "representative_type_id": 43855
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1831,
+            "group_name": "Structure Engineering Rig M - Advanced Small Ship TE",
+            "representative_name": "Standup M-Set Advanced Small Ship Manufacturing Time Efficiency I",
+            "representative_type_id": 43856
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1832,
+            "group_name": "Structure Engineering Rig M - Advanced Medium Ship ME",
+            "representative_name": "Standup M-Set Advanced Medium Ship Manufacturing Material Efficiency I",
+            "representative_type_id": 43858
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1833,
+            "group_name": "Structure Engineering Rig M - Advanced Medium Ship TE",
+            "representative_name": "Standup M-Set Advanced Medium Ship Manufacturing Time Efficiency I",
+            "representative_type_id": 43860
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1834,
+            "group_name": "Structure Engineering Rig M - Advanced Large Ship ME",
+            "representative_name": "Standup M-Set Advanced Large Ship Manufacturing Material Efficiency I",
+            "representative_type_id": 43862
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1835,
+            "group_name": "Structure Engineering Rig M - Advanced Large Ship TE",
+            "representative_name": "Standup M-Set Advanced Large Ship Manufacturing Time Efficiency I",
+            "representative_type_id": 43865
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1836,
+            "group_name": "Structure Engineering Rig M - Advanced Component ME",
+            "representative_name": "Standup M-Set Advanced Component Manufacturing Material Efficiency I",
+            "representative_type_id": 43867
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1837,
+            "group_name": "Structure Engineering Rig M - Advanced Component TE",
+            "representative_name": "Standup M-Set Advanced Component Manufacturing Time Efficiency I",
+            "representative_type_id": 43869
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1838,
+            "group_name": "Structure Engineering Rig M - Basic Capital Component TE",
+            "representative_name": "Standup M-Set Basic Capital Component Manufacturing Time Efficiency I",
+            "representative_type_id": 43872
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1839,
+            "group_name": "Structure Engineering Rig M - Basic Capital Component ME",
+            "representative_name": "Standup M-Set Basic Capital Component Manufacturing Material Efficiency I",
+            "representative_type_id": 43870
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1840,
+            "group_name": "Structure Engineering Rig M - Structure ME",
+            "representative_name": "Standup M-Set Structure Manufacturing Material Efficiency I",
+            "representative_type_id": 43875
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1841,
+            "group_name": "Structure Engineering Rig M - Structure TE",
+            "representative_name": "Standup M-Set Structure Manufacturing Time Efficiency I",
+            "representative_type_id": 43876
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1842,
+            "group_name": "Structure Engineering Rig M - Invention Cost Optimization",
+            "representative_name": "Standup M-Set Invention Cost Optimization I",
+            "representative_type_id": 43879
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1843,
+            "group_name": "Structure Engineering Rig M - Invention Accelerator",
+            "representative_name": "Standup M-Set Invention Accelerator I",
+            "representative_type_id": 43880
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1844,
+            "group_name": "Structure Engineering Rig M - ME Research Cost Optimization",
+            "representative_name": "Standup M-Set ME Research Cost Optimization I",
+            "representative_type_id": 43885
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1845,
+            "group_name": "Structure Engineering Rig M - ME Research Accelerator",
+            "representative_name": "Standup M-Set ME Research Accelerator I",
+            "representative_type_id": 43883
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1846,
+            "group_name": "Structure Engineering Rig M - TE Research Cost Optimization",
+            "representative_name": "Standup M-Set TE Research Cost Optimization I",
+            "representative_type_id": 43887
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1847,
+            "group_name": "Structure Engineering Rig M - TE Research Accelerator",
+            "representative_name": "Standup M-Set TE Research Accelerator I",
+            "representative_type_id": 43889
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1848,
+            "group_name": "Structure Engineering Rig M - Blueprint Copy Cost Optimization",
+            "representative_name": "Standup M-Set Blueprint Copy Cost Optimization I",
+            "representative_type_id": 43891
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1849,
+            "group_name": "Structure Engineering Rig M - Blueprint Copy Accelerator",
+            "representative_name": "Standup M-Set Blueprint Copy Accelerator I",
+            "representative_type_id": 43893
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1850,
+            "group_name": "Structure Engineering Rig L - Equipment Efficiency",
+            "representative_name": "Standup L-Set Equipment Manufacturing Efficiency I",
+            "representative_type_id": 37170
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1851,
+            "group_name": "Structure Engineering Rig L - Ammunition Efficiency",
+            "representative_name": "Standup L-Set Ammunition Manufacturing Efficiency I",
+            "representative_type_id": 37164
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1852,
+            "group_name": "Structure Engineering Rig L - Drone and Fighter Efficiency",
+            "representative_name": "Standup L-Set Drone and Fighter Manufacturing Efficiency I",
+            "representative_type_id": 43712
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1853,
+            "group_name": "Structure Engineering Rig L - Basic Small Ship Efficiency",
+            "representative_name": "Standup L-Set Basic Small Ship Manufacturing Efficiency I",
+            "representative_type_id": 43714
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1854,
+            "group_name": "Structure Engineering Rig L - Basic Medium Ship Efficiency",
+            "representative_name": "Standup L-Set Basic Medium Ship Manufacturing Efficiency I",
+            "representative_type_id": 43716
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1855,
+            "group_name": "Structure Engineering Rig L - Basic Large Ship Efficiency",
+            "representative_name": "Standup L-Set Basic Large Ship Manufacturing Efficiency I",
+            "representative_type_id": 37166
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1856,
+            "group_name": "Structure Engineering Rig L - Advanced Small Ship Efficiency",
+            "representative_name": "Standup L-Set Advanced Small Ship Manufacturing Efficiency I",
+            "representative_type_id": 43707
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1857,
+            "group_name": "Structure Engineering Rig L - Advanced Medium Ship Efficiency",
+            "representative_name": "Standup L-Set Advanced Medium Ship Manufacturing Efficiency I",
+            "representative_type_id": 43709
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1858,
+            "group_name": "Structure Engineering Rig L - Advanced Large Ship Efficiency",
+            "representative_name": "Standup L-Set Advanced Large Ship Manufacturing Efficiency I",
+            "representative_type_id": 37168
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1859,
+            "group_name": "Structure Engineering Rig L - Capital Ship Efficiency",
+            "representative_name": "Standup L-Set Capital Ship Manufacturing Efficiency I",
+            "representative_type_id": 37173
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1860,
+            "group_name": "Structure Engineering Rig L - Advanced Component Efficiency",
+            "representative_name": "Standup L-Set Advanced Component Manufacturing Efficiency I",
+            "representative_type_id": 37174
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1861,
+            "group_name": "Structure Engineering Rig L - Basic Capital Component Efficiency",
+            "representative_name": "Standup L-Set Basic Capital Component Manufacturing Efficiency I",
+            "representative_type_id": 43718
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1862,
+            "group_name": "Structure Engineering Rig L - Structure Efficiency",
+            "representative_name": "Standup L-Set Structure Manufacturing Efficiency I",
+            "representative_type_id": 43720
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1863,
+            "group_name": "Structure Engineering Rig L - Invention Optimization",
+            "representative_name": "Standup L-Set Invention Optimization I",
+            "representative_type_id": 43722
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1864,
+            "group_name": "Structure Engineering Rig L - ME Research Optimization",
+            "representative_name": "Standup L-Set ME Research Optimization I",
+            "representative_type_id": 43724
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1865,
+            "group_name": "Structure Engineering Rig L - TE Research Optimization",
+            "representative_name": "Standup L-Set TE Research Optimization I",
+            "representative_type_id": 43726
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1866,
+            "group_name": "Structure Engineering Rig L - Blueprint Copy Optimization",
+            "representative_name": "Standup L-Set Blueprint Copy Optimization I",
+            "representative_type_id": 43729
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1867,
+            "group_name": "Structure Engineering Rig XL - Equipment and Consumable Efficiency",
+            "representative_name": "Standup XL-Set Equipment and Consumable Manufacturing Efficiency I",
+            "representative_type_id": 37178
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1868,
+            "group_name": "Structure Engineering Rig XL - Ship Efficiency",
+            "representative_name": "Standup XL-Set Ship Manufacturing Efficiency I",
+            "representative_type_id": 37180
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1869,
+            "group_name": "Structure Engineering Rig XL - Structure and Component Efficiency",
+            "representative_name": "Standup XL-Set Structure and Component Manufacturing Efficiency I",
+            "representative_type_id": 43704
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1870,
+            "group_name": "Structure Engineering Rig XL - Laboratory Optimization",
+            "representative_name": "Standup XL-Set Laboratory Optimization II",
+            "representative_type_id": 37182
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1887,
+            "group_name": "Structure Moon Drilling Service Module",
+            "representative_name": "Standup Moon Drill I",
+            "representative_type_id": 45009
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1912,
+            "group_name": "Structure Drilling Rig M - Efficiency",
+            "representative_name": "Standup M-Set Moon Drilling Efficiency II",
+            "representative_type_id": 46324
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1913,
+            "group_name": "Structure Drilling Rig M - Stability",
+            "representative_name": "Standup M-Set Moon Drilling Stability II",
+            "representative_type_id": 46326
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1914,
+            "group_name": "Structure Drilling Rig L - Proficiency",
+            "representative_name": "Standup L-Set Moon Drilling Proficiency II",
+            "representative_type_id": 46328
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1933,
+            "group_name": "Structure Composite Reactor Rig M - TE",
+            "representative_name": "Standup M-Set Composite Reactor Time Efficiency I",
+            "representative_type_id": 46484
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1934,
+            "group_name": "Structure Composite Reactor Rig M - ME",
+            "representative_name": "Standup M-Set Composite Reactor Material Efficiency I",
+            "representative_type_id": 46486
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1935,
+            "group_name": "Structure Hybrid Reactor Rig M - TE",
+            "representative_name": "Standup M-Set Hybrid Reactor Time Efficiency I",
+            "representative_type_id": 46488
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1936,
+            "group_name": "Structure Hybrid Reactor Rig M - ME",
+            "representative_name": "Standup M-Set Hybrid Reactor Material Efficiency I",
+            "representative_type_id": 46490
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1937,
+            "group_name": "Structure Biochemical Reactor Rig M - TE",
+            "representative_name": "Standup M-Set Biochemical Reactor Time Efficiency I",
+            "representative_type_id": 46492
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1938,
+            "group_name": "Structure Biochemical Reactor Rig M - ME",
+            "representative_name": "Standup M-Set Biochemical Reactor Material Efficiency I",
+            "representative_type_id": 46494
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1939,
+            "group_name": "Structure Reactor Rig L - Efficiency",
+            "representative_name": "Standup L-Set Reactor Efficiency I",
+            "representative_type_id": 46496
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1941,
+            "group_name": "Structure Resource Rig M - Asteroid Ore Reprocessing",
+            "representative_name": "Standup M-Set Asteroid Ore Grading Processor I",
+            "representative_type_id": 46633
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1942,
+            "group_name": "Structure Resource Rig M - Ice Reprocessing",
+            "representative_name": "Standup M-Set Ice Grading Processor I",
+            "representative_type_id": 46635
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1943,
+            "group_name": "Structure Resource Rig M - Moon Ore Reprocessing",
+            "representative_name": "Standup M-Set Moon Ore Grading Processor I",
+            "representative_type_id": 46637
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1944,
+            "group_name": "Structure Resource Rig L - Reprocessing",
+            "representative_name": "Standup L-Set Reprocessing Monitor I",
+            "representative_type_id": 46639
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1945,
+            "group_name": "Structure Resource Rig XL - Reprocessing",
+            "representative_name": "Standup XL-Set Reprocessing Monitor I",
+            "representative_type_id": 46641
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 1964,
+            "group_name": "Mutaplasmids",
+            "representative_name": "Glorified Decayed Small Armor Plate Mutaplasmid",
+            "representative_type_id": 85438
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1966,
+            "group_name": "Structure Capacitor Battery",
+            "representative_name": "Standup Cap Battery I",
+            "representative_type_id": 47352
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1967,
+            "group_name": "Structure Capacitor Power Relay",
+            "representative_name": "Standup Capacitor Power Relay I",
+            "representative_type_id": 47356
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 66,
+            "category_name": "Structure Module",
+            "group_id": 1968,
+            "group_name": "Structure Armor Reinforcer",
+            "representative_name": "Standup Layered Armor Plating I",
+            "representative_type_id": 47360
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 1972,
+            "group_name": "Flag Cruiser",
+            "representative_name": "Monitor",
+            "representative_type_id": 45534
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1986,
+            "group_name": "Precursor Weapon",
+            "representative_name": "Light Entropic Disintegrator I",
+            "representative_type_id": 47272
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1987,
+            "group_name": "Exotic Plasma Charge",
+            "representative_name": "Tetryon Exotic Plasma S",
+            "representative_type_id": 47885
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 1988,
+            "group_name": "Entropic Radiation Sink",
+            "representative_name": "Entropic Radiation Sink I",
+            "representative_type_id": 47908
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 1989,
+            "group_name": "Advanced Exotic Plasma Charge",
+            "representative_name": "Occult S",
+            "representative_type_id": 47926
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 2008,
+            "group_name": "Mass Entanglers",
+            "representative_name": "Zero-Point Mass Entangler",
+            "representative_type_id": 49099
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 65,
+            "category_name": "Structure",
+            "group_id": 2016,
+            "group_name": "Upwell Cyno Jammer",
+            "representative_name": "Tenebrex Cyno Jammer",
+            "representative_type_id": 37534
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 65,
+            "category_name": "Structure",
+            "group_id": 2017,
+            "group_name": "Upwell Cyno Beacon",
+            "representative_name": "Pharolux Cyno Beacon",
+            "representative_type_id": 35840
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 2018,
+            "group_name": "Mutadaptive Remote Armor Repairer",
+            "representative_name": "Heavy Mutadaptive Remote Armor Repairer I",
+            "representative_type_id": 49770
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 4041,
+            "group_name": "Jump Filaments",
+            "representative_name": "Noise-15 'Needlejack' Filament",
+            "representative_type_id": 53985
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4060,
+            "group_name": "Vorton Projector",
+            "representative_name": "Small Vorton Projector I",
+            "representative_type_id": 54739
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 4061,
+            "group_name": "Advanced Condenser Pack",
+            "representative_name": "ElectroPunch Ultra S",
+            "representative_type_id": 54784
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 4062,
+            "group_name": "Condenser Pack",
+            "representative_name": "GalvaSurge Condenser Pack S",
+            "representative_type_id": 54769
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4067,
+            "group_name": "Vorton Projector Upgrade",
+            "representative_name": "Vorton Tuning System I",
+            "representative_type_id": 54973
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 4072,
+            "group_name": "Expired Jump Filaments",
+            "representative_name": "Expired Liberated Barbican Filament",
+            "representative_type_id": 88205
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 4088,
+            "group_name": "Interdiction Burst Probes",
+            "representative_name": "Stasis Webification Probe",
+            "representative_type_id": 56748
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 4093,
+            "group_name": "Mobile Cynosural Beacon",
+            "representative_name": "Mobile Cynosural Beacon",
+            "representative_type_id": 57319
+        },
+        {
+            "activity": "reaction",
+            "category_id": 4,
+            "category_name": "Material",
+            "group_id": 4096,
+            "group_name": "Molecular-Forged Materials",
+            "representative_name": "Meta-Operant Neurolink Enhancer",
+            "representative_type_id": 57458
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 4107,
+            "group_name": "Mobile Observatory",
+            "representative_name": "Mobile Observatory",
+            "representative_type_id": 58904
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4117,
+            "group_name": "Interdiction Nullifier",
+            "representative_name": "Interdiction Nullifier I",
+            "representative_type_id": 58919
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4127,
+            "group_name": "Covert Jump Portal Generator",
+            "representative_name": "Covert Jump Portal Generator I",
+            "representative_type_id": 28652
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 4137,
+            "group_name": "Mobile Analysis Beacon",
+            "representative_name": "CONCORD Rogue Analysis Beacon",
+            "representative_type_id": 60244
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4138,
+            "group_name": "Gas Cloud Harvesters",
+            "representative_name": "Gas Cloud Harvester I",
+            "representative_type_id": 60313
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 4145,
+            "group_name": "Warp Matrix Filaments",
+            "representative_name": "Expired Curious Warp Matrix Filament",
+            "representative_type_id": 60633
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4174,
+            "group_name": "Compressors",
+            "representative_name": "Medium Asteroid Ore Compressor I",
+            "representative_type_id": 62622
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4184,
+            "group_name": "Industrial Jump Portal Generator",
+            "representative_name": "Industrial Jump Portal Generator I",
+            "representative_type_id": 63140
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 4186,
+            "group_name": "Structure Area Denial Ammunition",
+            "representative_name": "Standup Flak Round I",
+            "representative_type_id": 63195
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 4594,
+            "group_name": "Lancer Dreadnought",
+            "representative_name": "Hubris",
+            "representative_type_id": 77281
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 46,
+            "category_name": "Orbitals",
+            "group_id": 4736,
+            "group_name": "Skyhook",
+            "representative_name": "Orbital Skyhook",
+            "representative_type_id": 81080
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 65,
+            "category_name": "Structure",
+            "group_id": 4744,
+            "group_name": "Upwell Moon Drill",
+            "representative_name": "Metenox Moon Drill",
+            "representative_type_id": 81826
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 39,
+            "category_name": "Infrastructure Upgrades",
+            "group_id": 4768,
+            "group_name": "Sovereignty Hub Site Detection Upgrades",
+            "representative_name": "Major Threat Detection Array 1",
+            "representative_type_id": 82496
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4769,
+            "group_name": "Capital Mobility Modules",
+            "representative_name": "Capital Micro Jump Drive",
+            "representative_type_id": 83465
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 39,
+            "category_name": "Infrastructure Upgrades",
+            "group_id": 4772,
+            "group_name": "Sovereignty Hub Service Infrastructure Upgrade",
+            "representative_name": "Cynosural Navigation",
+            "representative_type_id": 81615
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 17,
+            "category_name": "Commodity",
+            "group_id": 4776,
+            "group_name": "Expired Abyssal Battlefields Filaments",
+            "representative_name": "Expired Sinister Exotic Filament",
+            "representative_type_id": 79996
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 87,
+            "category_name": "Fighter",
+            "group_id": 4777,
+            "group_name": "Structure Light Fighter",
+            "representative_name": "Standup Templar I",
+            "representative_type_id": 47035
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 87,
+            "category_name": "Fighter",
+            "group_id": 4778,
+            "group_name": "Structure Support Fighter",
+            "representative_name": "Standup Cenobite I",
+            "representative_type_id": 47131
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 87,
+            "category_name": "Fighter",
+            "group_id": 4779,
+            "group_name": "Structure Heavy Fighter",
+            "representative_name": "Standup Shadow",
+            "representative_type_id": 47123
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 7,
+            "category_name": "Module",
+            "group_id": 4807,
+            "group_name": "Breacher Pod Launchers",
+            "representative_name": "Medium Breacher Pod Launcher",
+            "representative_type_id": 85085
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 4808,
+            "group_name": "SCARAB Breacher Pods",
+            "representative_name": "SCARAB Breacher Pod S",
+            "representative_type_id": 85088
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 4810,
+            "group_name": "Mercenary Den",
+            "representative_name": "Mercenary Den",
+            "representative_type_id": 85230
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 39,
+            "category_name": "Infrastructure Upgrades",
+            "group_id": 4838,
+            "group_name": "Sovereignty Hub Colony Resources Management Upgrades",
+            "representative_name": "Power Monitoring Division 1",
+            "representative_type_id": 87703
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 39,
+            "category_name": "Infrastructure Upgrades",
+            "group_id": 4839,
+            "group_name": "Sovereignty Hub System Effect Generator Upgrades",
+            "representative_name": "Gamma Stability Generator",
+            "representative_type_id": 87815
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 4902,
+            "group_name": "Expedition Command Ship",
+            "representative_name": "Odysseus",
+            "representative_type_id": 89607
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 8,
+            "category_name": "Charge",
+            "group_id": 4905,
+            "group_name": "Expedition Command Burst Charges",
+            "representative_name": "Expedition Strength Charge",
+            "representative_type_id": 89612
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 22,
+            "category_name": "Deployable",
+            "group_id": 4913,
+            "group_name": "Mobile Phase Anchor",
+            "representative_name": "Mobile Phase Anchor",
+            "representative_type_id": 90037
+        },
+        {
+            "activity": "reaction",
+            "category_id": 4,
+            "category_name": "Material",
+            "group_id": 4932,
+            "group_name": "Unrefined Mineral",
+            "representative_name": "Unrefined Tritanium",
+            "representative_type_id": 90283
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 5087,
+            "group_name": "Special Edition Yachts",
+            "representative_name": "Victorieux Luxury Yacht",
+            "representative_type_id": 34590
+        },
+        {
+            "activity": "manufacturing",
+            "category_id": 6,
+            "category_name": "Ship",
+            "group_id": 5120,
+            "group_name": "Command Carrier",
+            "representative_name": "Salvation",
+            "representative_type_id": 92822
+        }
+    ],
+    "provenance": {
+        "archive_sha256": "18e864e143043e8f0f3b8e8fd06525c13b5818d819272643d2726c7cf15a3aa5",
+        "archives": [
+            "https://developers.eveonline.com/static-data/tranquility/eve-online-static-data-3670638-jsonl.zip",
+            "https://developers.eveonline.com/static-data/tranquility/eve-online-static-data-3693310-jsonl.zip"
+        ],
+        "documentation": "https://developers.eveonline.com/docs/services/static-data/",
+        "entry_sha256": {
+            "blueprints.jsonl": "94653d3e7d126f79d228357881beec0734fc377b1ebe3cebbec95890e475617f",
+            "categories.jsonl": "1280acd333a7e06bdadd3de12359c65efe4e54878a8a719d389585dd60751898",
+            "dogmaAttributes.jsonl": "b035d04eee8f9ab51161d6223bf43a1b284366bd8451e563f7fa3742d56b207a",
+            "dogmaEffects.jsonl": "edf16e5c08aaaaa10116a68239a32993c68cca1b78c0a068ec297831a168ac98",
+            "groups.jsonl": "4b3ca8cbd48c521e635eb88095f2654d262ca4fbb5948a02e1d0f83b9c43a48a",
+            "industryModifierSources.jsonl": "73bcc42e08404fe6c8b6eece355094bbc5932841af0ab5aadee6a68b50e28a9b",
+            "industryTargetFilters.jsonl": "daa27eac84f90e26e6a2d0ad8e35a973f081e225b9db63485d1d843241ecf316",
+            "typeDogma.jsonl": "29ec75c8684d3c2ada201a9fc0eb7b7062dc509ea76029c78453c015d285b6fa",
+            "types.jsonl": "ec5e089d760bf8d83726881bca4c8b0d7a1b46f215ba14ee67ff6b12e148fd7a"
+        }
+    },
+    "published_product_count": 4173,
+    "rigs": [
+        {
+            "group_id": 1826,
+            "name": "Standup M-Set Basic Medium Ship Manufacturing Material Efficiency I",
+            "type_id": 37146
+        },
+        {
+            "group_id": 1826,
+            "name": "Standup M-Set Basic Medium Ship Manufacturing Material Efficiency II",
+            "type_id": 37147
+        },
+        {
+            "group_id": 1823,
+            "name": "Standup M-Set Drone and Fighter Manufacturing Time Efficiency I",
+            "type_id": 37148
+        },
+        {
+            "group_id": 1823,
+            "name": "Standup M-Set Drone and Fighter Manufacturing Time Efficiency II",
+            "type_id": 37149
+        },
+        {
+            "group_id": 1821,
+            "name": "Standup M-Set Ammunition Manufacturing Time Efficiency I",
+            "type_id": 37150
+        },
+        {
+            "group_id": 1821,
+            "name": "Standup M-Set Ammunition Manufacturing Time Efficiency II",
+            "type_id": 37151
+        },
+        {
+            "group_id": 1828,
+            "name": "Standup M-Set Basic Large Ship Manufacturing Material Efficiency II",
+            "type_id": 37152
+        },
+        {
+            "group_id": 1827,
+            "name": "Standup M-Set Basic Medium Ship Manufacturing Time Efficiency II",
+            "type_id": 37153
+        },
+        {
+            "group_id": 1824,
+            "name": "Standup M-Set Basic Small Ship Manufacturing Material Efficiency I",
+            "type_id": 37154
+        },
+        {
+            "group_id": 1824,
+            "name": "Standup M-Set Basic Small Ship Manufacturing Material Efficiency II",
+            "type_id": 37155
+        },
+        {
+            "group_id": 1822,
+            "name": "Standup M-Set Drone and Fighter Manufacturing Material Efficiency I",
+            "type_id": 37156
+        },
+        {
+            "group_id": 1822,
+            "name": "Standup M-Set Drone and Fighter Manufacturing Material Efficiency II",
+            "type_id": 37157
+        },
+        {
+            "group_id": 1820,
+            "name": "Standup M-Set Ammunition Manufacturing Material Efficiency I",
+            "type_id": 37158
+        },
+        {
+            "group_id": 1820,
+            "name": "Standup M-Set Ammunition Manufacturing Material Efficiency II",
+            "type_id": 37159
+        },
+        {
+            "group_id": 1819,
+            "name": "Standup M-Set Equipment Manufacturing Time Efficiency I",
+            "type_id": 37160
+        },
+        {
+            "group_id": 1819,
+            "name": "Standup M-Set Equipment Manufacturing Time Efficiency II",
+            "type_id": 37161
+        },
+        {
+            "group_id": 1825,
+            "name": "Standup M-Set Basic Small Ship Manufacturing Time Efficiency I",
+            "type_id": 37162
+        },
+        {
+            "group_id": 1825,
+            "name": "Standup M-Set Basic Small Ship Manufacturing Time Efficiency II",
+            "type_id": 37163
+        },
+        {
+            "group_id": 1851,
+            "name": "Standup L-Set Ammunition Manufacturing Efficiency I",
+            "type_id": 37164
+        },
+        {
+            "group_id": 1851,
+            "name": "Standup L-Set Ammunition Manufacturing Efficiency II",
+            "type_id": 37165
+        },
+        {
+            "group_id": 1855,
+            "name": "Standup L-Set Basic Large Ship Manufacturing Efficiency I",
+            "type_id": 37166
+        },
+        {
+            "group_id": 1855,
+            "name": "Standup L-Set Basic Large Ship Manufacturing Efficiency II",
+            "type_id": 37167
+        },
+        {
+            "group_id": 1858,
+            "name": "Standup L-Set Advanced Large Ship Manufacturing Efficiency I",
+            "type_id": 37168
+        },
+        {
+            "group_id": 1858,
+            "name": "Standup L-Set Advanced Large Ship Manufacturing Efficiency II",
+            "type_id": 37169
+        },
+        {
+            "group_id": 1850,
+            "name": "Standup L-Set Equipment Manufacturing Efficiency I",
+            "type_id": 37170
+        },
+        {
+            "group_id": 1850,
+            "name": "Standup L-Set Equipment Manufacturing Efficiency II",
+            "type_id": 37171
+        },
+        {
+            "group_id": 1859,
+            "name": "Standup L-Set Capital Ship Manufacturing Efficiency II",
+            "type_id": 37172
+        },
+        {
+            "group_id": 1859,
+            "name": "Standup L-Set Capital Ship Manufacturing Efficiency I",
+            "type_id": 37173
+        },
+        {
+            "group_id": 1860,
+            "name": "Standup L-Set Advanced Component Manufacturing Efficiency I",
+            "type_id": 37174
+        },
+        {
+            "group_id": 1860,
+            "name": "Standup L-Set Advanced Component Manufacturing Efficiency II",
+            "type_id": 37175
+        },
+        {
+            "group_id": 1867,
+            "name": "Standup XL-Set Equipment and Consumable Manufacturing Efficiency I",
+            "type_id": 37178
+        },
+        {
+            "group_id": 1867,
+            "name": "Standup XL-Set Equipment and Consumable Manufacturing Efficiency II",
+            "type_id": 37179
+        },
+        {
+            "group_id": 1868,
+            "name": "Standup XL-Set Ship Manufacturing Efficiency I",
+            "type_id": 37180
+        },
+        {
+            "group_id": 1868,
+            "name": "Standup XL-Set Ship Manufacturing Efficiency II",
+            "type_id": 37181
+        },
+        {
+            "group_id": 1870,
+            "name": "Standup XL-Set Laboratory Optimization II",
+            "type_id": 37182
+        },
+        {
+            "group_id": 1870,
+            "name": "Standup XL-Set Laboratory Optimization I",
+            "type_id": 37183
+        },
+        {
+            "group_id": 1869,
+            "name": "Standup XL-Set Structure and Component Manufacturing Efficiency I",
+            "type_id": 43704
+        },
+        {
+            "group_id": 1869,
+            "name": "Standup XL-Set Structure and Component Manufacturing Efficiency II",
+            "type_id": 43705
+        },
+        {
+            "group_id": 1856,
+            "name": "Standup L-Set Advanced Small Ship Manufacturing Efficiency I",
+            "type_id": 43707
+        },
+        {
+            "group_id": 1856,
+            "name": "Standup L-Set Advanced Small Ship Manufacturing Efficiency II",
+            "type_id": 43708
+        },
+        {
+            "group_id": 1857,
+            "name": "Standup L-Set Advanced Medium Ship Manufacturing Efficiency I",
+            "type_id": 43709
+        },
+        {
+            "group_id": 1857,
+            "name": "Standup L-Set Advanced Medium Ship Manufacturing Efficiency II",
+            "type_id": 43711
+        },
+        {
+            "group_id": 1852,
+            "name": "Standup L-Set Drone and Fighter Manufacturing Efficiency I",
+            "type_id": 43712
+        },
+        {
+            "group_id": 1852,
+            "name": "Standup L-Set Drone and Fighter Manufacturing Efficiency II",
+            "type_id": 43713
+        },
+        {
+            "group_id": 1853,
+            "name": "Standup L-Set Basic Small Ship Manufacturing Efficiency I",
+            "type_id": 43714
+        },
+        {
+            "group_id": 1853,
+            "name": "Standup L-Set Basic Small Ship Manufacturing Efficiency II",
+            "type_id": 43715
+        },
+        {
+            "group_id": 1854,
+            "name": "Standup L-Set Basic Medium Ship Manufacturing Efficiency I",
+            "type_id": 43716
+        },
+        {
+            "group_id": 1854,
+            "name": "Standup L-Set Basic Medium Ship Manufacturing Efficiency II",
+            "type_id": 43717
+        },
+        {
+            "group_id": 1861,
+            "name": "Standup L-Set Basic Capital Component Manufacturing Efficiency I",
+            "type_id": 43718
+        },
+        {
+            "group_id": 1861,
+            "name": "Standup L-Set Basic Capital Component Manufacturing Efficiency II",
+            "type_id": 43719
+        },
+        {
+            "group_id": 1862,
+            "name": "Standup L-Set Structure Manufacturing Efficiency I",
+            "type_id": 43720
+        },
+        {
+            "group_id": 1862,
+            "name": "Standup L-Set Structure Manufacturing Efficiency II",
+            "type_id": 43721
+        },
+        {
+            "group_id": 1863,
+            "name": "Standup L-Set Invention Optimization I",
+            "type_id": 43722
+        },
+        {
+            "group_id": 1863,
+            "name": "Standup L-Set Invention Optimization II",
+            "type_id": 43723
+        },
+        {
+            "group_id": 1864,
+            "name": "Standup L-Set ME Research Optimization I",
+            "type_id": 43724
+        },
+        {
+            "group_id": 1864,
+            "name": "Standup L-Set ME Research Optimization II",
+            "type_id": 43725
+        },
+        {
+            "group_id": 1865,
+            "name": "Standup L-Set TE Research Optimization I",
+            "type_id": 43726
+        },
+        {
+            "group_id": 1865,
+            "name": "Standup L-Set TE Research Optimization II",
+            "type_id": 43727
+        },
+        {
+            "group_id": 1866,
+            "name": "Standup L-Set Blueprint Copy Optimization I",
+            "type_id": 43729
+        },
+        {
+            "group_id": 1866,
+            "name": "Standup L-Set Blueprint Copy Optimization II",
+            "type_id": 43730
+        },
+        {
+            "group_id": 1828,
+            "name": "Standup M-Set Basic Large Ship Manufacturing Material Efficiency I",
+            "type_id": 43732
+        },
+        {
+            "group_id": 1829,
+            "name": "Standup M-Set Basic Large Ship Manufacturing Time Efficiency I",
+            "type_id": 43733
+        },
+        {
+            "group_id": 1829,
+            "name": "Standup M-Set Basic Large Ship Manufacturing Time Efficiency II",
+            "type_id": 43734
+        },
+        {
+            "group_id": 1830,
+            "name": "Standup M-Set Advanced Small Ship Manufacturing Material Efficiency II",
+            "type_id": 43854
+        },
+        {
+            "group_id": 1830,
+            "name": "Standup M-Set Advanced Small Ship Manufacturing Material Efficiency I",
+            "type_id": 43855
+        },
+        {
+            "group_id": 1831,
+            "name": "Standup M-Set Advanced Small Ship Manufacturing Time Efficiency I",
+            "type_id": 43856
+        },
+        {
+            "group_id": 1831,
+            "name": "Standup M-Set Advanced Small Ship Manufacturing Time Efficiency II",
+            "type_id": 43857
+        },
+        {
+            "group_id": 1832,
+            "name": "Standup M-Set Advanced Medium Ship Manufacturing Material Efficiency I",
+            "type_id": 43858
+        },
+        {
+            "group_id": 1832,
+            "name": "Standup M-Set Advanced Medium Ship Manufacturing Material Efficiency II",
+            "type_id": 43859
+        },
+        {
+            "group_id": 1833,
+            "name": "Standup M-Set Advanced Medium Ship Manufacturing Time Efficiency I",
+            "type_id": 43860
+        },
+        {
+            "group_id": 1833,
+            "name": "Standup M-Set Advanced Medium Ship Manufacturing Time Efficiency II",
+            "type_id": 43861
+        },
+        {
+            "group_id": 1834,
+            "name": "Standup M-Set Advanced Large Ship Manufacturing Material Efficiency I",
+            "type_id": 43862
+        },
+        {
+            "group_id": 1834,
+            "name": "Standup M-Set Advanced Large Ship Manufacturing Material Efficiency II",
+            "type_id": 43863
+        },
+        {
+            "group_id": 1835,
+            "name": "Standup M-Set Advanced Large Ship Manufacturing Time Efficiency II",
+            "type_id": 43864
+        },
+        {
+            "group_id": 1835,
+            "name": "Standup M-Set Advanced Large Ship Manufacturing Time Efficiency I",
+            "type_id": 43865
+        },
+        {
+            "group_id": 1836,
+            "name": "Standup M-Set Advanced Component Manufacturing Material Efficiency II",
+            "type_id": 43866
+        },
+        {
+            "group_id": 1836,
+            "name": "Standup M-Set Advanced Component Manufacturing Material Efficiency I",
+            "type_id": 43867
+        },
+        {
+            "group_id": 1837,
+            "name": "Standup M-Set Advanced Component Manufacturing Time Efficiency II",
+            "type_id": 43868
+        },
+        {
+            "group_id": 1837,
+            "name": "Standup M-Set Advanced Component Manufacturing Time Efficiency I",
+            "type_id": 43869
+        },
+        {
+            "group_id": 1839,
+            "name": "Standup M-Set Basic Capital Component Manufacturing Material Efficiency I",
+            "type_id": 43870
+        },
+        {
+            "group_id": 1839,
+            "name": "Standup M-Set Basic Capital Component Manufacturing Material Efficiency II",
+            "type_id": 43871
+        },
+        {
+            "group_id": 1838,
+            "name": "Standup M-Set Basic Capital Component Manufacturing Time Efficiency I",
+            "type_id": 43872
+        },
+        {
+            "group_id": 1838,
+            "name": "Standup M-Set Basic Capital Component Manufacturing Time Efficiency II",
+            "type_id": 43873
+        },
+        {
+            "group_id": 1840,
+            "name": "Standup M-Set Structure Manufacturing Material Efficiency II",
+            "type_id": 43874
+        },
+        {
+            "group_id": 1840,
+            "name": "Standup M-Set Structure Manufacturing Material Efficiency I",
+            "type_id": 43875
+        },
+        {
+            "group_id": 1841,
+            "name": "Standup M-Set Structure Manufacturing Time Efficiency I",
+            "type_id": 43876
+        },
+        {
+            "group_id": 1841,
+            "name": "Standup M-Set Structure Manufacturing Time Efficiency II",
+            "type_id": 43877
+        },
+        {
+            "group_id": 1842,
+            "name": "Standup M-Set Invention Cost Optimization II",
+            "type_id": 43878
+        },
+        {
+            "group_id": 1842,
+            "name": "Standup M-Set Invention Cost Optimization I",
+            "type_id": 43879
+        },
+        {
+            "group_id": 1843,
+            "name": "Standup M-Set Invention Accelerator I",
+            "type_id": 43880
+        },
+        {
+            "group_id": 1843,
+            "name": "Standup M-Set Invention Accelerator II",
+            "type_id": 43881
+        },
+        {
+            "group_id": 1845,
+            "name": "Standup M-Set ME Research Accelerator II",
+            "type_id": 43882
+        },
+        {
+            "group_id": 1845,
+            "name": "Standup M-Set ME Research Accelerator I",
+            "type_id": 43883
+        },
+        {
+            "group_id": 1844,
+            "name": "Standup M-Set ME Research Cost Optimization II",
+            "type_id": 43884
+        },
+        {
+            "group_id": 1844,
+            "name": "Standup M-Set ME Research Cost Optimization I",
+            "type_id": 43885
+        },
+        {
+            "group_id": 1846,
+            "name": "Standup M-Set TE Research Cost Optimization II",
+            "type_id": 43886
+        },
+        {
+            "group_id": 1846,
+            "name": "Standup M-Set TE Research Cost Optimization I",
+            "type_id": 43887
+        },
+        {
+            "group_id": 1847,
+            "name": "Standup M-Set TE Research Accelerator II",
+            "type_id": 43888
+        },
+        {
+            "group_id": 1847,
+            "name": "Standup M-Set TE Research Accelerator I",
+            "type_id": 43889
+        },
+        {
+            "group_id": 1848,
+            "name": "Standup M-Set Blueprint Copy Cost Optimization II",
+            "type_id": 43890
+        },
+        {
+            "group_id": 1848,
+            "name": "Standup M-Set Blueprint Copy Cost Optimization I",
+            "type_id": 43891
+        },
+        {
+            "group_id": 1849,
+            "name": "Standup M-Set Blueprint Copy Accelerator II",
+            "type_id": 43892
+        },
+        {
+            "group_id": 1849,
+            "name": "Standup M-Set Blueprint Copy Accelerator I",
+            "type_id": 43893
+        },
+        {
+            "group_id": 1827,
+            "name": "Standup M-Set Basic Medium Ship Manufacturing Time Efficiency I",
+            "type_id": 43919
+        },
+        {
+            "group_id": 1816,
+            "name": "Standup M-Set Equipment Manufacturing Material Efficiency I",
+            "type_id": 43920
+        },
+        {
+            "group_id": 1816,
+            "name": "Standup M-Set Equipment Manufacturing Material Efficiency II",
+            "type_id": 43921
+        },
+        {
+            "group_id": 1839,
+            "name": "Standup M-Set Thukker Basic Capital Component Manufacturing Material Efficiency",
+            "type_id": 45544
+        },
+        {
+            "group_id": 1861,
+            "name": "Standup L-Set Thukker Basic Capital Component Manufacturing Efficiency",
+            "type_id": 45546
+        },
+        {
+            "group_id": 1869,
+            "name": "Standup XL-Set Thukker Structure and Component Manufacturing Efficiency",
+            "type_id": 45548
+        },
+        {
+            "group_id": 1836,
+            "name": "Standup M-Set Thukker Advanced Component Manufacturing Material Efficiency",
+            "type_id": 45640
+        },
+        {
+            "group_id": 1860,
+            "name": "Standup L-Set Thukker Advanced Component Manufacturing Efficiency",
+            "type_id": 45641
+        },
+        {
+            "group_id": 1933,
+            "name": "Standup M-Set Composite Reactor Time Efficiency I",
+            "type_id": 46484
+        },
+        {
+            "group_id": 1933,
+            "name": "Standup M-Set Composite Reactor Time Efficiency II",
+            "type_id": 46485
+        },
+        {
+            "group_id": 1934,
+            "name": "Standup M-Set Composite Reactor Material Efficiency I",
+            "type_id": 46486
+        },
+        {
+            "group_id": 1934,
+            "name": "Standup M-Set Composite Reactor Material Efficiency II",
+            "type_id": 46487
+        },
+        {
+            "group_id": 1935,
+            "name": "Standup M-Set Hybrid Reactor Time Efficiency I",
+            "type_id": 46488
+        },
+        {
+            "group_id": 1935,
+            "name": "Standup M-Set Hybrid Reactor Time Efficiency II",
+            "type_id": 46489
+        },
+        {
+            "group_id": 1936,
+            "name": "Standup M-Set Hybrid Reactor Material Efficiency I",
+            "type_id": 46490
+        },
+        {
+            "group_id": 1936,
+            "name": "Standup M-Set Hybrid Reactor Material Efficiency II",
+            "type_id": 46491
+        },
+        {
+            "group_id": 1937,
+            "name": "Standup M-Set Biochemical Reactor Time Efficiency I",
+            "type_id": 46492
+        },
+        {
+            "group_id": 1937,
+            "name": "Standup M-Set Biochemical Reactor Time Efficiency II",
+            "type_id": 46493
+        },
+        {
+            "group_id": 1938,
+            "name": "Standup M-Set Biochemical Reactor Material Efficiency I",
+            "type_id": 46494
+        },
+        {
+            "group_id": 1938,
+            "name": "Standup M-Set Biochemical Reactor Material Efficiency II",
+            "type_id": 46495
+        },
+        {
+            "group_id": 1939,
+            "name": "Standup L-Set Reactor Efficiency I",
+            "type_id": 46496
+        },
+        {
+            "group_id": 1939,
+            "name": "Standup L-Set Reactor Efficiency II",
+            "type_id": 46497
+        }
+    ],
+    "sde_build": 3670638
+}
