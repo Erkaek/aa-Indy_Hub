@@ -880,7 +880,10 @@ def project_workspace_preserves_recipe(
     output_overrides = _extract_workspace_final_output_quantity_overrides(
         workspace_state
     )
-    outputs = cached_payload.get("final_outputs") or []
+    # EFT quantity overrides index fit groups, not their raw hull/module rows.
+    outputs = cached_payload.get("editable_final_outputs")
+    if not isinstance(outputs, list):
+        outputs = cached_payload.get("final_outputs") or []
     if output_overrides:
         if len(output_overrides) != len(outputs) and int(
             previous_state.get("runs") or 1

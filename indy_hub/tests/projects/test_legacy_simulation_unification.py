@@ -290,6 +290,77 @@ class LegacySimulationUnificationTests(TestCase):
         project.save(update_fields=["workspace_state", "updated_at"])
         return project
 
+    def _create_cached_two_fit_project(
+        self, *, cache_version: int
+    ) -> ProductionProject:
+        self._ensure_project_sde_rows()
+        item_type_model = apps.get_model("eve_sde", "ItemType")
+        for type_id, type_name in ((2048, "Damage Control II"), (37604, "Guardian")):
+            item_type_model.objects.update_or_create(
+                id=type_id,
+                defaults={"name": type_name, "published": True},
+            )
+        project = ProductionProject.objects.create(
+            user=self.user,
+            name="Two Fits",
+            status=ProductionProject.Status.DRAFT,
+            source_kind=ProductionProject.SourceKind.EFT,
+            workspace_state={"runs": 1},
+        )
+        for order, (
+            type_id,
+            type_name,
+            quantity,
+            fit_index,
+            is_hull,
+            blueprint_id,
+        ) in enumerate(
+            (
+                (603, "Merlin", 1, 0, True, 950),
+                (2048, "Damage Control II", 2, 0, False, None),
+                (37604, "Guardian", 1, 1, True, None),
+            )
+        ):
+            ProductionProjectItem.objects.create(
+                project=project,
+                type_id=type_id,
+                type_name=type_name,
+                quantity_requested=quantity,
+                category_order=order,
+                is_selected=True,
+                is_craftable=bool(blueprint_id),
+                blueprint_type_id=blueprint_id,
+                inclusion_mode=(
+                    ProductionProjectItem.InclusionMode.PRODUCE
+                    if blueprint_id
+                    else ProductionProjectItem.InclusionMode.BUY
+                ),
+                metadata={
+                    "fit_group": f"eft_fit_{fit_index}",
+                    "fit_index": fit_index,
+                    "fit_hull_name": "Merlin" if fit_index == 0 else "Guardian",
+                    "fit_display_name": "Fit A" if fit_index == 0 else "Fit B",
+                    "is_fit_hull": is_hull,
+                },
+            )
+        cached_payload = build_project_workspace_payload(
+            project, include_full_structure_options=False
+        )
+        cached_payload["cache_version"] = cache_version
+        if cache_version == 6:
+            cached_payload.pop("industry_rules_version", None)
+        project.workspace_state = {
+            "runs": 1,
+            PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY: cached_payload,
+            PROJECT_WORKSPACE_SDE_SIGNATURE_KEY: {"global": "older"},
+            PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY: (
+                get_project_workspace_scoped_sde_signature(cached_payload)
+            ),
+        }
+        project.save(update_fields=["workspace_state", "updated_at"])
+        project.refresh_from_db()
+        return project
+
     @patch("indy_hub.views.industry.create_temporary_project_workspace")
     def test_craft_bp_redirects_to_temp_workspace(self, mock_create_workspace):
         mock_create_workspace.return_value = "temp123"
@@ -1613,6 +1684,205 @@ class LegacySimulationUnificationTests(TestCase):
         self.assertEqual(project.workspace_state["buyTypeIds"], [34])
         _payload, changed = get_cached_project_workspace_payload(project)
         self.assertTrue(changed)
+
+    def test_two_fit_stock_save_preserves_snapshot_after_sde_change(self):
+        for cache_version in (6, PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION):
+            with self.subTest(cache_version=cache_version):
+                project = self._create_cached_two_fit_project(
+                    cache_version=cache_version
+                )
+                before = deepcopy(project.workspace_state)
+                original = before[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+                self.assertEqual(
+                    [
+                        (row["type_id"], row["quantity"])
+                        for row in original["final_outputs"]
+                    ],
+                    [(603, 1), (2048, 2), (37604, 1)],
+                )
+                self.assertEqual(
+                    [
+                        (row["type_id"], row["type_name"], row["quantity"])
+                        for row in original["editable_final_outputs"]
+                    ],
+                    [(603, "Fit A", 1), (37604, "Fit B", 1)],
+                )
+                self._ensure_project_sde_rows(material_quantity=12)
+                state = strip_project_workspace_cache(before)
+                state.update(
+                    {
+                        "simulation_name": project.name,
+                        "finalOutputQuantities": [
+                            {"index": 0, "typeId": 603, "quantity": 1},
+                            {"index": 1, "typeId": 37604, "quantity": 1},
+                        ],
+                        "stockAllocations": {"603": 1},
+                        "buyTypeIds": [34],
+                    }
+                )
+                with patch(
+                    "indy_hub.views.api.build_project_workspace_payload",
+                    wraps=build_project_workspace_payload,
+                ) as builder:
+                    _apply_workspace_state_to_project(project, state)
+                project.refresh_from_db()
+                payload, changed = get_cached_project_workspace_payload(project)
+                self.assertIsNotNone(payload)
+                material = payload["materials_tree"][0]["sub_materials"][0][
+                    "sub_materials"
+                ][0]
+                self.assertEqual(material["base_quantity_per_run"], 10)
+                builder.assert_not_called()
+                self.assertTrue(changed)
+                self.assertEqual(
+                    payload["cache_version"], PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION
+                )
+                for key in (
+                    "materials_tree",
+                    "recipe_map",
+                    "production_time_map",
+                    "final_outputs",
+                    "editable_final_outputs",
+                ):
+                    self.assertEqual(payload[key], original[key])
+                for key in (
+                    PROJECT_WORKSPACE_SDE_SIGNATURE_KEY,
+                    PROJECT_WORKSPACE_SCOPED_SDE_SIGNATURE_KEY,
+                ):
+                    self.assertEqual(project.workspace_state[key], before[key])
+                self.assertEqual(
+                    project.workspace_state["stockAllocations"], {"603": 1}
+                )
+                self.assertEqual(project.workspace_state["buyTypeIds"], [34])
+                self.assertEqual(
+                    list(
+                        project.items.order_by("category_order", "id").values_list(
+                            "type_id", "quantity_requested"
+                        )
+                    ),
+                    [(603, 1), (2048, 2), (37604, 1)],
+                )
+
+    def test_changed_second_fit_quantity_rebuilds_snapshot(self):
+        for cache_version in (6, PROJECT_WORKSPACE_PAYLOAD_CACHE_VERSION):
+            with self.subTest(cache_version=cache_version):
+                project = self._create_cached_two_fit_project(
+                    cache_version=cache_version
+                )
+                self._ensure_project_sde_rows(material_quantity=12)
+                state = strip_project_workspace_cache(project.workspace_state)
+                state.update(
+                    {
+                        "simulation_name": project.name,
+                        "finalOutputQuantities": [
+                            {"index": 0, "typeId": 603, "quantity": 1},
+                            {"index": 1, "typeId": 37604, "quantity": 2},
+                        ],
+                    }
+                )
+                with patch(
+                    "indy_hub.views.api.build_project_workspace_payload",
+                    wraps=build_project_workspace_payload,
+                ) as builder:
+                    _apply_workspace_state_to_project(project, state)
+                project.refresh_from_db()
+                payload, changed = get_cached_project_workspace_payload(project)
+                self.assertIsNotNone(payload)
+                self.assertEqual(payload["materials_tree"][1]["quantity"], 2)
+                builder.assert_called_once()
+                self.assertFalse(changed)
+                self.assertEqual(
+                    [
+                        (row["type_id"], row["type_name"], row["quantity"])
+                        for row in payload["editable_final_outputs"]
+                    ],
+                    [(603, "Fit A", 1), (37604, "Fit B", 2)],
+                )
+                self.assertEqual(
+                    [
+                        (row["type_id"], row["quantity"])
+                        for row in payload["final_outputs"]
+                    ],
+                    [(603, 1), (2048, 2), (37604, 2)],
+                )
+                self.assertEqual(
+                    payload["materials_tree"][1]["sub_materials"][0]["quantity"], 2
+                )
+                material = payload["materials_tree"][0]["sub_materials"][0][
+                    "sub_materials"
+                ][0]
+                self.assertEqual(material["base_quantity_per_run"], 12)
+                self.assertEqual(
+                    list(
+                        project.items.order_by("category_order", "id").values_list(
+                            "type_id", "quantity_requested"
+                        )
+                    ),
+                    [(603, 1), (2048, 2), (37604, 1)],
+                )
+
+    def test_legacy_cache_without_editable_outputs_uses_raw_output_fallback(self):
+        project = self._create_cached_merlin_project()
+        original = project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        original.pop("editable_final_outputs")
+        project.save(update_fields=["workspace_state"])
+        project.refresh_from_db()
+        original = deepcopy(
+            project.workspace_state[PROJECT_WORKSPACE_PAYLOAD_CACHE_KEY]
+        )
+        self._ensure_project_sde_rows(material_quantity=12)
+        state = strip_project_workspace_cache(project.workspace_state)
+        state.update(
+            {
+                "simulation_name": project.name,
+                "finalOutputQuantities": [{"index": 0, "typeId": 603, "quantity": 1}],
+                "stockAllocations": {"603": 1},
+            }
+        )
+        with patch(
+            "indy_hub.views.api.build_project_workspace_payload",
+            wraps=build_project_workspace_payload,
+        ) as builder:
+            _apply_workspace_state_to_project(project, state)
+        builder.assert_not_called()
+        project.refresh_from_db()
+        payload, changed = get_cached_project_workspace_payload(project)
+        self.assertTrue(changed)
+        self.assertEqual(payload["materials_tree"], original["materials_tree"])
+        self.assertEqual(payload["recipe_map"], original["recipe_map"])
+        self.assertNotIn("editable_final_outputs", payload)
+
+        state = strip_project_workspace_cache(project.workspace_state)
+        state["finalOutputQuantities"][0]["quantity"] = 2
+        with patch(
+            "indy_hub.views.api.build_project_workspace_payload",
+            wraps=build_project_workspace_payload,
+        ) as builder:
+            _apply_workspace_state_to_project(project, state)
+        builder.assert_called_once()
+        project.refresh_from_db()
+        payload, changed = get_cached_project_workspace_payload(project)
+        self.assertFalse(changed)
+        self.assertEqual(payload["editable_final_outputs"][0]["quantity"], 2)
+        self.assertEqual(
+            payload["materials_tree"][0]["sub_materials"][0]["base_quantity_per_run"],
+            12,
+        )
+
+    def test_empty_editable_outputs_do_not_fall_back_to_raw_items(self):
+        self.assertFalse(
+            project_workspace_preserves_recipe(
+                {
+                    "final_outputs": [{"type_id": 603, "quantity": 1}],
+                    "editable_final_outputs": [],
+                },
+                {"runs": 1},
+                {
+                    "runs": 1,
+                    "finalOutputQuantities": [{"index": 0, "quantity": 1}],
+                },
+            )
+        )
 
     def test_legacy_useless_recipe_choice_survives_non_recipe_save(self):
         project = self._create_cached_merlin_project()
