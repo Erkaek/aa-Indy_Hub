@@ -12,6 +12,7 @@ from celery import shared_task
 
 # Django
 from django.contrib.auth import get_user_model
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 # Alliance Auth
@@ -53,6 +54,19 @@ def _coerce_role_list(value: object) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(item) for item in value if item]
     return []
+
+
+def _fresh_role_snapshots(*, now, stale_hours=ROLE_SNAPSHOT_STALE_HOURS):
+    """Fresh roles must still belong to the current owner and corporation."""
+    current_ownership = CharacterOwnership.objects.filter(
+        user_id=OuterRef("owner_user_id"),
+        character__character_id=OuterRef("character_id"),
+        character__corporation_id=OuterRef("corporation_id"),
+    )
+    return CharacterRoles.objects.filter(
+        Exists(current_ownership),
+        last_updated__gt=now - timedelta(hours=stale_hours),
+    )
 
 
 @shared_task
@@ -181,12 +195,13 @@ def update_user_roles_snapshots(user_id: int) -> dict[str, int]:
     character_ids = [int(character_id) for character_id in ownerships if character_id]
     fresh_character_ids: set[int] = set()
     if character_ids:
-        fresh_cutoff = timezone.now() - timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
         fresh_character_ids = set(
-            CharacterRoles.objects.filter(
+            _fresh_role_snapshots(now=timezone.now())
+            .filter(
+                owner_user_id=user_id,
                 character_id__in=character_ids,
-                last_updated__gte=fresh_cutoff,
-            ).values_list("character_id", flat=True)
+            )
+            .values_list("character_id", flat=True)
         )
 
     updated = 0
