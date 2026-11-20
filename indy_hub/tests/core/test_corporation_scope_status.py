@@ -17,11 +17,13 @@ from esi.models import Scope, Token
 
 # AA Example App
 from indy_hub.models import CharacterRoles, CorporationSharingSetting
+from indy_hub.services.esi_client import ESIForbiddenError, ESIUnmodifiedError
 from indy_hub.tasks.industry import (
     CORP_BLUEPRINT_SCOPE_SET,
     CORP_JOBS_SCOPE_SET,
     MATERIAL_EXCHANGE_SCOPE_SET,
 )
+from indy_hub.tasks.user import update_character_roles_for_character
 from indy_hub.tests.fixtures import create_raw_fixture
 from indy_hub.utils.token_status import (
     corporation_scope_status_cache_key,
@@ -237,6 +239,91 @@ class CorporationScopeStatusTests(TestCase):
         ]
         cache.set_many(dict.fromkeys(keys, {"stale": True}), timeout=300)
         return keys
+
+    def test_periodic_roles_refresh_revalidates_stale_snapshot_and_status(self):
+        token = self._make_token(CORP_BLUEPRINT_SCOPE_SET)
+        old = timezone.now() - timedelta(days=2)
+        CharacterRoles.objects.filter(character_id=self.character.character_id).update(
+            last_updated=old
+        )
+        keys = self._warm_status_caches()
+        with patch(
+            "indy_hub.tasks.user.shared_client.fetch_character_corporation_roles",
+            return_value={"roles": ["Director"]},
+        ) as fetch:
+            result = update_character_roles_for_character.apply(
+                args=[self.user.pk, self.character.character_id], throw=True
+            ).get()
+
+        self.assertEqual(result, {"status": "updated"})
+        self.assertTrue(fetch.call_args.kwargs["force_refresh"])
+        snapshot = CharacterRoles.objects.get(character_id=self.character.character_id)
+        self.assertGreater(snapshot.last_updated, old)
+        self.assertEqual(snapshot.roles, ["Director"])
+        for key in keys:
+            self.assertIsNone(cache.get(key))
+        status = _collect_corporation_scope_status(
+            self.user, allow_live_role_fetch=False, validate_tokens=False
+        )
+        self.assertFalse(status[0]["roles_unavailable"])
+        self.assertTrue(status[0]["has_director_role"])
+        self.assertTrue(Token.objects.filter(pk=token.pk).exists())
+
+    def test_fresh_roles_skip_fetch_unless_explicitly_forced(self):
+        self._make_token(CORP_BLUEPRINT_SCOPE_SET)
+        with patch(
+            "indy_hub.tasks.user.shared_client.fetch_character_corporation_roles",
+            return_value={"roles": []},
+        ) as fetch:
+            result = update_character_roles_for_character.run(
+                self.user.pk, self.character.character_id
+            )
+            self.assertEqual(result, {"status": "skipped", "reason": "fresh"})
+            fetch.assert_not_called()
+            result = update_character_roles_for_character.run(
+                self.user.pk, self.character.character_id, force_refresh=True
+            )
+
+        self.assertEqual(result, {"status": "updated"})
+        fetch.assert_called_once()
+        self.assertTrue(fetch.call_args.kwargs["force_refresh"])
+        self.assertEqual(
+            CharacterRoles.objects.get(character_id=self.character.character_id).roles,
+            [],
+        )
+        status = _collect_corporation_scope_status(
+            self.user, allow_live_role_fetch=False, validate_tokens=False
+        )
+        self.assertEqual(status, [])
+
+    def test_failed_stale_roles_refresh_preserves_unverified_state_and_token(self):
+        token = self._make_token(CORP_BLUEPRINT_SCOPE_SET)
+        old = timezone.now() - timedelta(days=2)
+        CharacterRoles.objects.filter(character_id=self.character.character_id).update(
+            last_updated=old
+        )
+        for error in (ESIUnmodifiedError("unchanged"), ESIForbiddenError("forbidden")):
+            with (
+                self.subTest(error=type(error).__name__),
+                patch(
+                    "indy_hub.tasks.user.shared_client.fetch_character_corporation_roles",
+                    side_effect=error,
+                ) as fetch,
+            ):
+                update_character_roles_for_character.run(
+                    self.user.pk, self.character.character_id
+                )
+                self.assertTrue(fetch.call_args.kwargs["force_refresh"])
+                snapshot = CharacterRoles.objects.get(
+                    character_id=self.character.character_id
+                )
+                self.assertEqual(snapshot.last_updated, old)
+                self.assertEqual(snapshot.roles, ["Director"])
+                self.assertTrue(Token.objects.filter(pk=token.pk).exists())
+                status = _collect_corporation_scope_status(
+                    self.user, allow_live_role_fetch=False, validate_tokens=False
+                )
+                self.assertTrue(status[0]["roles_unavailable"])
 
     def test_token_refresh_invalidates_all_status_pages(self):
         token = self._make_token(CORP_BLUEPRINT_SCOPE_SET, expired=True)
