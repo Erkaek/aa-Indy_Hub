@@ -73,16 +73,18 @@ def update_character_roles_for_character(
     if not ownership:
         return {"status": "skipped", "reason": "ownership_missing"}
 
-    snapshot = CharacterRoles.objects.filter(character_id=character_id).first()
+    snapshot = CharacterRoles.objects.filter(
+        character_id=character_id,
+        owner_user=ownership.user,
+        corporation_id=ownership.character.corporation_id,
+    ).first()
     now = timezone.now()
     snapshot_stale = bool(
         snapshot
         and (now - snapshot.last_updated) >= timedelta(hours=ROLE_SNAPSHOT_STALE_HOURS)
     )
-    if snapshot and not snapshot_stale:
+    if snapshot and not snapshot_stale and not force_refresh:
         return {"status": "skipped", "reason": "fresh"}
-
-    table_empty = not CharacterRoles.objects.exists()
 
     token = (
         Token.objects.filter(user=ownership.user, character_id=character_id)
@@ -96,7 +98,10 @@ def update_character_roles_for_character(
     try:
         payload = shared_client.fetch_character_corporation_roles(
             int(character_id),
-            force_refresh=force_refresh or table_empty or snapshot is None,
+            # Missing/stale qualified roles (or an explicit refresh) need a full
+            # response: a cached/conditional 304 cannot renew their eligibility.
+            force_refresh=True,
+            token_obj=token,
         )
     except ESIUnmodifiedError:
         return {"status": "skipped", "reason": "not_modified"}

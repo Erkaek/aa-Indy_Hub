@@ -12,7 +12,6 @@ from solo.models import SingletonModel
 
 # Django
 from django.contrib.auth.models import Permission, User
-from django.core.cache import caches
 from django.db import transaction
 from django.test import TestCase, override_settings
 from django.test.utils import isolate_apps
@@ -123,6 +122,8 @@ class NativeSingletonTransitionRiskTests(TestCase):
         # Django unpickles cached models via its global registry. Point only
         # deserialization at this test registry; native cache behavior is real.
         self.enterContext(patch("django.db.models.base.apps", registry))
+        # django-solo 2.8 serializes cached instances instead of pickling them.
+        self.enterContext(patch("django.core.serializers.python.apps", registry))
 
         class NativeSettings(SingletonModel, MaterialExchangeSettings):
             class Meta:
@@ -131,8 +132,14 @@ class NativeSingletonTransitionRiskTests(TestCase):
                 default_permissions = ()
 
         self.native = NativeSettings
-        self.addCleanup(caches["default"].delete, self.native.get_cache_key())
-        caches["default"].delete(self.native.get_cache_key())
+
+        def clear_native_cache():
+            # Method-level SOLO_CACHE overrides are inactive during setUp/cleanup.
+            with override_settings(SOLO_CACHE="default"):
+                self.native.clear_cache()
+
+        self.addCleanup(clear_native_cache)
+        clear_native_cache()
 
     def test_native_empty_table_reuses_fixed_identity(self):
         self.assertEqual(self.native.get_solo().pk, 1)
@@ -169,8 +176,8 @@ class NativeSingletonTransitionRiskTests(TestCase):
     @override_settings(SOLO_CACHE="default")
     def test_native_cache_cold_warm_and_save(self):
         MaterialExchangeSettings.objects.create(pk=1, is_enabled=False)
-        self.assertIsNone(caches["default"].get(self.native.get_cache_key()))
-        obj = self.native.get_solo()
+        with self.assertNumQueries(1):
+            obj = self.native.get_solo()
         with self.assertNumQueries(0):
             self.assertFalse(self.native.get_solo().is_enabled)
         obj.is_enabled = True

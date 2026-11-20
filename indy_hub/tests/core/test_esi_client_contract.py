@@ -170,6 +170,14 @@ class EsiClientNativeContractTests(TestCase):
         }
         for name, tag, path, scope, paginated, _ in OPERATIONS:
             with self.subTest(operation=name):
+                if (
+                    name == "GetUniverseStationsStationId"
+                    and (tag, name) not in functions
+                ):
+                    # django-esi 10.2's generated stubs omit this legacy endpoint.
+                    # Its local OpenAPI/native-operation contract remains covered
+                    # by test_native_filtered_spec_covers_every_declared_operation.
+                    continue
                 args = {arg.arg for arg in functions[tag, name].args.args}
                 path_args = {
                     part[1:-1] for part in path.split("/") if part.startswith("{")
@@ -665,7 +673,7 @@ class EsiClientNativeContractTests(TestCase):
                         self.facade._tranquility_cooldown_seconds_remaining(), 0
                     )
 
-    def test_reauthorization_refreshes_passive_roles_for_industry_inactive_owner(self):
+    def _make_corporation_role_snapshot(self):
         # Django
         from django.contrib.auth.models import Permission
 
@@ -675,9 +683,6 @@ class EsiClientNativeContractTests(TestCase):
 
         # AA Example App
         from indy_hub.models import CharacterRoles
-        from indy_hub.services import esi_client as client_module
-        from indy_hub.tasks.user import update_character_roles_for_character
-        from indy_hub.utils.token_status import token_management_live_cache_key
 
         self.user.user_permissions.add(
             *Permission.objects.filter(
@@ -703,6 +708,100 @@ class EsiClientNativeContractTests(TestCase):
             corporation_id=character.corporation_id,
             roles=["Director"],
         )
+        return character, snapshot
+
+    def test_periodic_roles_refresh_bypasses_warm_native_etag(self):
+        # AA Example App
+        from indy_hub.models import CharacterRoles
+        from indy_hub.services import esi_client as client_module
+        from indy_hub.tasks.user import update_character_roles_for_character
+
+        character, snapshot = self._make_corporation_role_snapshot()
+        self.client.force_login(self.user)
+        self.payload = {
+            "roles": ["Director"],
+            "roles_at_hq": [],
+            "roles_at_base": [],
+            "roles_at_other": [],
+        }
+        self.headers = {"ETag": '"roles-v1"'}
+        for state in ("stale", "missing", "wrong_owner", "wrong_corporation"):
+            with self.subTest(state=state):
+                cache.clear()
+                snapshot, _ = CharacterRoles.objects.update_or_create(
+                    character_id=character.character_id,
+                    defaults={
+                        "owner_user": self.user,
+                        "corporation_id": character.corporation_id,
+                        "roles": ["Director"],
+                    },
+                )
+                self.facade.fetch_character_corporation_roles(character.character_id)
+                with self.assertRaises(ESIUnmodifiedError):
+                    self.facade.fetch_character_corporation_roles(
+                        character.character_id
+                    )
+                self.wire_calls.clear()
+                if state == "missing":
+                    snapshot.delete()
+                elif state == "stale":
+                    CharacterRoles.objects.filter(pk=snapshot.pk).update(
+                        last_updated=timezone.now() - timedelta(days=2)
+                    )
+                elif state == "wrong_owner":
+                    other = User.objects.create_user("old-role-owner")
+                    CharacterRoles.objects.filter(pk=snapshot.pk).update(
+                        owner_user=other
+                    )
+                else:
+                    CharacterRoles.objects.filter(pk=snapshot.pk).update(
+                        corporation_id=character.corporation_id + 1
+                    )
+
+                with (
+                    patch.object(
+                        client_module.shared_client, "provider", self.provider
+                    ),
+                    patch(
+                        "indy_hub.views.user.get_corporation_name",
+                        return_value="Contract Corp",
+                    ),
+                    patch(
+                        "indy_hub.views.user.get_character_name",
+                        return_value="Contract Pilot",
+                    ),
+                ):
+                    before = self.client.get("/indy_hub/esi/")
+                    self.assertContains(before, "Roles unverified")
+                    self.assertEqual(self.wire_calls, [])
+                    result = update_character_roles_for_character.apply(
+                        args=[self.user.pk, character.character_id], throw=True
+                    ).get()
+                    self.assertEqual(result, {"status": "updated"})
+                    after = self.client.get("/indy_hub/esi/")
+
+                snapshot = CharacterRoles.objects.get(
+                    character_id=character.character_id
+                )
+                self.assertEqual(snapshot.owner_user_id, self.user.pk)
+                self.assertEqual(snapshot.corporation_id, character.corporation_id)
+                self.assertGreater(
+                    snapshot.last_updated, timezone.now() - timedelta(minutes=1)
+                )
+                self.assertEqual(len(self.wire_calls), 1)
+                self.assertFalse(self.wire_calls[0].headers.get("If-None-Match"))
+                self.assertContains(after, "Director token ready")
+                self.assertNotContains(after, "Roles unverified")
+                self.assertTrue(Token.objects.filter(pk=self.token.pk).exists())
+
+    def test_reauthorization_refreshes_passive_roles_for_industry_inactive_owner(self):
+        # AA Example App
+        from indy_hub.models import CharacterRoles
+        from indy_hub.services import esi_client as client_module
+        from indy_hub.tasks.user import update_character_roles_for_character
+        from indy_hub.utils.token_status import token_management_live_cache_key
+
+        character, snapshot = self._make_corporation_role_snapshot()
         CharacterRoles.objects.filter(pk=snapshot.pk).update(
             last_updated=timezone.now() - timedelta(days=35)
         )
