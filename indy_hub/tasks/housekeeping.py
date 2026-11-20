@@ -12,6 +12,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 # Alliance Auth
+from allianceauth.authentication.models import CharacterOwnership
 from allianceauth.services.hooks import get_extension_logger
 from allianceauth.services.tasks import QueueOnce
 from esi.models import Token
@@ -49,7 +50,11 @@ from .industry import (
     update_character_skill_snapshot_for_character,
 )
 from .location import cache_structure_names_bulk
-from .user import CORP_ROLES_SCOPE, update_character_roles_for_character
+from .user import (
+    CORP_ROLES_SCOPE,
+    _fresh_role_snapshots,
+    update_character_roles_for_character,
+)
 
 logger = get_extension_logger(__name__)
 User = get_user_model()
@@ -67,6 +72,24 @@ def _select_character_targets_for_stale_snapshots(
     character_ids = [int(cid) for _uid, cid in token_pairs if cid]
     if not character_ids:
         return []
+
+    if snapshot_model is CharacterRoles:
+        # Tokens may outlive character ownership. Only current owners can be
+        # queued, and roles from a previous owner/corporation are not fresh.
+        owned_pairs = set(
+            CharacterOwnership.objects.filter(
+                character__character_id__in=character_ids
+            ).values_list("user_id", "character__character_id")
+        )
+        fresh_pairs = set(
+            _fresh_role_snapshots(now=now, stale_hours=stale_hours)
+            .filter(character_id__in=character_ids)
+            .values_list("owner_user_id", "character_id")
+        )
+        candidate_pairs = {
+            (int(uid), int(cid)) for uid, cid in token_pairs if uid and cid
+        }
+        return sorted((candidate_pairs & owned_pairs) - fresh_pairs)
 
     rows = snapshot_model.objects.filter(character_id__in=character_ids).values_list(
         "character_id",
