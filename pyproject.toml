@@ -1,11 +1,12 @@
 [build-system]
-build-backend = "flit_core.buildapi"
+build-backend = "hatchling.build"
 requires = [
-    "flit-core>=3.2,<4",
+    "hatchling>=1.27,<2",
 ]
 
 [project]
 name = "indy-hub"
+description = "Indy Hub - An industrial management application for Alliance Auth"
 readme = "README.md"
 keywords = [
     "allianceauth",
@@ -37,7 +38,6 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
 ]
 dynamic = [
-    "description",
     "version",
 ]
 dependencies = [
@@ -59,23 +59,48 @@ urls.Homepage = "https://github.com/Erkaek/aa-Indy_Hub"
 urls.Source = "https://github.com/Erkaek/aa-Indy_Hub"
 urls.Tracker = "https://github.com/Erkaek/aa-Indy_Hub/issues"
 
-[tool.flit.module]
-name = "indy_hub"
-skip_gitignore = true
+[tool.hatch.version]
+path = "indy_hub/__init__.py"
 
-[tool.flit.sdist]
+[tool.hatch.build.targets.wheel]
+packages = [ "indy_hub" ]
+exclude = [
+    "/indy_hub/tests",
+    "/indy_hub/temporary_prompt",
+    "**/__pycache__",
+    "**/*.py[cod]",
+]
+
+[tool.hatch.build.targets.sdist]
+ignore-vcs = true
 include = [
-    "docs/INDUSTRY_RULES.md",
-    "scripts/*.py",
-    "scripts/*.js",
-    "scripts/*.cjs",
-    "testauth/**/*.py",
-    "runtests.py",
-    "tox.ini",
-    "package.json",
-    "package-lock.json",
-    "eslint.config.js",
-    ".stylelintrc.json",
+    "/indy_hub",
+    "/docs/INDUSTRY_RULES.md",
+    "/docs/UPGRADE_NOTES.md",
+    "/docs/PROCESS_RESOLUTION_INSTALL.md",
+    "/docs/deployment/*.md",
+    "/docs/deployment/*.conf",
+    "/docs/screenshots/*.png",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/pyproject.toml",
+    "/scripts/*.py",
+    "/scripts/*.js",
+    "/scripts/*.cjs",
+    "/testauth/**/*.py",
+    "/runtests.py",
+    "/tox.ini",
+    "/.coveragerc",
+    "/package.json",
+    "/package-lock.json",
+    "/eslint.config.js",
+    "/.stylelintrc.json",
+]
+exclude = [
+    "/indy_hub/temporary_prompt",
+    "**/__pycache__",
+    "**/*.py[cod]",
 ]
 
 [tool.isort]

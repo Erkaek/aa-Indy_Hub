@@ -318,9 +318,11 @@ This file is the sole editorial source. Run
 `--check` verifies the copy without writing and runs in packaging CI.
 The canonical documentation is mirrored byte-for-byte in the package at
 `indy_hub/data/industry/INDUSTRY_RULES.md`. The wheel carries that document and
-all offline CCP fixtures; the source distribution additionally carries this
-source document and the generation/test tools. `scripts/check_distribution.py`
-checks their presence and exact content against the current checkout.
+the validated CCP rule bundle needed at runtime. Tests and offline CCP fixtures
+remain in Git and the source distribution, alongside this source document,
+installation/deployment guides and generation/test tools. They are excluded
+from the installed wheel. `scripts/check_distribution.py` checks the complete
+runtime resources, source tests and required documentation against the checkout.
 
 The historical CSV `data/sde/industryActivityProducts.csv`, `SDE_FOLDER` and
 legacy public attribute/catalogue constants have no identified internal reader.

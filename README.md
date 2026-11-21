@@ -5,12 +5,19 @@ Indy Hub is an industry and Material Exchange application for
 alliances manage blueprints, industry jobs, copy requests, production projects,
 and internal material trading.
 
+The `1.18.3` tag is the published baseline for this documentation review. Changes
+on `main` after that tag are listed under **Unreleased** in the changelog; they
+are not installed by selecting `indy-hub==1.18.3`. See the
+[upgrade notes](docs/UPGRADE_NOTES.md) for deployment requirements.
+
 ## Features
 
 - Personal and corporation blueprint libraries
 - Manufacturing, research, invention, and reaction job tracking
 - Blueprint copy requests, offers, chat, and delivery tracking
-- Crafting projects with structure, stock, blueprint, and financial planning
+- Crafting projects with structure, stock, blueprint, and financial planning,
+  including market sell fees and recursive production demand
+- Bundled CCP industry rules with exact rig targeting and saved-recipe preservation
 - Industry structure registry and corporation sharing controls
 - Material Exchange buy and sell orders
 - In-app and optional Discord notifications
@@ -24,7 +31,8 @@ For the complete list of changes in each release, see
 
 - Alliance Auth 5
 - Python 3.12 or newer (tested on 3.12, 3.13 and 3.14)
-- Celery workers and Celery Beat
+- `django-esi>=10.1,<11`
+- Celery workers with a prefork consumer for Indy Hub, and Celery Beat
 - A shared Django cache, normally Redis
 - `django-eveonline-sde` with its base SDE data loaded
 
@@ -122,8 +130,11 @@ should be assigned only to trusted corporation managers.
 Corporation administration also requires suitable EVE corporation roles and
 authorized corporation tokens.
 
-The `Settings → User admin` page is available only to superusers and is
-read-only.
+The `Settings → User admin` page is available only to superusers. It provides
+account diagnostics, alternate-character search, filtered CSV export and explicit
+maintenance actions for up to 25 selected users: rebuilding diagnostic summaries
+or refreshing blueprints/jobs. It does not replace Alliance Auth's native user
+and group administration; those screens retain AA's permission labels and rules.
 
 ## Configuration
 
@@ -199,7 +210,17 @@ to include in Indy Hub usage statistics.
 Indy Hub creates and repairs its background schedules automatically during
 migrations and service restarts. No manual schedule setup is required.
 
+Configure the dedicated prefork worker and task route described in
+[worker configuration](docs/deployment/README.md#worker-configuration).
+Preserve existing routes and exclude the Indy Hub queue from general threads
+workers. The [Supervisor example](docs/deployment/indy_hub-worker.conf) includes
+shutdown time sufficient for the longest Indy Hub task.
+
 After installation or an update, always restart Celery Beat and Celery workers.
+Corporation roles normally expire after 24 hours. If Celery is stopped in a
+development environment, the ESI page can show **Roles unverified** until a role
+refresh runs. An expired local role snapshot alone does not require Add corp or
+new OAuth consent.
 
 ## Updating
 
@@ -217,10 +238,11 @@ python manage.py collectstatic --noinput
 
 ### Docker
 
-Update the version in `conf/requirements.txt`:
+Set the desired published version in `conf/requirements.txt` (replace
+`<target-version>` before using this example):
 
 ```text
-indy-hub==1.18.3
+indy-hub==<target-version>
 ```
 
 Then rebuild, migrate, collect static files, and restart the containers:
@@ -245,6 +267,9 @@ Corporation data is available only to users with the appropriate permission,
 corporation role, and authorized token.
 
 ## Screenshots
+
+These images are historical examples from 1.13.11; current layouts and controls
+may differ.
 
 ### Dashboard
 

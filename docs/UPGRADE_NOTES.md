@@ -1,15 +1,43 @@
 # Indy Hub — Upgrade Notes
 
-This guide lists the actions required to upgrade to Indy Hub 1.18.3. You only
-need basic Alliance Auth administration commands; no manual database editing is
-required.
+This guide covers the unreleased changes after the `1.18.3` tag, followed by
+upgrade guidance for older releases. Read [the change summary](../CHANGELOG.md)
+and select the release you actually intend to install. No new release number is
+assigned by this documentation update.
 
-> Indy Hub 1.18.3 requires Alliance Auth 5.
+## Upgrading from 1.18.3 to the next release
+
+- Use Alliance Auth 5, Python 3.12+ and `django-esi>=10.1,<11`.
+  Python 3.14 also requires Django 5.2.8+. Check the other apps in the shared
+  environment before changing its interpreter or dependencies.
+- Run the standard upgrade, migrations and `collectstatic` procedure below.
+  Migration `0117` adds the saved per-character market broker fee; the ESI role
+  and industry-rule fixes introduce no additional migration. Do not rewrite or
+  replay published migrations.
+- Configure the [dedicated prefork worker and route](deployment/README.md#worker-configuration).
+  Preserve other apps' routes and review pending messages before changing queue
+  consumers. Indy Hub tasks already in an old queue are not rerouted automatically.
+- Restart web, Beat and all workers after deploying code. The industry-rule
+  bundle is loaded by processes: restarting only the web server is insufficient.
+- Do not purge shared tokens, flush Redis or replace saved recipe snapshots.
+  Derived structure caches and project payloads refresh by version; see
+  [industry cache compatibility](INDUSTRY_RULES.md#derived-caches-and-saved-projects).
+- The ESI page stays passive. Role renewal uses current ownership/corporation and
+  a full ESI response for stale roles. In development, stopped Celery processes
+  can still leave roles unverified until the existing refresh task runs.
+
+The corrected industrial rules include biochemical Molecular-Forged Materials,
+Thukker and exact rig targeting. Recursive demand now recomputes descendants after
+stock/efficiency changes. The original reporter's exact Fuel Block workspace is
+still not qualified; these fixes do not establish that player's configuration.
+
+> Released Indy Hub 1.18.3 also requires Alliance Auth 5; the Python and django-esi
+> requirements above describe the subsequent unreleased code.
 
 ## django-esi compatibility (unreleased)
 
-Indy Hub now requires `django-esi>=10.1,<11`. Version `10.1.0` is the latest
-release as of 2026-11-07. Review the dependency constraints of other installed
+Indy Hub now requires `django-esi>=10.1,<11`. Compatibility checks cover
+10.1.0 and the later 10.2.0 dependency resolved by CI. Review the dependency constraints of other installed
 Alliance Auth apps when upgrading the shared environment.
 
 ```bash
@@ -55,8 +83,8 @@ There is no promise of a universal reduction in ESI requests.
 
 Personal asset refresh failures retain all prior rows and their freshness;
 complete empty results remove only characters actually fetched. Unchanged and
-unfetched characters remain intact. See [pagination and snapshot guarantees](ESI_PAGINATION.md)
-for measured costs, consumer boundaries and the remaining native API limitation.
+unfetched characters remain intact. A failed refresh must not be treated as an
+empty successful response.
 
 ## ESI limits and deferred refreshes (unreleased)
 
@@ -69,9 +97,7 @@ incomplete snapshots and identifies the task responsible for retrying.
 
 No new migration, dependency update or cache purge is required. Deploy web and
 workers together through the normal restart procedure. Old cooldown keys are
-read until expiry; do not clear native ESI caches or business locks. See
-[ESI limit responsibilities](ESI_LIMITS.md) for the native/fallback boundaries,
-cache formats, delay units and retry ownership.
+read until expiry; do not clear native ESI caches or business locks.
 
 ## Shared token eligibility (unreleased)
 
@@ -130,18 +156,19 @@ old files behind, follow [PROCESS_RESOLUTION_INSTALL.md](PROCESS_RESOLUTION_INST
 Complete the section matching the version currently installed, then run the
 standard upgrade once.
 
-| Current version   | Instructions                                              |
-| ----------------- | --------------------------------------------------------- |
-| `1.18.2`          | [Upgrade from 1.18.2](#upgrade-from-1182)                 |
-| `1.17.x`          | [Upgrade from 1.17.x](#upgrade-from-117x)                 |
-| `1.16.x`          | [Upgrade from 1.16.x](#upgrade-from-116x)                 |
-| `1.15.x`          | [Upgrade from 1.15.x](#upgrade-from-115x)                 |
-| `1.14.x`          | [Upgrade from 1.14.x](#upgrade-from-114x)                 |
-| `1.13.x`          | [Upgrade from 1.13.x](#upgrade-from-113x)                 |
-| `1.12.x`          | [Upgrade from 1.12.x](#upgrade-from-112x)                 |
-| `1.11.x`          | [Upgrade from 1.11.x](#upgrade-from-111x)                 |
-| `1.10.x`          | [Upgrade from 1.10.x](#upgrade-from-110x)                 |
-| `1.9.x` and older | [Upgrade from 1.9.x or older](#upgrade-from-19x-or-older) |
+| Current version   | Instructions                                                    |
+| ----------------- | --------------------------------------------------------------- |
+| `1.18.3`          | [Upgrade from 1.18.3](#upgrading-from-1183-to-the-next-release) |
+| `1.18.2`          | [Upgrade from 1.18.2](#upgrade-from-1182)                       |
+| `1.17.x`          | [Upgrade from 1.17.x](#upgrade-from-117x)                       |
+| `1.16.x`          | [Upgrade from 1.16.x](#upgrade-from-116x)                       |
+| `1.15.x`          | [Upgrade from 1.15.x](#upgrade-from-115x)                       |
+| `1.14.x`          | [Upgrade from 1.14.x](#upgrade-from-114x)                       |
+| `1.13.x`          | [Upgrade from 1.13.x](#upgrade-from-113x)                       |
+| `1.12.x`          | [Upgrade from 1.12.x](#upgrade-from-112x)                       |
+| `1.11.x`          | [Upgrade from 1.11.x](#upgrade-from-111x)                       |
+| `1.10.x`          | [Upgrade from 1.10.x](#upgrade-from-110x)                       |
+| `1.9.x` and older | [Upgrade from 1.9.x or older](#upgrade-from-19x-or-older)       |
 
 ## Upgrade from 1.18.2
 
@@ -195,10 +222,10 @@ Before upgrading:
 
 After upgrading:
 
-- Update bookmarks that still use old `simulation*` pages; those pages are no
-  longer available.
-- Assign the Industry Structures and Crafting Projects permissions to the
-  appropriate groups in Django Admin.
+- Update legacy simulation bookmarks to the project list. Compatibility routes
+  still redirect there; they do not restore the retired editor.
+- Review the three current [Indy Hub permissions](../README.md#permissions)
+  in Alliance Auth; there are no separate Structure/Crafting permission codenames.
 
 ## Upgrade from 1.14.x
 
@@ -209,7 +236,7 @@ Before upgrading:
 - Install the current SDE backend:
 
   ```bash
-  pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
+  pip install django-eveonline-sde
   ```
 
 - Stop Celery Beat and Celery workers until the upgrade is complete.
@@ -217,8 +244,8 @@ Before upgrading:
 After upgrading:
 
 - Update bookmarks that still use old `simulation*` pages.
-- Assign the Industry Structures and Crafting Projects permissions to the
-  appropriate groups in Django Admin.
+- Review the three current [Indy Hub permissions](../README.md#permissions)
+  in Alliance Auth; there are no separate Structure/Crafting permission codenames.
 - Optionally uninstall `django-eveuniverse` after confirming that no other
   Alliance Auth application uses it.
 
@@ -239,7 +266,7 @@ Before upgrading:
 - Install the current SDE backend:
 
   ```bash
-  pip install git+https://github.com/Solar-Helix-Independent-Transport/django-eveonline-sde.git
+  pip install django-eveonline-sde
   ```
 
 - Stop Celery Beat and Celery workers until the upgrade is complete.
@@ -250,8 +277,8 @@ After upgrading:
 - Ask corporation directors using Material Exchange to re-link their corporation
   tokens for the division and corporation-contract scopes.
 - Update bookmarks that still use old `simulation*` pages.
-- Assign the Industry Structures and Crafting Projects permissions to the
-  appropriate groups in Django Admin.
+- Review the three current [Indy Hub permissions](../README.md#permissions)
+  in Alliance Auth; there are no separate Structure/Crafting permission codenames.
 - Optionally configure Discord notification webhooks in
   `Django Admin → Indy Hub → Notification Webhooks`.
 

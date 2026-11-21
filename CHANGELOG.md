@@ -11,12 +11,25 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Changed
 
+- Packaging: build with Hatchling to omit tests and fixtures from installed wheels while retaining them in source archives. Include upgrade, recovery and worker deployment guides in source archives; keep local prompts and audit reports out of distributions.
+
 - ESI client: use explicit django-esi OpenAPI operations and Token objects, remove compatibility replays, and preserve authorization checks before cached responses. Keep distinct universe-name request bodies isolated from the native response cache.
+
 - User administration: add asynchronous account diagnostics, alternate-character search, focused filters, bounded maintenance actions, CSV export, and browser history with recoverable AJAX reads.
+
 - Blueprint and job lists: show local snapshots immediately and update filtered results in the background. Explicit manual refreshes also work for users outside the automatic activity window while retaining scope and corporation checks.
+
 - Material Exchange: defer inventory, prices and corporation/hangar options until after the initial page render, retaining entered quantities and displayed data when refreshes fail.
+
 - Dependencies: require `django-esi>=10.1,<11` and align tox with the package constraint to validate the current django-esi release.
-- CI: install runtime dependencies directly from package metadata, check their consistency, and explicitly run the matching tox environment for Python 3.10, 3.11 and 3.12.
+
+- Platform and CI: require Python 3.12+, test CPython 3.12–3.14 with CharLink enabled, and validate the package dependency contract. Python 3.14 requires Django 5.2.8+. Test migrations/application behavior on disposable MySQL 8.4 and MariaDB 10.11, plus real prefork limits/routing and distribution contents.
+
+- Alliance Auth administration: leave native user/group screens and permission labels under AA ownership.
+
+- Industry rules: resolve structure and rig bonuses from bundled, validated CCP numeric rules without runtime rule downloads. Version derived caches while preserving saved recipes and user choices.
+
+- Operations: document a dedicated prefork worker for Indy Hub, preserving existing service routes. Serve pinned Chart.js locally and resolve the `aadiscordbot` extra to `allianceauth-discordbot`.
 
 ### Added
 
@@ -24,6 +37,15 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Fixed
 
+- Industry bonuses: correct actual rig effects and numeric target eligibility for ships, subsystems, equipment, drones/fighters, structures and components; handle Thukker source attributes/security multipliers and prevent double-counting XL rig effects (issue #182).
+- Reactions: classify Molecular-Forged Materials as biochemical for rigs, services and tax selection. This supersedes the Hybrid classification recorded in 1.18.3.
+- Crafting Projects: recompute descendant integer jobs and materials after parent efficiency, stock or decision changes; align purchases, production cycles and build/buy analysis, and retain zero purchases when stock covers demand. Preserve editable EFT output quantities when saving (issue #182).
+- Corporation roles: bypass cached/conditional 304 responses when renewing expired roles, honor forced refreshes, and requeue recent snapshots that belong to a previous owner or corporation. Former owners' retained grants no longer enqueue role refreshes. Passive pages remain network-free (PRs #185–#186).
+- Material Exchange: correct the sell-markup example so −5% of a 100 ISK base is 95 ISK (issue #181).
+- SDE names: use English ORM type-name lookups with backend-aware batching and keep unresolved IDs eligible for later resolution.
+- Public market prices: use the shared ESI provider while preserving decimal values, price-cache semantics and rate/outage protections.
+- Legacy simulations: share navigation redirects while retaining saved projects and public references.
+- Test compatibility: handle django-esi 10.2 generated stubs and django-solo 2.8 versioned/serialized caches; keep the existing Material Exchange singleton implementation.
 - ESI snapshots: reuse the native final page during consistency validation, verify probed content and page metadata even for forced/uncached refreshes, and preserve user asset caches when any character refresh fails. Complete empty inventories now clear only the fetched character scopes.
 - ESI limits: preserve native bucket/global guards, round retry delays up, handle incomplete rate-limit headers conservatively, and enforce outage pauses before list reads. Deferred asset refreshes retain cached data and entered quantities; contract and structure refreshes report interrupted work and publish one appropriate retry.
 - ESI roles: refresh role eligibility after reauthorization even when Corptools considers the owner inactive, and describe stale role snapshots as unverified. Structure-name candidate discovery no longer renews shared tokens before an authenticated lookup is needed.
