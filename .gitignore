@@ -65,3 +65,12 @@ docs/manual-prod-validation-checklist.md
 graphify-out/
 docs/codex
 AGENTS.md
+
+# Local plans and audit reports; retain deployment and distribution documentation.
+/PROMPTS-CODEX.md
+/docs/*
+!/docs/UPGRADE_NOTES.md
+!/docs/PROCESS_RESOLUTION_INSTALL.md
+!/docs/INDUSTRY_RULES.md
+!/docs/deployment/
+!/docs/screenshots/
