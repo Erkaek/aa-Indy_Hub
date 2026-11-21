@@ -911,7 +911,9 @@ def get_industry_source_metadata(type_id: int) -> dict | None:
     return deepcopy(source) if source is not None else None
 
 
-def get_industry_source_attribute_values(type_id: int, build_numbers=()) -> dict:
+def get_industry_source_attribute_values(
+    type_id: int, build_numbers=(), *, extra_qualifications=None
+) -> dict:
     """Expected source values for the TypeDogma build(s), including reviewed variants."""
     data = _validated_data()
     source_id = str(type_id)
@@ -923,10 +925,12 @@ def get_industry_source_attribute_values(type_id: int, build_numbers=()) -> dict
     values = source["attribute_values"]
     variants = []
     for build in sorted(set(build_numbers)):
-        qualification = data["qualifications"].get(str(build))
-        status = get_industry_build_qualification([build], source_type_id=type_id)[
-            "status"
-        ]
+        qualification = data["qualifications"].get(str(build)) or (
+            extra_qualifications or {}
+        ).get(str(build))
+        status = get_industry_build_qualification(
+            [build], source_type_id=type_id, extra_qualifications=extra_qualifications
+        )["status"]
         if qualification is None or status not in (
             "compatible_qualified",
             "compatible_conditional",
@@ -955,11 +959,17 @@ def is_known_industry_effect(effect_name: str, effect_id: int | None = None) -> 
     return any(row["name"].casefold() == name for row in effects.values())
 
 
-def get_industry_build_qualification(build_numbers, *, source_type_id=None) -> dict:
+def get_industry_build_qualification(
+    build_numbers, *, source_type_id=None, extra_qualifications=None
+) -> dict:
     """Qualification evidence concerns the industrial projection, not build age."""
     data = _validated_data()
     builds = sorted(set(build_numbers))
-    records = [data["qualifications"].get(str(build)) for build in builds]
+    records = [
+        data["qualifications"].get(str(build))
+        or (extra_qualifications or {}).get(str(build))
+        for build in builds
+    ]
     statuses = []
     reference = data["qualifications"][str(data["sde_build"])]["source_sha256"]
     for record in records:
@@ -993,7 +1003,7 @@ def get_industry_build_qualification(build_numbers, *, source_type_id=None) -> d
         "reason": {
             "compatible_qualified": "Official industrial projections match the qualified reference.",
             "compatible_conditional": "Supported numerical values changed; source domains were verified.",
-            "unqualified": "The installed build has no verified official industrial projection; qualify its archive offline.",
+            "unqualified": "The installed SDE awaits the global industry compatibility check. Run check_industry_rules or enable its periodic Celery task.",
             "incompatible": "Official industrial semantics differ from this rule bundle.",
         }[status],
     }

@@ -222,6 +222,14 @@ development environment, the ESI page can show **Roles unverified** until a role
 refresh runs. An expired local role snapshot alone does not require Add corp or
 new OAuth consent.
 
+Industry compatibility is checked globally every ten minutes after an SDE
+import. Compatible industrial content is accepted without an Indy Hub release
+for each CCP build. Results persist in the database; pages perform no download.
+With Celery stopped, run `python manage.py check_industry_rules` manually, or use
+`--status` for read-only diagnostics. See the
+[global compatibility check](docs/INDUSTRY_RULES.md#automatic-global-compatibility-check)
+for offline archive checks and failure handling.
+
 ## Updating
 
 Read [docs/UPGRADE_NOTES.md](docs/UPGRADE_NOTES.md) first if you are upgrading

@@ -33,6 +33,8 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Added
 
+- Industry compatibility: automatically compare the installed SDE's official industrial content with the reference, persist shared evidence and invalidate derived caches. Equivalent CCP builds no longer require a module release. Adds migration `0118`, a ten-minute Celery task and `check_industry_rules` diagnostics/offline command.
+
 - Crafting Projects / Financial tab: added a **For sale** switch, a selling-character selector with cached-skill Sales Tax, a reusable per-character Broker Fee override, manual Safety Tax, and net revenue/profit after market fees without additional ESI requests. Sell fees stay hidden and are not applied when the switch is off.
 
 ### Fixed

@@ -4053,3 +4053,24 @@ class IndustryStructureRig(models.Model):
                 resolved_bonuses_cache_signature="",
                 resolved_bonuses_cache_updated_at=None,
             )
+
+
+class IndustryDataQualification(models.Model):
+    """Durable, global evidence for one installed SDE generation and rule bundle."""
+
+    qualification_key = models.CharField(max_length=64, unique=True)
+    build_number = models.PositiveBigIntegerField()
+    rules_version = models.CharField(max_length=128)
+    sde_signature = models.CharField(max_length=64)
+    status = models.CharField(max_length=32, default="checking")
+    evidence = models.JSONField(default=dict)
+    evidence_hash = models.CharField(max_length=64, blank=True)
+    archive_sha256 = models.CharField(max_length=64, blank=True)
+    entry_sha256 = models.JSONField(default=dict)
+    reason = models.TextField(blank=True)
+    checked_at = models.DateTimeField(null=True, blank=True)
+    next_check_at = models.DateTimeField(null=True, blank=True)
+    lease_token = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        default_permissions = ()
