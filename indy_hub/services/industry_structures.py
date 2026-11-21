@@ -115,7 +115,7 @@ def _get_industry_sde_sections():
 
 
 def get_industry_sde_qualification(
-    *, source_type_id: int | None = None
+    *, source_type_id: int | None = None, include_evidence: bool = False
 ) -> dict[str, object]:
     """Report archive qualification separately from the installed build number."""
     rows = _get_industry_sde_sections()
@@ -127,7 +127,15 @@ def get_industry_sde_qualification(
         }
     )
     try:
-        result = get_industry_build_qualification(builds, source_type_id=source_type_id)
+        # AA Example App
+        from indy_hub.services.industry_qualification import external_qualifications
+
+        extra, _ = external_qualifications(rows)
+        result = get_industry_build_qualification(
+            builds, source_type_id=source_type_id, extra_qualifications=extra
+        )
+        if include_evidence:
+            result["extra_qualifications"] = extra
     except IndustryRulesError as exc:
         return {
             "status": "incompatible",
@@ -160,7 +168,12 @@ def get_industry_calculation_cache_token() -> str:
     global _sde_cache_generation
     rows = _get_industry_sde_sections()
     availability = ""
+    evidence_generation = "unavailable"
     try:
+        # AA Example App
+        from indy_hub.services.industry_qualification import external_qualifications
+
+        _, evidence_generation = external_qualifications(rows)
         get_industry_build_qualification(
             int(row[1])
             for row in rows
@@ -173,7 +186,7 @@ def get_industry_calculation_cache_token() -> str:
             ":unavailable-" + hashlib.sha256(str(exc).encode()).hexdigest()[:16]
         )
     generation = hashlib.sha256(repr(rows).encode("utf-8")).hexdigest()[:16]
-    token = f"{INDUSTRY_RULES_VERSION}{availability}:{generation}:{INDUSTRY_RESOLVER_VERSION}"
+    token = f"{INDUSTRY_RULES_VERSION}{availability}:{generation}:{evidence_generation}:{INDUSTRY_RESOLVER_VERSION}"
     if _sde_cache_generation != token:
         clear_industry_sde_caches()
         _sde_cache_generation = token
@@ -1130,7 +1143,9 @@ def _validate_source_effects(snapshot: SDETypeSnapshot, metadata: dict) -> None:
                 f"Unknown industry effect {name!r} (ID {effect_id}) on source "
                 f"{snapshot.type_id}; expected {expected_name!r}."
             )
-    qualification = get_industry_sde_qualification(source_type_id=snapshot.type_id)
+    qualification = get_industry_sde_qualification(
+        source_type_id=snapshot.type_id, include_evidence=True
+    )
     if qualification["status"] in {
         "incompatible",
         "unqualified",
@@ -1144,6 +1159,7 @@ def _validate_source_effects(snapshot: SDETypeSnapshot, metadata: dict) -> None:
         build_numbers=qualification.get(
             "attribute_build_numbers", qualification["build_numbers"]
         ),
+        extra_qualifications=qualification.get("extra_qualifications"),
     )
     for raw_attribute_id, expected_value in expected_attributes.items():
         attribute_id = int(raw_attribute_id)

@@ -29,6 +29,7 @@ def _import_task_submodules() -> None:
     # Import task submodules so their @shared_task are registered
     from . import housekeeping  # noqa: F401
     from . import industry  # noqa: F401
+    from . import industry_rules  # noqa: F401
     from . import industry_structure_sync  # noqa: F401
     from . import location  # noqa: F401
     from . import material_exchange  # noqa: F401

@@ -245,7 +245,7 @@ class IndustrySourceValidationTests(SimpleTestCase):
             Decimal("4.83"),
         )
         attested_values.assert_called_once_with(
-            original.type_id, build_numbers=[3693311]
+            original.type_id, build_numbers=[3693311], extra_qualifications=None
         )
 
     def test_changed_supported_value_is_not_silently_called_qualified(self):
