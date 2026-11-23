@@ -21,7 +21,7 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 - Material Exchange: defer inventory, prices and corporation/hangar options until after the initial page render, retaining entered quantities and displayed data when refreshes fail.
 
-- Dependencies: require `django-esi>=10.1,<11` and align tox with the package constraint to validate the current django-esi release.
+- Dependencies: require `django-esi>=10.2,<11` and `django-eveonline-sde>=2,<3` for the current ESI compatibility date and REST SDE loader. Resolve public static location names entirely from a local SDE snapshot, including unique orbit names, and qualify industrial rules against the exact installed REST release.
 
 - Platform and CI: require Python 3.12+, test CPython 3.12–3.14 with CharLink enabled, and validate the package dependency contract. Python 3.14 requires Django 5.2.8+. Test migrations/application behavior on disposable MySQL 8.4 and MariaDB 10.11, plus real prefork limits/routing and distribution contents.
 

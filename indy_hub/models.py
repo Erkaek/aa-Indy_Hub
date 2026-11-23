@@ -3871,9 +3871,7 @@ class IndustryStructure(models.Model):
 
         # Local import to avoid a circular dependency with services -> models.
         # AA Example App
-        from indy_hub.services.industry_structures import (
-            structure_type_supports_rigs,
-        )
+        from indy_hub.services.industry_structures import structure_type_supports_rigs
 
         if (
             self.structure_type_id
@@ -4071,6 +4069,17 @@ class IndustryDataQualification(models.Model):
     checked_at = models.DateTimeField(null=True, blank=True)
     next_check_at = models.DateTimeField(null=True, blank=True)
     lease_token = models.CharField(max_length=64, blank=True)
+
+    class Meta:
+        default_permissions = ()
+
+
+class StaticLocationName(models.Model):
+    """Names derived from one installed CCP SDE release; no ESI lookup on reads."""
+
+    location_id = models.PositiveBigIntegerField(primary_key=True)
+    name = models.CharField(max_length=250)
+    release = models.CharField(max_length=32)
 
     class Meta:
         default_permissions = ()

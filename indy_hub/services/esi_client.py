@@ -1473,87 +1473,43 @@ class ESIClient:
         )
 
     def fetch_station_name(self, station_id: int) -> str | None:
-        """Resolve an NPC station name via the public /universe/stations/ endpoint (no auth)."""
+        """Resolve an NPC station entirely from the current local SDE snapshot."""
         if not station_id:
             return None
-        endpoint = f"/universe/stations/{int(station_id)}/"
-        throttle_key = "public-station"
-        self._enforce_task_scope_budget(None, endpoint, throttle_key=throttle_key)
-        try:
-            operation_call = self.client.Universe.GetUniverseStationsStationId(
-                station_id=int(station_id)
-            )
-            with self._native_rate_limits(
-                endpoint, throttle_key, operation=operation_call
-            ):
-                payload, response = operation_call.result(
-                    return_response=True,
-                    use_etag=False,
-                )
-            self._update_rate_limit_state_from_response(
-                response=response,
-                endpoint=endpoint,
-                throttle_key=throttle_key,
-            )
-        except HTTPNotModified:
-            # django-esi cache was stale; retry bypassing ETags entirely
-            try:
-                operation_call = self.client.Universe.GetUniverseStationsStationId(
-                    station_id=int(station_id)
-                )
-                with self._native_rate_limits(
-                    endpoint, throttle_key, operation=operation_call
-                ):
-                    payload, response = operation_call.result(
-                        return_response=True,
-                        use_etag=False,
-                        force_refresh=True,
-                    )
-                self._update_rate_limit_state_from_response(
-                    response=response,
-                    endpoint=endpoint,
-                    throttle_key=throttle_key,
-                )
-            except Exception as exc:
-                logger.debug(
-                    "fetch_station_name retry after 304 failed for %s: %s",
-                    station_id,
-                    exc,
-                )
-                return None
-        except _DJANGO_ESI_RATE_LIMIT_ERRORS as exc:
-            logger.warning(
-                "fetch_station_name rate limited for %s: %s", station_id, exc
-            )
-            return None
-        except _HTTP_ERROR_TYPES as exc:
-            logger.debug("fetch_station_name HTTP error for %s: %s", station_id, exc)
-            return None
-        except Exception as exc:
-            logger.debug("fetch_station_name failed for %s: %s", station_id, exc)
-            return None
-        if isinstance(payload, dict):
-            return str(payload.get("name") or "") or None
-        coerced = self._coerce_mapping(payload) if payload is not None else None
-        if isinstance(coerced, dict):
-            return str(coerced.get("name") or "") or None
-        return None
+        # AA Example App
+        from indy_hub.services.static_locations import resolve_static_location_names
+
+        return resolve_static_location_names([int(station_id)]).get(int(station_id))
 
     def resolve_ids_to_names(self, ids: list[int]) -> dict[int, str]:
-        """Resolve a list of IDs to names via the public /universe/names/ endpoint.
+        """Resolve static locations locally and other IDs via public /universe/names/.
 
-        This endpoint doesn't require authentication and can resolve stations, structures,
-        systems, regions, etc.
+        Static location misses never fall back to ESI. Private structures use
+        their scoped endpoint.
 
         Returns a dict mapping ID -> name for successfully resolved IDs.
         """
         if not ids:
             return {}
 
+        # AA Example App
+        from indy_hub.services.static_locations import (
+            is_static_location,
+            resolve_static_location_names,
+        )
+
+        static_ids = [
+            identifier for identifier in ids if is_static_location(identifier)
+        ]
+        static_names = resolve_static_location_names(static_ids) if static_ids else {}
+        ids = [identifier for identifier in ids if not is_static_location(identifier)]
+        if not ids:
+            return static_names
+
         self._enforce_task_scope_budget(None, "/universe/names/", throttle_key="public")
 
         # ESI accepts max 1000 IDs per request
-        result: dict[int, str] = {}
+        result: dict[int, str] = dict(static_names)
         for batch in chunks(ids, 1000):
             try:
                 # django-esi 10.1 removes body before constructing its cache key.
