@@ -8,6 +8,11 @@ from celery.schedules import crontab
 
 # Periodic task configuration for indy_hub
 INDY_HUB_BEAT_SCHEDULE = {
+    "indy-hub-check-industry-rules": {
+        "task": "indy_hub.tasks.industry_rules.check_industry_rules",
+        "schedule": crontab(minute="*/10"),
+        "options": {"priority": 7},
+    },
     "indy-hub-update-all-blueprints": {
         "task": "indy_hub.tasks.industry.update_all_blueprints",
         "schedule": crontab(hour=3, minute=30),  # Daily at 03:30

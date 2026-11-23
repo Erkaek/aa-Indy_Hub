@@ -11,14 +11,20 @@ assigned by this documentation update.
   Python 3.14 also requires Django 5.2.8+. Check the other apps in the shared
   environment before changing its interpreter or dependencies.
 - Run the standard upgrade, migrations and `collectstatic` procedure below.
-  Migration `0117` adds the saved per-character market broker fee; the ESI role
-  and industry-rule fixes introduce no additional migration. Do not rewrite or
+  Migration `0117` adds the saved per-character market broker fee; `0118` adds
+  persistent global SDE industry-qualification evidence. Do not rewrite or
   replay published migrations.
 - Configure the [dedicated prefork worker and route](deployment/README.md#worker-configuration).
   Preserve other apps' routes and review pending messages before changing queue
   consumers. Indy Hub tasks already in an old queue are not rerouted automatically.
 - Restart web, Beat and all workers after deploying code. The industry-rule
   bundle is loaded by processes: restarting only the web server is insufficient.
+- The new ten-minute industry compatibility task qualifies unknown SDE builds
+  from their official industrial content, without a release for every build.
+  Allow outbound HTTPS to the official CCP static-data archive host, or run
+  `python manage.py check_industry_rules --archive /path/to/official-jsonl.zip`.
+  Use `python manage.py check_industry_rules --status` for diagnostics; see the
+  [global check](INDUSTRY_RULES.md#automatic-global-compatibility-check).
 - Do not purge shared tokens, flush Redis or replace saved recipe snapshots.
   Derived structure caches and project payloads refresh by version; see
   [industry cache compatibility](INDUSTRY_RULES.md#derived-caches-and-saved-projects).

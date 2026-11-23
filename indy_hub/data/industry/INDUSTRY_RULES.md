@@ -147,6 +147,59 @@ Run the oracle without any external service:
 /home/aadev/venv-v5/bin/python runtests.py indy_hub.tests.industry.test_ccp_industry_oracle --verbosity=2
 ```
 
+## Automatic global compatibility check
+
+New SDE build numbers no longer require an Indy Hub release when their industrial
+content remains compatible. After installation, run migrations once to create
+the `IndustryDataQualification` evidence table (`0118`) and restart web, Beat and
+workers. The managed `indy-hub-check-industry-rules` schedule runs every ten
+minutes. It downloads the official public CCP JSONL ZIP only for an installed
+Dogma build without evidence for the current bundle/import generation.
+
+The checker projects modifier sources, target filters, effect modifiers,
+attribute definitions, source values and fitting restrictions. It compares that
+projection with the packaged reference, rather than trusting the build number.
+Unchanged industrial content qualifies automatically. Supported numeric changes
+retain separate attested values, still checked against the local SDE. Changed
+semantics block affected sources; unchanged sources remain usable. New semantic
+support still requires a reviewed rule update.
+
+Evidence and archive/entry SHA-256 hashes are stored in the database and shared
+by all processes. Import timestamps, section builds, bundle version and checker
+version identify a qualification. Reimporting the same build requires a new
+check. Database leases prevent duplicate downloads and recover after twenty
+minutes if a worker dies. Transient failures retry after an hour; successful
+results are reused until their inputs change. Completed results immediately
+change derived-cache versions without flushing Redis or touching saved recipes.
+
+This task uses public HTTPS, no ESI token or scope. Downloads are limited to
+256 MiB compressed, 512 MiB of selected data and 180 seconds of streaming, with
+connect/read timeouts and no redirects. Task limits are 840/900 seconds on the
+dedicated prefork worker. Data is streamed in a temporary directory and removed
+after checking. It is never imported into `eve_sde`. Calculation/page requests
+only read stored evidence; they never download or enqueue this work.
+
+Operators, including development installations with stopped Celery, can run:
+
+```shell
+python manage.py check_industry_rules --status
+python manage.py check_industry_rules
+# Optional offline verification, using the original official archive:
+python manage.py check_industry_rules --archive /path/eve-online-static-data-3720952-jsonl.zip
+```
+
+`--status` is read-only and includes the last error/retry deadline. `--force`
+rechecks completed or failed results but preserves an active worker lease.
+The archive metadata must match the installed build; offline mode requires a
+single installed Dogma build. Missing evidence, incomplete section metadata,
+corrupt archives and unavailable downloads leave calculations unqualified.
+No token renewal or Add corp action fixes these states.
+
+The official build **3720952** (2026-11-19) was checked with the streaming reader
+against the existing offline projection: both its industrial projection and
+semantic fingerprints match the packaged reference. The pinned reference and
+historical oracle remain unchanged.
+
 ## Updating the rules
 
 1. Obtain an official JSONL ZIP and review CCP's schema/change announcements.
@@ -200,12 +253,12 @@ The installed SDE build, bundle content version and resolver/cache version are
 separate. Qualification is supported by stored data fingerprints, not a bare
 list of build numbers.
 
-| State                    | Meaning and operational consequence                                                                                                                                                |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `compatible_qualified`   | Relevant official projections were checked; industrial sources still undergo installed-data validation.                                                                            |
-| `compatible_conditional` | Supported semantics with explicitly checked conditions; inspect the reason and source validation before relying on calculations.                                                   |
-| `unqualified`            | No archive evidence for the installed build; industrial calculations requiring that evidence are unavailable until qualification. Catalogues and unrelated features remain usable. |
-| `incompatible`           | Unsupported or inconsistent relevant data; refuse the affected calculation and repair/update the bundle or SDE.                                                                    |
+| State                    | Meaning and operational consequence                                                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `compatible_qualified`   | Relevant official projections were checked; industrial sources still undergo installed-data validation.                                                                                    |
+| `compatible_conditional` | Supported semantics with explicitly checked conditions; inspect the reason and source validation before relying on calculations.                                                           |
+| `unqualified`            | No current archive evidence; run the global check or wait for its periodic task. Calculations requiring that evidence remain unavailable. Catalogues and unrelated features remain usable. |
+| `incompatible`           | Unsupported or inconsistent relevant data; refuse the affected calculation and repair/update the bundle or SDE.                                                                            |
 
 Source fingerprints include their own referenced filters and attribute
 definitions. An incompatible rig filter does not disable an unchanged hull.
