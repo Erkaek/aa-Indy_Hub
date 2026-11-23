@@ -384,3 +384,17 @@ them as a second industrial rule authority. Active fallback catalogues and all
 published migration constants remain unchanged.
 `ENGINEERING_HULL_BONUS_MAPPING` is also retained as a compatibility export;
 the active hull resolver uses generated official relationships instead.
+
+### REST SDE qualification (2026-11-23)
+
+For SDE 2.0 imports, the operator/worker checks the exact release recorded by
+all relevant installed sections. It reads eight tables and their schemas from
+CCP's immutable REST blobs, validates release/build coherence, normalizes schema-declared identifier aliases, ZIP-equivalent empty filter/modifier
+lists and Dogma scalar numbers and retains the existing strict semantic
+validator. The persisted evidence includes the release, table versions and raw
+source/schema hashes. The archive hash identifies the normalized projection ZIP,
+not an original CCP ZIP. Downloads share 512 MiB/180-second bounds; no redirects
+or transport retries are added. Mixed releases and unavailable historical
+releases fail closed. ZIP-based installations and offline `--archive` retain
+their existing path. Qualification generation 2 invalidates earlier results
+without deleting saved evidence or modifying migrations.

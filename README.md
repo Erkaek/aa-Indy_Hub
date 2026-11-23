@@ -31,10 +31,10 @@ For the complete list of changes in each release, see
 
 - Alliance Auth 5
 - Python 3.12 or newer (tested on 3.12, 3.13 and 3.14)
-- `django-esi>=10.1,<11`
+- `django-esi>=10.2,<11`
 - Celery workers with a prefork consumer for Indy Hub, and Celery Beat
 - A shared Django cache, normally Redis
-- `django-eveonline-sde` with its base SDE data loaded
+- `django-eveonline-sde>=2,<3` with its base SDE data loaded
 
 Optional integrations:
 

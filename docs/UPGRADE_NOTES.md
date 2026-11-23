@@ -7,7 +7,7 @@ assigned by this documentation update.
 
 ## Upgrading from 1.18.3 to the next release
 
-- Use Alliance Auth 5, Python 3.12+ and `django-esi>=10.1,<11`.
+- Use Alliance Auth 5, Python 3.12+ and `django-esi>=10.2,<11`.
   Python 3.14 also requires Django 5.2.8+. Check the other apps in the shared
   environment before changing its interpreter or dependencies.
 - Run the standard upgrade, migrations and `collectstatic` procedure below.
@@ -42,12 +42,12 @@ still not qualified; these fixes do not establish that player's configuration.
 
 ## django-esi compatibility (unreleased)
 
-Indy Hub now requires `django-esi>=10.1,<11`. Compatibility checks cover
-10.1.0 and the later 10.2.0 dependency resolved by CI. Review the dependency constraints of other installed
+Indy Hub now requires `django-esi>=10.2,<11`. Compatibility checks cover
+10.2.0 with the current 2026-11-19 compatibility date. Review the dependency constraints of other installed
 Alliance Auth apps when upgrading the shared environment.
 
 ```bash
-pip install --upgrade 'django-esi>=10.1,<11'
+pip install --upgrade 'django-esi>=10.2,<11'
 pip check
 ```
 
@@ -55,10 +55,39 @@ Restart the web and Celery processes after updating so they load the new library
 This dependency update introduces no Indy Hub migration. django-esi 10 replaces
 its OpenAPI HTTP transport with `httpx2`; custom clients must use that transport.
 
+## SDE REST and station names (unreleased)
+
+Install `django-eveonline-sde>=2,<3` with its modeltranslation/Brotli dependencies.
+Back up the database, stop workers/Beat, apply SDE migration 0040, and load/check
+SDE through `python manage.py esde_load_sde` (`--plan` previews the import).
+The default source is CCP's REST API. The upstream recommended update check is
+hourly (`crontab(minute="30")`), retaining the existing periodic task name.
+Restart all processes afterwards. Do not flush Redis or discard project caches.
+
+Industry-rule qualification reads the immutable REST release recorded by the
+installed SDE sections. It downloads only the eight reference tables and their
+schemas, with shared size/time bounds, and records source hashes. Mixed releases
+or unknown rule semantics remain unqualified. Offline ZIP checks remain supported
+for archive-based installations. Run `python manage.py check_industry_rules` after
+loading the SDE; REST builds may be newer than the available ZIP archive.
+
+Migration `0119` adds the derived `StaticLocationName` table. Run
+`python manage.py check_industry_rules` after loading SDE to generate the local
+location snapshot as well as industrial evidence. The existing ten-minute task
+refreshes it once per SDE release under a shared lock. Five bounded REST table
+downloads supply NPC corporations, station operations and unique celestial names
+that django-sde does not preserve. Generation and publication are atomic.
+
+NPC stations, systems and other supported static locations resolve from this
+local snapshot, including named orbits such as Oris. Missing local static data
+never triggers an ESI fallback. `/universe/names` remains for other entity IDs;
+private player structures retain their scoped endpoint. The removed station
+operation and historical compatibility-date overrides are not required.
+
 ## Native ESI client and role status (unreleased)
 
 The client now uses django-esi's public OpenAPI operations and Token-object
-authentication directly. The existing `django-esi>=10.1,<11` requirement is
+authentication directly. The existing `django-esi>=10.2,<11` requirement is
 unchanged. No new migration, dependency update or token reauthorization is
 required for this client change.
 

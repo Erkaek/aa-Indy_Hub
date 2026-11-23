@@ -33,7 +33,6 @@ ESI_REQUIRED_OPERATIONS = [
     "GetCorporationsCorporationIdStructures",
     "GetIndustrySystems",
     "GetMarketsPrices",
-    "GetUniverseStationsStationId",
     "GetUniverseStructuresStructureId",
     "PostUniverseNames",
 ]
