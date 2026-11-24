@@ -22,10 +22,7 @@ from django.utils import timezone
 # Alliance Auth
 from allianceauth.eveonline.models import EveCharacter, EveCorporationInfo
 from allianceauth.services.hooks import get_extension_logger
-from esi.exceptions import (
-    ESIBucketLimitException,
-    ESIErrorLimitException,
-)
+from esi.exceptions import ESIBucketLimitException, ESIErrorLimitException
 from esi.models import Token
 
 from ..services.esi_client import (
@@ -967,6 +964,18 @@ def resolve_location_name(
 
     structure_id = int(structure_id)
     placeholder_value = f"{PLACEHOLDER_PREFIX}{structure_id}"
+
+    if allow_public:
+        # AA Example App
+        from indy_hub.services.static_locations import (
+            is_static_location,
+            resolve_static_location_names,
+        )
+
+        if is_static_location(structure_id):
+            name = resolve_static_location_names([structure_id]).get(structure_id)
+            if name:
+                return name
 
     cached = _LOCATION_NAME_CACHE.get(structure_id)
     if cached is not None and cached != placeholder_value:
