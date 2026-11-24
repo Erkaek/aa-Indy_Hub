@@ -8,6 +8,18 @@ on:
     branches: ['**']
 
 jobs:
+  release-contracts:
+    name: Release metadata and publication gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python scripts/test_release.py
+      - run: python scripts/check_release.py
+
   dependency-watch-contracts:
     name: Dependency watch evidence and notification contracts
     runs-on: ubuntu-24.04
@@ -164,7 +176,7 @@ jobs:
       - run: python scripts/test_prefork_time_limits.py
 
   pypi-build-test:
-    needs: [test-coverage, database, frontend, prefork]
+    needs: [release-contracts, test-coverage, database, frontend, prefork]
     name: PyPI build and distribution contracts
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -177,6 +189,7 @@ jobs:
       - run: python scripts/sync_industry_documentation.py --check
       - run: python -m build
       - run: python scripts/check_distribution.py dist
+      - run: python scripts/check_release.py --dist dist
       - name: Resolve the documented Discord extra
         run: python -m pip install --dry-run '.[aadiscordbot]'
       - uses: actions/upload-artifact@v7

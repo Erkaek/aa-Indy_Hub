@@ -5,10 +5,9 @@ Indy Hub is an industry and Material Exchange application for
 alliances manage blueprints, industry jobs, copy requests, production projects,
 and internal material trading.
 
-The `1.18.3` tag is the published baseline for this documentation review. Changes
-on `main` after that tag are listed under **Unreleased** in the changelog; they
-are not installed by selecting `indy-hub==1.18.3`. See the
-[upgrade notes](docs/UPGRADE_NOTES.md) for deployment requirements.
+Version `1.19.0` requires Python 3.12+, django-esi 10.2+ and django-eveonline-sde 2.
+See the [changelog](CHANGELOG.md#1190---2026-11-24) for changes since `1.18.3`
+and the [upgrade notes](docs/UPGRADE_NOTES.md) before updating an existing installation.
 
 ## Features
 
@@ -79,7 +78,7 @@ python manage.py collectstatic --noinput
 Add Indy Hub to `conf/requirements.txt`:
 
 ```text
-indy-hub==1.18.3
+indy-hub==1.19.0
 ```
 
 Add the applications to `conf/local.py`:
@@ -311,6 +310,10 @@ may differ.
 
 Open a GitHub issue or pull request for help, bug reports, or contributions. You
 can also contact `erkaek` on Discord.
+
+Maintainers: see the [release procedure](docs/deployment/RELEASING.md). Pushing
+the final version tag publishes the checked package to PyPI and creates the
+GitHub release; merging a preparation PR does not publish anything.
 
 ## Dependency compatibility monitoring
 
