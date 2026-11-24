@@ -322,12 +322,18 @@ with CharLink plus
 separate base/Discord-extra profiles on Python 3.12. Frontend lint/regressions run
 against refreshed dependencies allowed by `package.json` on Node 22.
 
+The module's editable build uses its frozen backend; third-party source packages
+retain native pip build isolation so their declared build backends remain available
+on fresh runners. Runtime version pins still apply to the comparison environment.
+
 Successful resolved environments become the next comparison baseline. A failure
 opens or updates one GitHub issue only when the old environment passes on the
 same code and a second candidate run reproduces the failure. Unchanged incidents
 do not generate repeated comments or updates. Missing/expired baselines, network
 failures and inconclusive results appear in the run summary/artifacts, without
-claiming a code regression. An issue closes only after all seven lanes pass.
+claiming a code regression. They fail the surveillance workflow so an incomplete
+check cannot appear healthy; unverified lanes never open compatibility issues.
+An issue closes only after all seven lanes pass.
 
 Dependabot version-update PRs are disabled; security-update PRs remain enabled
 for Python, npm and GitHub Actions. Successful Python inventories are submitted

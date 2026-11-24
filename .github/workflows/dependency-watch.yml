@@ -156,7 +156,7 @@ jobs:
             await require('./scripts/dependency_watch/report.cjs').publish({github, context, results});
             const summary = results.map(row => `- ${row.lane || 'Missing lane'}: ${row.status}`).join('\n');
             await core.summary.addHeading('Dependency compatibility').addRaw(summary).write();
-            if (results.some(row => row.status === 'unverified')) core.warning('Some lanes could not establish compatibility. Inspect artifacts; no code regression is inferred.');
+            if (results.some(row => row.status === 'unverified')) core.setFailed('Dependency surveillance is incomplete. Inspect artifacts; no code regression is inferred and no compatibility issue is opened for unverified lanes.');
 
   security-inventory:
     needs: [python]
