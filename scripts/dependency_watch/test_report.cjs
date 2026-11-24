@@ -4,8 +4,11 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {restore} = require('./baseline.cjs');
-const {MARKER,publish,snapshot} = require('./report.cjs');
+const {MARKER,publish,snapshot,render} = require('./report.cjs');
 async function main(){
+    const unresolved=render([{status:'confirmed',lane:'resolver',candidate:{phase:'install',versions:{}},previous_versions:{django:'5.2'}}]);
+    assert.match(unresolved,/No complete candidate inventory/);
+    assert.doesNotMatch(unresolved,/django/);
     const calls=[];
     let issues=[];
     const github={paginate:async()=>issues,rest:{issues:{listForRepo:()=>{},create:async p=>calls.push(['create',p]),update:async p=>calls.push(['update',p])}}};

@@ -9,7 +9,7 @@ function render(results) {
     const sections = failures.map(row => {
         const old = row.previous_versions || {};
         const current = row.candidate.versions || {};
-        const changes = [...new Set([...Object.keys(old), ...Object.keys(current)])].sort()
+        const changes = (Object.keys(current).length ? [...new Set([...Object.keys(old), ...Object.keys(current)])] : []).sort()
             .filter(name => old[name] !== current[name])
             .map(name => `| ${name} | ${old[name] || 'absent'} | ${current[name] || 'absent'} |`);
         return `### ${row.lane}\n\nPhase: \`${row.candidate.phase}\`. The previous versions pass on the same source; the candidate fails twice with matching failure evidence.\n\n[Logs and complete inventories](${row.run_url})\n\n| Package | Previous | Candidate |\n| --- | --- | --- |\n${changes.slice(0,60).join('\n') || '| Resolution failed | See install log | No complete candidate inventory |'}\n\nUp to 60 changed packages are shown; artifacts contain the complete inventory. Changed packages are suspects, not an automatic attribution of the root cause.`;
