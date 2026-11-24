@@ -1,0 +1,188 @@
+name: Dependency compatibility watch
+
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One reporter at a time; do not discard a potentially confirmed incident.
+concurrency:
+  group: dependency-compatibility-watch
+  cancel-in-progress: false
+
+jobs:
+  python:
+    permissions:
+      contents: read
+      actions: read
+    # Default-branch code only, including manual runs. No PR code with write tokens.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.12'
+            profile: base
+          - python: '3.12'
+            profile: charlink
+          - python: '3.13'
+            profile: charlink
+          - python: '3.14'
+            profile: charlink
+          - python: '3.12'
+            profile: aadiscordbot
+          - python: '3.12'
+            profile: discordnotify
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: sudo apt-get update && sudo apt-get install -y redis-server
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            await require('./scripts/dependency_watch/baseline.cjs').restore({github,context,lane:'${{ matrix.python }}-${{ matrix.profile }}',target:process.env.RUNNER_TEMP+'/baseline.zip'});
+      - run: python scripts/dependency_watch/restore.py "$RUNNER_TEMP/baseline.zip" .dependency-watch/baseline/python.json
+      - name: Resolve, test and confirm
+        id: watch
+        env:
+          WATCH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          python scripts/dependency_watch/runner.py
+          --profile '${{ matrix.profile }}'
+          --output '.dependency-watch/report'
+          --baseline '.dependency-watch/baseline/python.json'
+      - uses: actions/upload-artifact@v7
+        if: steps.watch.outputs.status == 'healthy'
+        with:
+          include-hidden-files: true
+          name: dependency-baseline-${{ matrix.python }}-${{ matrix.profile }}
+          path: .dependency-watch/baseline/python.json
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          include-hidden-files: true
+          name: dependency-report-${{ matrix.python }}-${{ matrix.profile }}
+          path: |
+            .dependency-watch/report/result.json
+            .dependency-watch/report/*/*.log
+            .dependency-watch/report/*constraints.txt
+          if-no-files-found: error
+          retention-days: 30
+
+  frontend:
+    permissions:
+      contents: read
+      actions: read
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            await require('./scripts/dependency_watch/baseline.cjs').restore({github,context,lane:'node22-frontend',target:process.env.RUNNER_TEMP+'/baseline.zip'});
+      - run: python scripts/dependency_watch/restore.py "$RUNNER_TEMP/baseline.zip" .dependency-watch/baseline/frontend.json
+      - name: Resolve, test and confirm frontend compatibility
+        id: watch
+        env:
+          WATCH_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: >-
+          python scripts/dependency_watch/runner.py --profile frontend
+          --output .dependency-watch/report --baseline .dependency-watch/baseline/frontend.json
+      - uses: actions/upload-artifact@v7
+        if: steps.watch.outputs.status == 'healthy'
+        with:
+          include-hidden-files: true
+          name: dependency-baseline-node22-frontend
+          path: .dependency-watch/baseline/frontend.json
+          retention-days: 90
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          include-hidden-files: true
+          name: dependency-report-frontend
+          path: |
+            .dependency-watch/report/result.json
+            .dependency-watch/report/*/*.log
+          if-no-files-found: error
+          retention-days: 30
+
+  report:
+    needs: [python, frontend]
+    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dependency-report-*
+          path: .dependency-watch/results
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const root = '.dependency-watch/results';
+            const results = (fs.existsSync(root) ? fs.readdirSync(root) : []).map(name => {
+              const file = path.join(root, name, 'result.json');
+              return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {status:'unverified'};
+            });
+            const expected = 7;
+            if (results.length !== expected) results.push({status:'unverified'});
+            await require('./scripts/dependency_watch/report.cjs').publish({github, context, results});
+            const summary = results.map(row => `- ${row.lane || 'Missing lane'}: ${row.status}`).join('\n');
+            await core.summary.addHeading('Dependency compatibility').addRaw(summary).write();
+            if (results.some(row => row.status === 'unverified')) core.warning('Some lanes could not establish compatibility. Inspect artifacts; no code regression is inferred.');
+
+  security-inventory:
+    needs: [python]
+    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dependency-report-*
+          path: .dependency-watch/results
+      - uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const {snapshot} = require('./scripts/dependency_watch/report.cjs');
+            const root = '.dependency-watch/results';
+            for (const directory of (fs.existsSync(root) ? fs.readdirSync(root) : [])) {
+              const file = path.join(root, directory, 'result.json');
+              if (!fs.existsSync(file)) continue;
+              const row = JSON.parse(fs.readFileSync(file, 'utf8'));
+              const data = snapshot(row, context);
+              if (data) await github.request('POST /repos/{owner}/{repo}/dependency-graph/snapshots', {...context.repo, ...data});
+            }

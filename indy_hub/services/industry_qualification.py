@@ -43,7 +43,7 @@ READY_STATUSES = frozenset(
 ARCHIVE_URL = "https://developers.eveonline.com/static-data/tranquility/eve-online-static-data-{build}-jsonl.zip"
 LEASE_SECONDS = 20 * 60
 RETRY_SECONDS = 60 * 60
-QUALIFIER_VERSION = 1
+QUALIFIER_VERSION = 2
 
 
 def qualification_context(rows):
@@ -135,6 +135,22 @@ def _download_archive(build, target):
     return digest.hexdigest()
 
 
+def _installed_rest_release(build):
+    # Alliance Auth (External Libs)
+    from eve_sde.models import EveSDESection
+
+    releases = set(
+        EveSDESection.objects.filter(
+            sde_section__in=CONTEXT_SECTIONS, build_number=build
+        ).values_list("release", flat=True)
+    )
+    if len(releases) > 1:
+        raise IndustryRulesError(
+            "Installed industrial SDE sections have mixed REST releases"
+        )
+    return next(iter(releases), None)
+
+
 def _archive_evidence(path, build):
     datasets, hashes = read_runtime_archive(path, build)
     candidate, evidence = build_bundle(datasets, build)
@@ -158,6 +174,11 @@ def check_installed_industry_rules(*, archive=None, force=False):
     # AA Example App
     from indy_hub.services.industry_structures import _get_industry_sde_sections
 
+    if archive is None:
+        # AA Example App
+        from indy_hub.services.static_locations import sync_static_location_names
+
+        sync_static_location_names()
     rows = _get_industry_sde_sections()
     signature, builds = qualification_context(rows)
     present = {row[0] for row in rows if row[1] is not None}
@@ -215,8 +236,20 @@ def check_installed_industry_rules(*, archive=None, force=False):
                     if archive is not None
                     else Path(temporary) / "official.zip"
                 )
+                provenance = None
                 if archive is None:
-                    archive_hash = _download_archive(build, path)
+                    release = _installed_rest_release(build)
+                    if release:
+                        # AA Example App
+                        from indy_hub.services.industry_rest_projection import (
+                            download_projection,
+                        )
+
+                        archive_hash, provenance = download_projection(
+                            build, release, path
+                        )
+                    else:
+                        archive_hash = _download_archive(build, path)
                 else:
                     if path.stat().st_size > MAX_ARCHIVE_BYTES:
                         raise IndustryRulesError(
@@ -225,6 +258,8 @@ def check_installed_industry_rules(*, archive=None, force=False):
                     with path.open("rb") as stream:
                         archive_hash = hashlib.file_digest(stream, "sha256").hexdigest()
                 evidence, hashes = _archive_evidence(path, build)
+                if provenance:
+                    evidence["rest_source"] = provenance
             status = evidence["status"]
         except (
             IndustryRulesError,
@@ -233,6 +268,8 @@ def check_installed_industry_rules(*, archive=None, force=False):
             ValueError,
             zipfile.BadZipFile,
             UnicodeError,
+            KeyError,
+            TypeError,
         ) as exc:
             status, reason = "error", str(exc)[:1000]
             logger.warning(

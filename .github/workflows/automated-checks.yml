@@ -8,6 +8,21 @@ on:
     branches: ['**']
 
 jobs:
+  dependency-watch-contracts:
+    name: Dependency watch evidence and notification contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - run: python scripts/dependency_watch/test_runner.py
+      - run: node scripts/dependency_watch/test_report.cjs
+
   pre-commit:
     name: Pre Commit Checks
     runs-on: ubuntu-latest

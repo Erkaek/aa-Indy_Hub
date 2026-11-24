@@ -170,14 +170,6 @@ class EsiClientNativeContractTests(TestCase):
         }
         for name, tag, path, scope, paginated, _ in OPERATIONS:
             with self.subTest(operation=name):
-                if (
-                    name == "GetUniverseStationsStationId"
-                    and (tag, name) not in functions
-                ):
-                    # django-esi 10.2's generated stubs omit this legacy endpoint.
-                    # Its local OpenAPI/native-operation contract remains covered
-                    # by test_native_filtered_spec_covers_every_declared_operation.
-                    continue
                 args = {arg.arg for arg in functions[tag, name].args.args}
                 path_args = {
                     part[1:-1] for part in path.split("/") if part.startswith("{")
@@ -559,7 +551,6 @@ class EsiClientNativeContractTests(TestCase):
             1,
         )
         self.payload = {"name": "Synthetic station"}
-        self.assertEqual(self.facade.fetch_station_name(60003760), "Synthetic station")
         self.assertEqual(
             self.facade.fetch_structure_name(1030000000001, self.token.character_id),
             "Synthetic station",
@@ -574,6 +565,12 @@ class EsiClientNativeContractTests(TestCase):
             self.facade.fetch_industry_systems()[0]["cost_indices"][0]["cost_index"],
             0.0125,
         )
+
+    def test_static_location_names_never_use_esi_even_on_missing_local_data(self):
+        self.assertIsNone(self.facade.fetch_station_name(60003760))
+        self.assertEqual(self.facade.resolve_ids_to_names([60003760, 30000142]), {})
+        self.assertEqual(self.wire_calls, [])
+        self.assertNotIn("GetUniverseStationsStationId", ESI_REQUIRED_OPERATIONS)
 
     def test_remaining_list_operations_keep_explicit_path_parameters(self):
         self.payload = []
@@ -602,7 +599,7 @@ class EsiClientNativeContractTests(TestCase):
             self.assertEqual(fetch(), [])
         self.assertEqual(len(self.wire_calls), len(calls))
 
-    def test_explicit_304_recovery_for_structure_and_station_is_retained(self):
+    def test_explicit_304_recovery_for_private_structure_is_retained(self):
         def handler(request):
             count = sum(
                 previous.url.path == request.url.path for previous in self.wire_calls
@@ -613,13 +610,10 @@ class EsiClientNativeContractTests(TestCase):
 
         self.handler = handler
         self.assertEqual(
-            self.facade.fetch_station_name(60003760), "Synthetic recovered name"
-        )
-        self.assertEqual(
             self.facade.fetch_structure_name(1030000000001, self.token.character_id),
             "Synthetic recovered name",
         )
-        self.assertEqual(len(self.wire_calls), 4)
+        self.assertEqual(len(self.wire_calls), 2)
 
     def test_numeric_and_datetime_conversion_uses_native_pydantic_values(self):
         class NumericPayload(BaseModel):
@@ -674,6 +668,7 @@ class EsiClientNativeContractTests(TestCase):
                     )
 
     def _make_corporation_role_snapshot(self):
+        # Django
         # Django
         from django.contrib.auth.models import Permission
 
@@ -1043,7 +1038,6 @@ class EsiClientNativeContractTests(TestCase):
             lambda: self.facade.fetch_character_assets(
                 character_id=self.token.character_id
             ),
-            lambda: self.facade.fetch_station_name(60003760),
         ]:
             with self.subTest(fetch=fetch):
                 with self.assertRaises(ESIErrorLimitException):

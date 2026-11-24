@@ -31,10 +31,10 @@ For the complete list of changes in each release, see
 
 - Alliance Auth 5
 - Python 3.12 or newer (tested on 3.12, 3.13 and 3.14)
-- `django-esi>=10.1,<11`
+- `django-esi>=10.2,<11`
 - Celery workers with a prefork consumer for Indy Hub, and Celery Beat
 - A shared Django cache, normally Redis
-- `django-eveonline-sde` with its base SDE data loaded
+- `django-eveonline-sde>=2,<3` with its base SDE data loaded
 
 Optional integrations:
 
@@ -311,3 +311,35 @@ may differ.
 
 Open a GitHub issue or pull request for help, bug reports, or contributions. You
 can also contact `erkaek` on Discord.
+
+## Dependency compatibility monitoring
+
+The **Dependency compatibility watch** workflow runs every Monday at 05:23 UTC
+and can be launched manually from GitHub Actions after it is merged into the
+default branch. It resolves the latest versions allowed by `pyproject.toml`,
+including indirect dependencies and the build backend, and tests Python 3.12–3.14
+with CharLink plus
+separate base/Discord-extra profiles on Python 3.12. Frontend lint/regressions run
+against refreshed dependencies allowed by `package.json` on Node 22.
+
+Successful resolved environments become the next comparison baseline. A failure
+opens or updates one GitHub issue only when the old environment passes on the
+same code and a second candidate run reproduces the failure. Unchanged incidents
+do not generate repeated comments or updates. Missing/expired baselines, network
+failures and inconclusive results appear in the run summary/artifacts, without
+claiming a code regression. An issue closes only after all seven lanes pass.
+
+Dependabot version-update PRs are disabled; security-update PRs remain enabled
+for Python, npm and GitHub Actions. Successful Python inventories are submitted
+to GitHub's dependency graph, including resolved indirect packages and test tools.
+A new version alone is not an actionable compatibility incident. Major versions
+outside our supported constraints are not automatically adopted or tested.
+
+Reports/logs are retained for 30 days and passing baselines for 90 days.
+Only baselines from this workflow on the default branch are restored.
+The first successful run (or a changed dependency contract) initializes a fresh
+baseline; after 90 days without a passing run, it must be initialized again. No installed AA instance, real ESI/OAuth, Discord service or production
+database is used. Discord extra lanes cover package resolution and the existing
+offline Indy Hub tests; they do not qualify a live bot or every third-party app.
+Other optional apps not declared as extras, such as Corptools, are outside this
+matrix. Detection remains limited by the tests and supported Python/platforms.
