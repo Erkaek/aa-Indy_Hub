@@ -1,52 +1,79 @@
 name: Release
 
 on:
-  release:
-    # https://docs.github.com/en/actions/reference/events-that-trigger-workflows#release
-    types: [released, prereleased]
+  push:
+    tags: ['[0-9]*.[0-9]*.[0-9]*', 'v[0-9]*.[0-9]*.[0-9]*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
   release:
-    # Release
-    name: Release
+    name: Validate and build
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     steps:
-      # Checkout the repository
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      # Set up Python
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-
-      # Install Tools
-      - name: Install Tools
+      - run: python -m pip install --upgrade build twine packaging
+      - name: Validate the final tag and prepare release notes
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install --upgrade build
-          python -m pip install --upgrade setuptools wheel twine
+          mkdir -p "$RUNNER_TEMP/release-package/dist"
+          python scripts/check_release.py --tag "$GITHUB_REF_NAME" --notes-output "$RUNNER_TEMP/release-package/release-notes.md"
+      - name: Build and check the actual release archives
+        run: |
+          python -m build --outdir "$RUNNER_TEMP/release-package/dist"
+          python scripts/check_release.py --tag "$GITHUB_REF_NAME" --dist "$RUNNER_TEMP/release-package/dist"
+          python scripts/check_distribution.py "$RUNNER_TEMP/release-package/dist"
+          python -m twine check --strict "$RUNNER_TEMP"/release-package/dist/*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-package
+          path: ${{ runner.temp }}/release-package/
+          if-no-files-found: error
 
-      # Package and Upload to PyPI
-      - name: Package and Upload to PyPI
+  pypi:
+    name: Publish to PyPI
+    needs: [release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-package
+          path: release-package
+      - run: python -m pip install --upgrade twine
+      - name: Upload checked archives
         env:
-          STACKMANAGER_VERSION: ${{ github.event.release.tag_name }}
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_APIKEY }}
-        run: |
-          python -m build
-          python -m twine upload dist/*
+          TWINE_NON_INTERACTIVE: '1'
+        run: python -m twine upload release-package/dist/*
 
-      # Add Assets to Release on GitHub
-      - name: Add Assets to Release on GitHub
-        uses: softprops/action-gh-release@v2
+  github-release:
+    name: Publish GitHub release
+    needs: [pypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v8
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # The name of the file(s) to upload
-          files: |
-            dist/*
+          name: release-package
+          path: release-package
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release-package/release-notes.md
+          files: release-package/dist/*
+          fail_on_unmatched_files: true
+          prerelease: false

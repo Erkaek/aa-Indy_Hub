@@ -9,7 +9,11 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-11-24
+
 ### Changed
+
+- Releases: publish final versions from a maintainer-pushed Git tag, verify synchronized source/archive versions and dated release notes before uploading, and create the matching GitHub release after PyPI succeeds.
 
 - Packaging: build with Hatchling to omit tests and fixtures from installed wheels while retaining them in source archives. Include upgrade, recovery and worker deployment guides in source archives; keep local prompts and audit reports out of distributions.
 

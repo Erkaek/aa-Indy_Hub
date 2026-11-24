@@ -1,19 +1,18 @@
 # Indy Hub — Upgrade Notes
 
-This guide covers the unreleased changes after the `1.18.3` tag, followed by
-upgrade guidance for older releases. Read [the change summary](../CHANGELOG.md)
-and select the release you actually intend to install. No new release number is
-assigned by this documentation update.
+This guide covers version `1.19.0`, followed by upgrade guidance for older
+releases. Read [the change summary](../CHANGELOG.md#1190---2026-11-24) and select
+the release you actually intend to install.
 
-## Upgrading from 1.18.3 to the next release
+## Upgrading from 1.18.3 to 1.19.0
 
 - Use Alliance Auth 5, Python 3.12+ and `django-esi>=10.2,<11`.
   Python 3.14 also requires Django 5.2.8+. Check the other apps in the shared
   environment before changing its interpreter or dependencies.
 - Run the standard upgrade, migrations and `collectstatic` procedure below.
   Migration `0117` adds the saved per-character market broker fee; `0118` adds
-  persistent global SDE industry-qualification evidence. Do not rewrite or
-  replay published migrations.
+  persistent global SDE industry-qualification evidence; `0119` adds derived
+  static location names. Do not rewrite or replay published migrations.
 - Configure the [dedicated prefork worker and route](deployment/README.md#worker-configuration).
   Preserve other apps' routes and review pending messages before changing queue
   consumers. Indy Hub tasks already in an old queue are not rerouted automatically.
@@ -38,9 +37,9 @@ stock/efficiency changes. The original reporter's exact Fuel Block workspace is
 still not qualified; these fixes do not establish that player's configuration.
 
 > Released Indy Hub 1.18.3 also requires Alliance Auth 5; the Python and django-esi
-> requirements above describe the subsequent unreleased code.
+> requirements above describe version 1.19.0.
 
-## django-esi compatibility (unreleased)
+## django-esi compatibility (1.19.0)
 
 Indy Hub now requires `django-esi>=10.2,<11`. Compatibility checks cover
 10.2.0 with the current 2026-11-19 compatibility date. Review the dependency constraints of other installed
@@ -55,7 +54,7 @@ Restart the web and Celery processes after updating so they load the new library
 This dependency update introduces no Indy Hub migration. django-esi 10 replaces
 its OpenAPI HTTP transport with `httpx2`; custom clients must use that transport.
 
-## SDE REST and station names (unreleased)
+## SDE REST and station names (1.19.0)
 
 Install `django-eveonline-sde>=2,<3` with its modeltranslation/Brotli dependencies.
 Back up the database, stop workers/Beat, apply SDE migration 0040, and load/check
@@ -84,7 +83,7 @@ never triggers an ESI fallback. `/universe/names` remains for other entity IDs;
 private player structures retain their scoped endpoint. The removed station
 operation and historical compatibility-date overrides are not required.
 
-## Native ESI client and role status (unreleased)
+## Native ESI client and role status (1.19.0)
 
 The client now uses django-esi's public OpenAPI operations and Token-object
 authentication directly. The existing `django-esi>=10.2,<11` requirement is
@@ -102,7 +101,7 @@ procedure. Preserve shared tokens, response caches, cooldowns and task locks.
 An invalid grant may still be removed by django-esi during real use; a structure
 403 retains its authorization and uses the existing placeholder/cooldown path.
 
-## Pagination and complete snapshots (unreleased)
+## Pagination and complete snapshots (1.19.0)
 
 Multi-page reconciliation now requires coherent `Last-Modified`, valid page
 counts and probe data matching the returned list, including forced refreshes
@@ -121,7 +120,7 @@ complete empty results remove only characters actually fetched. Unchanged and
 unfetched characters remain intact. A failed refresh must not be treated as an
 empty successful response.
 
-## ESI limits and deferred refreshes (unreleased)
+## ESI limits and deferred refreshes (1.19.0)
 
 Rate-limit handling now uses native django-esi buckets for declared operations
 and preserves the existing local guards where equivalent native protection is
@@ -134,7 +133,7 @@ No new migration, dependency update or cache purge is required. Deploy web and
 workers together through the normal restart procedure. Old cooldown keys are
 read until expiry; do not clear native ESI caches or business locks.
 
-## Shared token eligibility (unreleased)
+## Shared token eligibility (1.19.0)
 
 Indy Hub no longer deletes shared ESI tokens for duplicate scopes or insufficient
 corporation roles. django-esi retains responsibility for native token reuse,
@@ -151,7 +150,7 @@ broker publication is logged without inline ESI work; retry through existing
 manual/periodic refreshes after recovery. A passive corporation summary may now
 show unverified access until a fresh, matching role snapshot is available.
 
-## Snapshot pages and administration (unreleased)
+## Snapshot pages and administration (1.19.0)
 
 Blueprint and job lists now render local snapshots immediately and update results
 through background reads. Explicit manual refreshes retain cooldown/in-flight and
@@ -191,19 +190,19 @@ old files behind, follow [PROCESS_RESOLUTION_INSTALL.md](PROCESS_RESOLUTION_INST
 Complete the section matching the version currently installed, then run the
 standard upgrade once.
 
-| Current version   | Instructions                                                    |
-| ----------------- | --------------------------------------------------------------- |
-| `1.18.3`          | [Upgrade from 1.18.3](#upgrading-from-1183-to-the-next-release) |
-| `1.18.2`          | [Upgrade from 1.18.2](#upgrade-from-1182)                       |
-| `1.17.x`          | [Upgrade from 1.17.x](#upgrade-from-117x)                       |
-| `1.16.x`          | [Upgrade from 1.16.x](#upgrade-from-116x)                       |
-| `1.15.x`          | [Upgrade from 1.15.x](#upgrade-from-115x)                       |
-| `1.14.x`          | [Upgrade from 1.14.x](#upgrade-from-114x)                       |
-| `1.13.x`          | [Upgrade from 1.13.x](#upgrade-from-113x)                       |
-| `1.12.x`          | [Upgrade from 1.12.x](#upgrade-from-112x)                       |
-| `1.11.x`          | [Upgrade from 1.11.x](#upgrade-from-111x)                       |
-| `1.10.x`          | [Upgrade from 1.10.x](#upgrade-from-110x)                       |
-| `1.9.x` and older | [Upgrade from 1.9.x or older](#upgrade-from-19x-or-older)       |
+| Current version   | Instructions                                              |
+| ----------------- | --------------------------------------------------------- |
+| `1.18.3`          | [Upgrade from 1.18.3](#upgrading-from-1183-to-1190)       |
+| `1.18.2`          | [Upgrade from 1.18.2](#upgrade-from-1182)                 |
+| `1.17.x`          | [Upgrade from 1.17.x](#upgrade-from-117x)                 |
+| `1.16.x`          | [Upgrade from 1.16.x](#upgrade-from-116x)                 |
+| `1.15.x`          | [Upgrade from 1.15.x](#upgrade-from-115x)                 |
+| `1.14.x`          | [Upgrade from 1.14.x](#upgrade-from-114x)                 |
+| `1.13.x`          | [Upgrade from 1.13.x](#upgrade-from-113x)                 |
+| `1.12.x`          | [Upgrade from 1.12.x](#upgrade-from-112x)                 |
+| `1.11.x`          | [Upgrade from 1.11.x](#upgrade-from-111x)                 |
+| `1.10.x`          | [Upgrade from 1.10.x](#upgrade-from-110x)                 |
+| `1.9.x` and older | [Upgrade from 1.9.x or older](#upgrade-from-19x-or-older) |
 
 ## Upgrade from 1.18.2
 
