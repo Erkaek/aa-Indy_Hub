@@ -166,6 +166,36 @@ class WatchTests(unittest.TestCase):
                     self.assertEqual(result["status"], "failed")
             self.assertEqual((source / "marker").read_text(), "original")
 
+    def test_third_party_sdist_builds_keep_native_isolation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            source.mkdir()
+            spec = {
+                "profile": "base",
+                "runtime": ["source-only-dependency>=1"],
+                "extra": [],
+                "tests": [],
+            }
+            with (
+                patch.object(watch.venv.EnvBuilder, "create"),
+                patch.object(
+                    watch,
+                    "run",
+                    side_effect=[
+                        (True, "project installed"),
+                        (False, "dependency install stopped"),
+                    ],
+                ) as run,
+            ):
+                watch.attempt(source, root / "candidate", spec)
+            project, dependencies = (call.args[0] for call in run.call_args_list)
+            self.assertIn("--no-build-isolation", project)
+            self.assertIn("--no-deps", project)
+            self.assertNotIn("--no-build-isolation", dependencies)
+            self.assertNotIn("-e", dependencies)
+            self.assertIn("source-only-dependency>=1", dependencies)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -211,9 +211,24 @@ def attempt(root, directory, spec, *, constraints=None):
                     "failure_key": failure_key("install", output),
                     "versions": {},
                 }
-    install += ["--no-build-isolation"]
+    # Only our editable build uses the frozen backend. Third-party sdists (for
+    # example celery-once) must prepare their own declared PEP 517 build tools;
+    # fresh Python >=3.12 venvs do not include setuptools.
+    passed, output = run(
+        install + ["--no-build-isolation", "--no-deps", "-e", package],
+        directory / "project-install.log",
+        cwd=root,
+        env=env,
+    )
+    if not passed:
+        return {
+            "status": "failed",
+            "phase": "build",
+            "failure_key": None,
+            "versions": {},
+        }
     phases = [
-        ("install", install + ["-e", package, *spec["tests"]]),
+        ("install", install + [*spec["runtime"], *spec["extra"], *spec["tests"]]),
         ("check", [python, "-m", "pip", "check"]),
         ("tests", [python, "runtests.py", "--verbosity=2"]),
     ]

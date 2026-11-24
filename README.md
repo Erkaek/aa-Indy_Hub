@@ -322,6 +322,10 @@ with CharLink plus
 separate base/Discord-extra profiles on Python 3.12. Frontend lint/regressions run
 against refreshed dependencies allowed by `package.json` on Node 22.
 
+The module's editable build uses its frozen backend; third-party source packages
+retain native pip build isolation so their declared build backends remain available
+on fresh runners. Runtime version pins still apply to the comparison environment.
+
 Successful resolved environments become the next comparison baseline. A failure
 opens or updates one GitHub issue only when the old environment passes on the
 same code and a second candidate run reproduces the failure. Unchanged incidents

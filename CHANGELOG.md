@@ -41,25 +41,46 @@ Entries should stay short and grouped by meaningful outcomes. Each release shoul
 
 ### Fixed
 
+- Maintenance: preserve native build isolation for third-party source packages in dependency checks while keeping Indy Hub's own build backend pinned.
+
 - Industry bonuses: correct actual rig effects and numeric target eligibility for ships, subsystems, equipment, drones/fighters, structures and components; handle Thukker source attributes/security multipliers and prevent double-counting XL rig effects (issue #182).
+
 - Reactions: classify Molecular-Forged Materials as biochemical for rigs, services and tax selection. This supersedes the Hybrid classification recorded in 1.18.3.
+
 - Crafting Projects: recompute descendant integer jobs and materials after parent efficiency, stock or decision changes; align purchases, production cycles and build/buy analysis, and retain zero purchases when stock covers demand. Preserve editable EFT output quantities when saving (issue #182).
+
 - Corporation roles: bypass cached/conditional 304 responses when renewing expired roles, honor forced refreshes, and requeue recent snapshots that belong to a previous owner or corporation. Former owners' retained grants no longer enqueue role refreshes. Passive pages remain network-free (PRs #185–#186).
+
 - Material Exchange: correct the sell-markup example so −5% of a 100 ISK base is 95 ISK (issue #181).
+
 - SDE names: use English ORM type-name lookups with backend-aware batching and keep unresolved IDs eligible for later resolution.
+
 - Public market prices: use the shared ESI provider while preserving decimal values, price-cache semantics and rate/outage protections.
+
 - Legacy simulations: share navigation redirects while retaining saved projects and public references.
+
 - Test compatibility: handle django-esi 10.2 generated stubs and django-solo 2.8 versioned/serialized caches; keep the existing Material Exchange singleton implementation.
+
 - ESI snapshots: reuse the native final page during consistency validation, verify probed content and page metadata even for forced/uncached refreshes, and preserve user asset caches when any character refresh fails. Complete empty inventories now clear only the fetched character scopes.
+
 - ESI limits: preserve native bucket/global guards, round retry delays up, handle incomplete rate-limit headers conservatively, and enforce outage pauses before list reads. Deferred asset refreshes retain cached data and entered quantities; contract and structure refreshes report interrupted work and publish one appropriate retry.
+
 - ESI roles: refresh role eligibility after reauthorization even when Corptools considers the owner inactive, and describe stale role snapshots as unverified. Structure-name candidate discovery no longer renews shared tokens before an authenticated lookup is needed.
+
 - Blueprint lists: restore the missing icon fallback so unavailable EVE images do not raise JavaScript errors during background updates.
+
 - Shared ESI tokens: preserve authorizations when Indy Hub corporation roles are insufficient, leave equivalence/reuse to django-esi, and dispatch ready scope capabilities after commit. Token and CharLink status screens remain passive and no longer refresh OAuth while listing coverage.
+
 - Material Exchange: configuration saves now queue one stock refresh after commit, with prices refreshed by the worker afterward. Rolled-back changes publish no refresh, and broker failures no longer trigger synchronous work during the save.
+
 - Maintenance: restore `cache_esi_data` and `esi_status` command loading, batch pilot-name resolution from local data, and report current ESI cooldowns. Cache cleanup is limited to Indy Hub ETags and market prices; the obsolete circuit-breaker reset option now explains why it is unsupported.
+
 - Material Exchange: include corporation divisions in the shared ESI client's operation filter so hangar names can be retrieved.
+
 - Alliance Auth navigation: the Indy Hub badge is now refreshed once in the background and cached for five minutes, preventing duplicate scope queries from slowing page loads.
+
 - Material Exchange sell paste: large asset catalogs now fetch Fuzzwork prices in bounded batches and keep incomplete-price items separate from items the hub does not buy (issue #164).
+
 - Upgrades: location-name population now queues cleanly during migration instead of logging a `QueueOnce` error and unexpectedly running synchronously (issue #163).
 
 ## [1.18.3] - 2026-08-27
