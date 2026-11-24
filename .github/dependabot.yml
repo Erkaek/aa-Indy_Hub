@@ -1,12 +1,28 @@
 version: 2
 
+# Security fixes only: compatibility updates are tested by dependency-watch.yml.
+# Omitting target-branch intentionally follows the repository default branch.
 updates:
-  # Maintain dependencies for GitHub Actions
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    target-branch: "master"
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "monthly"
-    commit-message:
-      # Prefix all commit messages with "[github-actions] "
-      prefix: "[github-actions] "
+      interval: weekly
+    open-pull-requests-limit: 0
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      python-security:
+        applies-to: security-updates
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ['*']

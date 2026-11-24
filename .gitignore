@@ -74,3 +74,6 @@ AGENTS.md
 !/docs/INDUSTRY_RULES.md
 !/docs/deployment/
 !/docs/screenshots/
+
+# Disposable dependency surveillance environments and reports
+/.dependency-watch/

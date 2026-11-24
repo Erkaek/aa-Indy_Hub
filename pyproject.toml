@@ -86,6 +86,8 @@ include = [
     "/LICENSE",
     "/pyproject.toml",
     "/scripts/*.py",
+    "/scripts/dependency_watch/*.py",
+    "/scripts/dependency_watch/*.cjs",
     "/scripts/*.js",
     "/scripts/*.cjs",
     "/testauth/**/*.py",
